@@ -2,267 +2,190 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
   ScrollView,
   Alert,
+  SafeAreaView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
-import { colors, typography, spacing, radius } from '../constants/theme';
+import { theme } from '../constants/theme';
+import { Input, Button, Checkbox } from '../components';
+import { useForm } from '../hooks/useForm';
+import FormValidator from '../utils/validation';
+
+interface SignInFormData {
+  email: string;
+  password: string;
+  rememberMe: boolean;
+}
 
 export default function SignInScreen() {
-  const { login, isLoading } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const { login } = useAuth();
+  const [submitError, setSubmitError] = useState('');
 
-  const validateForm = (): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    if (!email) {
-      newErrors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      newErrors.email = 'Invalid email format';
-    }
-
-    if (!password) {
-      newErrors.password = 'Password is required';
-    } else if (password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSignIn = async () => {
-    if (!validateForm()) {
-      return;
-    }
-
-    try {
-      await login(email, password);
-      // Navigation will be handled by the auth state in the root layout
-      router.replace('/(tabs)/(admin)/dashboard');
-    } catch (error) {
-      Alert.alert('Sign In Failed', 'Invalid email or password');
-    }
-  };
+  const form = useForm<SignInFormData>({
+    initialValues: {
+      email: '',
+      password: '',
+      rememberMe: false,
+    },
+    validate: (values) =>
+      FormValidator.validateSignIn({
+        email: values.email,
+        password: values.password,
+      }),
+    validateOnChange: false,
+    validateOnBlur: true,
+    onSubmit: async (values) => {
+      setSubmitError('');
+      try {
+        await login(values.email, values.password);
+        router.replace('/(tabs)/(admin)/dashboard');
+      } catch (error) {
+        setSubmitError('Invalid email or password. Please try again.');
+      }
+    },
+  });
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.logo}>I-TRACK</Text>
-        <Text style={styles.subtitle}>Fleet Management System</Text>
-      </View>
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.contentContainer}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.logo}>I-TRACK</Text>
+          <Text style={styles.subtitle}>Fleet Management System</Text>
+        </View>
 
-      {/* Form */}
-      <View style={styles.form}>
-        {/* Email Input */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Email Address</Text>
-          <TextInput
-            style={[styles.input, errors.email && styles.inputError]}
+        {/* Form */}
+        <View style={styles.form}>
+          {/* Error Alert */}
+          {submitError && (
+            <View style={styles.errorAlert}>
+              <Text style={styles.errorAlertText}>{submitError}</Text>
+            </View>
+          )}
+
+          {/* Email Input */}
+          <Input
+            label="Email Address"
             placeholder="your@email.com"
-            placeholderTextColor={colors.gray400}
-            value={email}
-            onChangeText={setEmail}
-            editable={!isLoading}
+            value={form.values.email}
+            onChangeText={(value) => form.setFieldValue('email', value)}
+            onBlur={() => form.setFieldTouched('email')}
+            error={form.touched.email ? form.errors.email : undefined}
             keyboardType="email-address"
-            autoCapitalize="none"
+            editable={!form.isSubmitting}
           />
-          {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
-        </View>
 
-        {/* Password Input */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={[styles.input, errors.password && styles.inputError]}
+          {/* Password Input */}
+          <Input
+            label="Password"
             placeholder="Enter your password"
-            placeholderTextColor={colors.gray400}
-            value={password}
-            onChangeText={setPassword}
-            editable={!isLoading}
+            value={form.values.password}
+            onChangeText={(value) => form.setFieldValue('password', value)}
+            onBlur={() => form.setFieldTouched('password')}
+            error={form.touched.password ? form.errors.password : undefined}
             secureTextEntry
+            editable={!form.isSubmitting}
           />
-          {errors.password && (
-            <Text style={styles.errorText}>{errors.password}</Text>
-          )}
+
+          {/* Remember Me */}
+          <Checkbox
+            value={form.values.rememberMe}
+            onValueChange={(value) => form.setFieldValue('rememberMe', value)}
+            label="Remember me"
+            disabled={form.isSubmitting}
+            style={styles.rememberMe}
+          />
+
+          {/* Sign In Button */}
+          <Button
+            title="Sign In"
+            onPress={form.handleSubmit}
+            loading={form.isSubmitting}
+            disabled={form.isSubmitting}
+            fullWidth
+            size="large"
+            style={styles.signInButton}
+          />
+
+          {/* Forgot Password Link */}
+          <Button
+            title="Forgot Password?"
+            variant="ghost"
+            onPress={() => router.push('/(auth)/forgot-password')}
+            disabled={form.isSubmitting}
+            fullWidth
+          />
         </View>
 
-        {/* Remember Me */}
-        <TouchableOpacity
-          style={styles.rememberMeContainer}
-          onPress={() => setRememberMe(!rememberMe)}
-          disabled={isLoading}
-        >
-          <View
-            style={[
-              styles.checkbox,
-              rememberMe && styles.checkboxChecked,
-            ]}
-          >
-            {rememberMe && <Text style={styles.checkmark}>✓</Text>}
-          </View>
-          <Text style={styles.rememberMeText}>Remember me</Text>
-        </TouchableOpacity>
-
-        {/* Sign In Button */}
-        <TouchableOpacity
-          style={[styles.signInButton, isLoading && styles.buttonDisabled]}
-          onPress={handleSignIn}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator size="small" color={colors.white} />
-          ) : (
-            <Text style={styles.signInButtonText}>Sign In</Text>
-          )}
-        </TouchableOpacity>
-
-        {/* Forgot Password Link */}
-        <TouchableOpacity
-          style={styles.forgotPasswordContainer}
-          onPress={() => router.push('/(auth)/forgot-password')}
-          disabled={isLoading}
-        >
-          <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Footer */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          © 2024 I-TRACK. All rights reserved.
-        </Text>
-      </View>
-    </ScrollView>
+        {/* Footer */}
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>
+            © 2024 I-TRACK. All rights reserved.
+          </Text>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
   },
   contentContainer: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.xl,
+    paddingHorizontal: 16,
+    paddingVertical: 24,
   },
   header: {
-    marginBottom: spacing['2xl'],
+    marginBottom: 24,
     alignItems: 'center',
   },
   logo: {
-    fontSize: typography.fontSize['3xl'],
+    fontSize: 28,
     fontWeight: '700',
-    color: colors.primary,
-    marginBottom: spacing.sm,
+    color: theme.colors.primary,
+    marginBottom: 8,
+    fontFamily: theme.fonts.family.sans,
   },
   subtitle: {
-    fontSize: typography.fontSize.sm,
-    color: colors.gray500,
+    fontSize: 14,
+    color: theme.colors.gray500,
+    fontFamily: theme.fonts.family.sans,
   },
   form: {
-    marginBottom: spacing['2xl'],
+    marginBottom: 24,
   },
-  fieldGroup: {
-    marginBottom: spacing.lg,
+  errorAlert: {
+    backgroundColor: '#fee2e2',
+    borderRadius: theme.radius.md,
+    padding: 12,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.danger,
   },
-  label: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: '600',
-    color: colors.gray900,
-    marginBottom: spacing.sm,
+  errorAlertText: {
+    fontSize: 13,
+    color: '#991b1b',
+    fontFamily: theme.fonts.family.sans,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.gray300,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    fontSize: typography.fontSize.base,
-    color: colors.gray900,
-    backgroundColor: colors.gray50,
-  },
-  inputError: {
-    borderColor: colors.error,
-    backgroundColor: colors.errorLight,
-  },
-  errorText: {
-    fontSize: typography.fontSize.xs,
-    color: colors.error,
-    marginTop: spacing.xs,
-  },
-  rememberMeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderWidth: 1.5,
-    borderColor: colors.gray400,
-    borderRadius: radius.sm,
-    marginRight: spacing.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxChecked: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
-  },
-  checkmark: {
-    color: colors.white,
-    fontSize: typography.fontSize.sm,
-    fontWeight: '700',
-  },
-  rememberMeText: {
-    fontSize: typography.fontSize.sm,
-    color: colors.gray700,
+  rememberMe: {
+    marginBottom: 16,
   },
   signInButton: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.lg,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  signInButtonText: {
-    fontSize: typography.fontSize.base,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  forgotPasswordContainer: {
-    alignItems: 'center',
-  },
-  forgotPasswordText: {
-    fontSize: typography.fontSize.sm,
-    color: colors.primary,
-    fontWeight: '600',
+    marginBottom: 12,
   },
   footer: {
-    marginTop: spacing['2xl'],
+    marginTop: 24,
     alignItems: 'center',
   },
   footerText: {
-    fontSize: typography.fontSize.xs,
-    color: colors.gray500,
+    fontSize: 12,
+    color: theme.colors.gray500,
+    fontFamily: theme.fonts.family.sans,
   },
 });

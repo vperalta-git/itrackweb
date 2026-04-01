@@ -1,64 +1,87 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   SafeAreaView,
-  TouchableOpacity,
   ScrollView,
 } from 'react-native';
-import { colors, typography, spacing, radius } from '../../constants/theme';
+import { theme } from '../../constants/theme';
+import { Button } from '../../components';
+import { MapViewComponent } from '../../components/MapView';
+import { TripDetailsOverlay } from '../../components/TripDetailsOverlay';
+import LocationTracker from '../../utils/locationTracker';
+
+const mockActiveTrip = {
+  driverId: 'driver-1',
+  driverName: 'John Doe',
+  vehicleId: 'v-001',
+  vehicleNumber: 'MH 02 AB 1234',
+  destination: 'Downtown Location',
+  distance: 12.5,
+  eta: 15,
+  status: 'active' as const,
+  startTime: '2:00 PM',
+  currentSpeed: 45,
+  route: 'Central Stockyard → Downtown Location',
+  notes: 'High priority delivery. Handle with care.',
+};
 
 export default function DriverDashboard() {
+  const [selectedTrip] = useState(mockActiveTrip);
+
+  // Get driver location and markers
+  const driverMarker = LocationTracker.createDriverMarker(
+    'driver-1',
+    'You',
+    'active'
+  );
+
+  const destMarker = LocationTracker.createDestinationMarker(
+    'dest-2',
+    'Downtown Location'
+  );
+
+  const markers = [driverMarker, destMarker].filter(m => m !== null);
+  const routes = [LocationTracker.getDriverRoute('driver-1')];
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Map Placeholder */}
-        <View style={styles.mapContainer}>
-          <Text style={styles.mapPlaceholder}>🗺️</Text>
-          <Text style={styles.mapText}>Live Tracking Map</Text>
-          <Text style={styles.mapSubtext}>
-            Your real-time location will appear here
-          </Text>
-        </View>
+        {/* Live Map */}
+        {driverMarker && destMarker && (
+          <MapViewComponent
+            markers={markers}
+            routes={routes}
+            initialRegion={{
+              latitude: driverMarker.location.latitude,
+              longitude: driverMarker.location.longitude,
+              latitudeDelta: 0.05,
+              longitudeDelta: 0.05,
+            }}
+            style={styles.mapContainer}
+          />
+        )}
 
-        {/* Trip Info */}
-        <View style={styles.tripInfo}>
-          <View style={styles.tripHeader}>
-            <Text style={styles.tripTitle}>Current Trip</Text>
-            <View style={styles.statusBadge}>
-              <Text style={styles.statusText}>On Trip</Text>
-            </View>
-          </View>
-
-          <View style={styles.tripDetails}>
-            <View style={styles.detailItem}>
-              <Text style={styles.detailLabel}>From</Text>
-              <Text style={styles.detailValue}>Central Stockyard</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Text style={styles.detailLabel}>To</Text>
-              <Text style={styles.detailValue}>Downtown Location</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Text style={styles.detailLabel}>ETA</Text>
-              <Text style={styles.detailValue}>15 minutes</Text>
-            </View>
-            <View style={styles.detailItem}>
-              <Text style={styles.detailLabel}>Vehicle</Text>
-              <Text style={styles.detailValue}>Tesla Model S</Text>
-            </View>
-          </View>
-        </View>
+        {/* Trip Details */}
+        <TripDetailsOverlay trip={selectedTrip} style={styles.tripOverlay} />
 
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
-          <TouchableOpacity style={[styles.button, styles.startButton]}>
-            <Text style={styles.buttonText}>▶ Start Trip</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.button, styles.endButton]}>
-            <Text style={styles.buttonText}>■ End Trip</Text>
-          </TouchableOpacity>
+          <Button
+            title="Start Trip"
+            variant="primary"
+            onPress={() => console.log('Start trip')}
+            fullWidth
+            size="large"
+          />
+          <Button
+            title="End Trip"
+            variant="danger"
+            onPress={() => console.log('End trip')}
+            fullWidth
+            size="large"
+          />
         </View>
 
         {/* Route Info */}
@@ -85,134 +108,22 @@ export default function DriverDashboard() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
   },
   scrollContent: {
-    paddingHorizontal: spacing.base,
-    paddingTop: spacing.base,
-    paddingBottom: spacing['2xl'],
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
   },
   mapContainer: {
-    backgroundColor: colors.gray100,
-    borderRadius: radius.lg,
-    padding: spacing['2xl'],
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 250,
-    marginBottom: spacing.lg,
+    marginBottom: 16,
+    height: 350,
   },
-  mapPlaceholder: {
-    fontSize: 48,
-    marginBottom: spacing.lg,
-  },
-  mapText: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: '700',
-    color: colors.gray900,
-    marginBottom: spacing.xs,
-  },
-  mapSubtext: {
-    fontSize: typography.fontSize.sm,
-    color: colors.gray600,
-    textAlign: 'center',
-  },
-  tripInfo: {
-    backgroundColor: colors.gray50,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.lg,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.primary,
-  },
-  tripHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  tripTitle: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: '700',
-    color: colors.gray900,
-  },
-  statusBadge: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
-  },
-  statusText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  tripDetails: {
-    gap: spacing.lg,
-  },
-  detailItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingBottom: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray200,
-  },
-  detailLabel: {
-    fontSize: typography.fontSize.sm,
-    color: colors.gray600,
-  },
-  detailValue: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: '600',
-    color: colors.gray900,
+  tripOverlay: {
+    marginBottom: 16,
   },
   actionButtons: {
-    flexDirection: 'row',
-    gap: spacing.lg,
-    marginBottom: spacing.lg,
-  },
-  button: {
-    flex: 1,
-    paddingVertical: spacing.lg,
-    borderRadius: radius.lg,
-    alignItems: 'center',
-  },
-  startButton: {
-    backgroundColor: colors.success,
-  },
-  endButton: {
-    backgroundColor: colors.error,
-  },
-  buttonText: {
-    fontSize: typography.fontSize.base,
-    fontWeight: '700',
-    color: colors.white,
-  },
-  routeInfo: {
-    backgroundColor: colors.gray50,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-  },
-  routeTitle: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: '700',
-    color: colors.gray900,
-    marginBottom: spacing.lg,
-  },
-  routePoint: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: spacing.lg,
-  },
-  routeIcon: {
-    fontSize: 20,
-    marginRight: spacing.lg,
-    marginTop: spacing.xs,
-  },
-  routeText: {
-    flex: 1,
-    fontSize: typography.fontSize.sm,
-    color: colors.gray700,
-    lineHeight: 20,
+    gap: 12,
+    marginBottom: 20,
   },
 });

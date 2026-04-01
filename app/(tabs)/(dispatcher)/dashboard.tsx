@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,9 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { router } from 'expo-router';
-import { colors, typography, spacing, radius } from '../../constants/theme';
+import { theme } from '../../constants/theme';
+import { MapViewComponent } from '../../components/MapView';
+import LocationTracker from '../../utils/locationTracker';
 
 export default function DispatcherDashboard() {
   const stats = [
@@ -17,14 +19,42 @@ export default function DispatcherDashboard() {
     { label: 'Completed', value: '12', icon: '✓' },
   ];
 
+  // Get drivers for display
+  const drivers = LocationTracker.getDriversForDisplay(
+    ['driver-1', 'driver-2', 'driver-3'],
+    {
+      'driver-1': 'John Doe',
+      'driver-2': 'Jane Smith',
+      'driver-3': 'Mike Johnson',
+    },
+    {
+      'driver-1': 'active',
+      'driver-2': 'active',
+      'driver-3': 'inactive',
+    }
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.greeting}>Dispatcher Dashboard</Text>
-          <Text style={styles.subtitle}>Today&apos;s Tasks</Text>
+          <Text style={styles.subtitle}>Live Driver Tracking</Text>
         </View>
+
+        {/* Live Tracking Map */}
+        <MapViewComponent
+          markers={drivers}
+          initialRegion={{
+            latitude: 40.7128,
+            longitude: -74.006,
+            latitudeDelta: 0.1,
+            longitudeDelta: 0.1,
+          }}
+          style={styles.mapContainer}
+          showScale
+        />
 
         {/* Stats */}
         <View style={styles.statsContainer}>
@@ -86,120 +116,133 @@ export default function DispatcherDashboard() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
   },
   scrollContent: {
-    paddingHorizontal: spacing.base,
-    paddingTop: spacing.base,
-    paddingBottom: spacing['2xl'],
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
   },
   header: {
-    marginBottom: spacing['2xl'],
+    marginBottom: 20,
   },
   greeting: {
-    fontSize: typography.fontSize['2xl'],
+    fontSize: 24,
     fontWeight: '700',
-    color: colors.gray900,
-    marginBottom: spacing.xs,
+    color: theme.colors.gray900,
+    marginBottom: 4,
+    fontFamily: theme.fonts.family.sans,
   },
   subtitle: {
-    fontSize: typography.fontSize.sm,
-    color: colors.gray600,
+    fontSize: 14,
+    color: theme.colors.gray600,
+    fontFamily: theme.fonts.family.sans,
+  },
+  mapContainer: {
+    marginBottom: 20,
+    height: 300,
   },
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: spacing['2xl'],
+    marginBottom: 20,
   },
   statCard: {
     flex: 1,
-    backgroundColor: colors.gray50,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.md,
+    backgroundColor: theme.colors.gray50,
+    borderRadius: theme.radius.lg,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     alignItems: 'center',
-    marginHorizontal: spacing.sm,
+    marginHorizontal: 4,
   },
   statIcon: {
     fontSize: 28,
-    marginBottom: spacing.sm,
+    marginBottom: 8,
   },
   statValue: {
-    fontSize: typography.fontSize.xl,
+    fontSize: 18,
     fontWeight: '700',
-    color: colors.gray900,
-    marginBottom: spacing.xs,
+    color: theme.colors.gray900,
+    marginBottom: 4,
+    fontFamily: theme.fonts.family.sans,
   },
   statLabel: {
-    fontSize: typography.fontSize.xs,
-    color: colors.gray600,
+    fontSize: 12,
+    color: theme.colors.gray600,
+    fontFamily: theme.fonts.family.sans,
   },
   section: {
-    marginBottom: spacing['2xl'],
+    marginBottom: 20,
   },
   sectionTitle: {
-    fontSize: typography.fontSize.lg,
+    fontSize: 16,
     fontWeight: '700',
-    color: colors.gray900,
-    marginBottom: spacing.lg,
+    color: theme.colors.gray900,
+    marginBottom: 12,
+    fontFamily: theme.fonts.family.sans,
   },
   actionCard: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.radius.lg,
+    padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: spacing.lg,
+    marginBottom: 12,
   },
   actionIcon: {
     fontSize: 24,
-    marginRight: spacing.lg,
+    marginRight: 12,
   },
   actionContent: {
     flex: 1,
   },
   actionTitle: {
-    fontSize: typography.fontSize.base,
+    fontSize: 14,
     fontWeight: '600',
-    color: colors.white,
-    marginBottom: spacing.xs,
+    color: theme.colors.white,
+    marginBottom: 4,
+    fontFamily: theme.fonts.family.sans,
   },
   actionSubtitle: {
-    fontSize: typography.fontSize.sm,
-    color: colors.gray100,
+    fontSize: 12,
+    color: theme.colors.gray100,
+    fontFamily: theme.fonts.family.sans,
   },
   arrowIcon: {
-    fontSize: typography.fontSize.lg,
-    color: colors.white,
+    fontSize: 16,
+    color: theme.colors.white,
     fontWeight: '700',
   },
   taskCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    backgroundColor: colors.gray50,
-    borderRadius: radius.lg,
-    marginBottom: spacing.lg,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: theme.colors.gray50,
+    borderRadius: theme.radius.lg,
+    marginBottom: 12,
   },
   taskDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: colors.primary,
-    marginRight: spacing.lg,
+    backgroundColor: theme.colors.primary,
+    marginRight: 12,
   },
   taskContent: {
     flex: 1,
   },
   taskTitle: {
-    fontSize: typography.fontSize.sm,
+    fontSize: 13,
     fontWeight: '600',
-    color: colors.gray900,
+    color: theme.colors.gray900,
+    fontFamily: theme.fonts.family.sans,
   },
   taskTime: {
-    fontSize: typography.fontSize.xs,
-    color: colors.gray600,
-    marginTop: spacing.xs,
+    fontSize: 12,
+    color: theme.colors.gray600,
+    marginTop: 4,
+    fontFamily: theme.fonts.family.sans,
   },
 });
