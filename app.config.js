@@ -40,7 +40,7 @@ module.exports = {
       ...((baseConfig.extra ?? {}).eas ?? {}),
       ...(easProjectId
         ? {
-            projectId: "d2a50d1c-d8aa-42aa-8203-7d7b7ad97c66",
+            projectId: easProjectId,
           }
         : {}),
     },
