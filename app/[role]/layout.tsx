@@ -3,7 +3,8 @@ import { redirect } from 'next/navigation'
 import { AppNavbar } from '@/components/app-navbar'
 import { AppSidebar } from '@/components/app-sidebar'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
-import { buildRolePath, getCurrentUserRole, isValidRole } from '@/lib/rbac'
+import { buildRolePath, isValidRole } from '@/lib/rbac'
+import { getServerRouteRole, hasServerSession } from '@/lib/server-session'
 
 export default async function RoleLayout({
   children,
@@ -13,7 +14,14 @@ export default async function RoleLayout({
   params: Promise<{ role: string }>
 }) {
   const { role } = await params
-  const currentUserRole = getCurrentUserRole()
+  const [currentUserRole, sessionExists] = await Promise.all([
+    getServerRouteRole(),
+    hasServerSession(),
+  ])
+
+  if (!sessionExists || !currentUserRole) {
+    redirect('/login')
+  }
 
   if (!isValidRole(role)) {
     redirect(buildRolePath(currentUserRole, 'dashboard'))

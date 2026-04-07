@@ -1,3 +1,5 @@
+import { ROUTE_ROLE_COOKIE_NAME } from '@/lib/auth-constants'
+
 export const roles = ['admin', 'supervisor', 'manager', 'sales-agent'] as const
 
 export type Role = (typeof roles)[number]
@@ -9,7 +11,16 @@ export function isValidRole(value: string): value is Role {
 }
 
 export function getCurrentUserRole(): Role {
-  return DEFAULT_ROLE
+  if (typeof document === 'undefined') return DEFAULT_ROLE
+
+  const cookie = document.cookie
+    .split('; ')
+    .find((entry) => entry.startsWith(`${ROUTE_ROLE_COOKIE_NAME}=`))
+
+  if (!cookie) return DEFAULT_ROLE
+
+  const role = decodeURIComponent(cookie.split('=').slice(1).join('='))
+  return isValidRole(role) ? role : DEFAULT_ROLE
 }
 
 export function buildRolePath(role: Role, path = '') {

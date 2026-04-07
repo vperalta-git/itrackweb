@@ -43,8 +43,8 @@ import {
 } from '@/components/ui/table'
 import {
   INVENTORY_UPDATED_EVENT,
-  inventorySeed,
   loadInventoryVehicles,
+  syncInventoryVehiclesFromBackend,
   type InventoryVehicle,
 } from '@/lib/inventory-data'
 import { getRoleFromPathname } from '@/lib/rbac'
@@ -111,6 +111,13 @@ export default function DashboardPage() {
     }
 
     syncInventory()
+    void syncInventoryVehiclesFromBackend()
+      .then((nextVehicles) => {
+        setVehicles(nextVehicles)
+      })
+      .catch(() => {
+        return null
+      })
     window.addEventListener(INVENTORY_UPDATED_EVENT, syncInventory)
 
     return () => {
@@ -236,17 +243,6 @@ export default function DashboardPage() {
   const displayedTopSellingUnits =
     unitLimit === 'all' ? topSellingUnits : topSellingUnits.slice(0, Number(unitLimit))
 
-  const trendFromSeed = (current: number, previous: number) => ({
-    value: Math.abs(current - previous),
-    isPositive: current >= previous,
-  })
-
-  const seedPreviousVehicles = inventorySeed.filter(
-    (vehicle) =>
-      matchesScopedAgent(role, vehicle.assignedAgent) &&
-      matchesScopedManager(role, vehicle.manager)
-  )
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -266,37 +262,24 @@ export default function DashboardPage() {
           value={totalVehicles}
           description="In inventory"
           icon={Car}
-          trend={trendFromSeed(totalVehicles, seedPreviousVehicles.length)}
         />
         <MetricCard
           title="Available"
           value={availableVehicles}
           description="Ready for sale"
           icon={Package}
-          trend={trendFromSeed(
-            availableVehicles,
-            seedPreviousVehicles.filter((vehicle) => vehicle.status === 'available').length
-          )}
         />
         <MetricCard
           title="Ongoing Shipment"
           value={ongoingShipment}
           description="Units in transit"
           icon={TrendingUp}
-          trend={trendFromSeed(
-            ongoingShipment,
-            seedPreviousVehicles.filter((vehicle) => vehicle.status === 'in-transit').length
-          )}
         />
         <MetricCard
           title="Ongoing Vehicle Preparation"
           value={ongoingPreparation}
           description="Units in dispatch"
           icon={ClipboardCheck}
-          trend={trendFromSeed(
-            ongoingPreparation,
-            seedPreviousVehicles.filter((vehicle) => vehicle.status === 'in-dispatch').length
-          )}
         />
       </div>
 

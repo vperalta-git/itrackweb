@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { Bell, ChevronDown, LogOut, Moon, Sun, Trash2, User } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { cn } from '@/lib/utils'
 import { ConfirmActionDialog } from '@/components/confirm-action-dialog'
@@ -38,7 +39,21 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { getAuditActor, logAuditEvent } from '@/lib/audit-log'
-import { buildRolePath, getRoleFromPathname, stripRoleFromPathname, type Role } from '@/lib/rbac'
+import {
+  clearNotifications,
+  deleteNotificationRecord,
+  fetchNotifications,
+  markAllNotificationsRead,
+  type AppNotification,
+} from '@/lib/notifications-data'
+import {
+  getBrowserNotificationPermission,
+  loadWebNotificationPreferences,
+  subscribeWebNotificationPreferences,
+  subscribeWebNotificationRefresh,
+} from '@/lib/notification-preferences'
+import { buildRolePath, getRoleFromPathname, stripRoleFromPathname } from '@/lib/rbac'
+import { clearSession, getRoleLabel, getSessionUser } from '@/lib/session'
 
 // Route title mappings
 const routeTitles: Record<string, string> = {
@@ -60,56 +75,38 @@ const routeTitles: Record<string, string> = {
   new: 'New Request',
 }
 
-// Mock notifications
-const initialNotifications = [
-  {
-    id: 1,
-    title: 'New vehicle added',
-    message: 'Isuzu mu-X LS-E 4x2 AT has been added to inventory',
-    time: '5 min ago',
-    read: false,
-  },
-  {
-    id: 2,
-    title: 'Preparation complete',
-    message: 'Vehicle #IP-2024-001 is ready for delivery',
-    time: '1 hour ago',
-    read: false,
-  },
-  {
-    id: 3,
-    title: 'Driver assigned',
-    message: 'Driver Roberto Cruz assigned to delivery route',
-    time: '2 hours ago',
-    read: true,
-  },
-]
+const NOTIFICATION_POLL_INTERVAL_MS = 15000
 
-const mockUsersByRole: Record<Role, { name: string; email: string; role: string; avatar: string }> = {
-  admin: {
-    name: 'Maria Santos',
-    email: 'admin@isuzupasig.com',
-    role: 'Administrator',
-    avatar: '',
-  },
-  supervisor: {
-    name: 'Ramon Flores',
-    email: 'supervisor@isuzupasig.com',
-    role: 'Supervisor',
-    avatar: '',
-  },
-  manager: {
-    name: 'Carlos Garcia',
-    email: 'manager@isuzupasig.com',
-    role: 'Manager',
-    avatar: '',
-  },
-  'sales-agent': {
-    name: 'Juan Dela Cruz',
-    email: 'agent@isuzupasig.com',
-    role: 'Sales Agent',
-    avatar: '',
-  },
+const playNotificationChime = async () => {
+  if (typeof window === 'undefined' || typeof window.AudioContext === 'undefined') {
+    return
+  }
+
+  const audioContext = new window.AudioContext()
+
+  try {
+    const oscillator = audioContext.createOscillator()
+    const gainNode = audioContext.createGain()
+
+    oscillator.type = 'sine'
+    oscillator.frequency.setValueAtTime(880, audioContext.currentTime)
+    oscillator.frequency.exponentialRampToValueAtTime(660, audioContext.currentTime + 0.18)
+
+    gainNode.gain.setValueAtTime(0.0001, audioContext.currentTime)
+    gainNode.gain.exponentialRampToValueAtTime(0.045, audioContext.currentTime + 0.02)
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.22)
+
+    oscillator.connect(gainNode)
+    gainNode.connect(audioContext.destination)
+    oscillator.start()
+    oscillator.stop(audioContext.currentTime + 0.24)
+
+    await new Promise((resolve) => window.setTimeout(resolve, 260))
+  } catch {
+    return
+  } finally {
+    void audioContext.close().catch(() => undefined)
+  }
 }
 
 function generateBreadcrumbs(pathname: string) {
@@ -136,35 +133,196 @@ export function AppNavbar() {
   const pathname = usePathname()
   const breadcrumbs = generateBreadcrumbs(pathname)
   const role = getRoleFromPathname(pathname)
-  const mockUser = mockUsersByRole[role]
-  const [notifications, setNotifications] = React.useState(initialNotifications)
+  const [currentUser, setCurrentUser] = React.useState(() => getSessionUser())
+  const [notifications, setNotifications] = React.useState<AppNotification[]>([])
   const [isNotificationsOpen, setIsNotificationsOpen] = React.useState(false)
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = React.useState(false)
-  const [notificationToDelete, setNotificationToDelete] = React.useState<
-    (typeof initialNotifications)[number] | null
-  >(null)
+  const [notificationToDelete, setNotificationToDelete] =
+    React.useState<AppNotification | null>(null)
+  const [notificationPreferences, setNotificationPreferences] = React.useState(
+    loadWebNotificationPreferences
+  )
   const { resolvedTheme, setTheme } = useTheme()
+  const hasLoadedNotificationsRef = React.useRef(false)
+  const knownNotificationIdsRef = React.useRef<Set<string>>(new Set())
   const unreadCount = notifications.filter((n) => !n.read).length
 
-  const deleteNotification = (id: number) => {
-    setNotifications((current) => current.filter((notification) => notification.id !== id))
-  }
+  React.useEffect(() => {
+    setCurrentUser(getSessionUser())
+  }, [pathname])
 
-  const clearAllNotifications = () => {
-    setNotifications([])
-  }
+  React.useEffect(() => {
+    return subscribeWebNotificationPreferences(setNotificationPreferences)
+  }, [])
 
-  const handleConfirmDeleteNotification = () => {
+  React.useEffect(() => {
+    knownNotificationIdsRef.current = new Set()
+    hasLoadedNotificationsRef.current = false
+  }, [currentUser?.id])
+
+  const replaceNotifications = React.useCallback(
+    (
+      nextNotifications: AppNotification[],
+      options?: {
+        announce?: boolean
+      }
+    ) => {
+      const announce = options?.announce ?? false
+      const newNotifications = announce
+        ? nextNotifications.filter((notification) => !knownNotificationIdsRef.current.has(notification.id))
+        : []
+
+      if (
+        announce &&
+        hasLoadedNotificationsRef.current &&
+        notificationPreferences.liveUpdates &&
+        newNotifications.length
+      ) {
+        const newestNotificationsFirst = [...newNotifications].sort(
+          (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+        )
+
+        newestNotificationsFirst.forEach((notification) => {
+          toast.info(notification.title, {
+            description: notification.message,
+            duration: 6000,
+          })
+
+          if (
+            notificationPreferences.browserAlerts &&
+            typeof document !== 'undefined' &&
+            document.hidden &&
+            getBrowserNotificationPermission() === 'granted'
+          ) {
+            const browserNotification = new Notification(notification.title, {
+              body: notification.message,
+              tag: notification.id,
+            })
+
+            browserNotification.onclick = () => {
+              window.focus()
+              browserNotification.close()
+              setIsNotificationsOpen(true)
+            }
+          }
+        })
+
+        if (notificationPreferences.soundAlerts) {
+          void playNotificationChime()
+        }
+      }
+
+      knownNotificationIdsRef.current = new Set(
+        nextNotifications.map((notification) => notification.id)
+      )
+      hasLoadedNotificationsRef.current = true
+      setNotifications(nextNotifications)
+    },
+    [
+      notificationPreferences.browserAlerts,
+      notificationPreferences.liveUpdates,
+      notificationPreferences.soundAlerts,
+    ]
+  )
+
+  React.useEffect(() => {
+    let isMounted = true
+
+    const loadNotifications = async () => {
+      if (!currentUser?.id) {
+        if (isMounted) {
+          replaceNotifications([])
+        }
+        return
+      }
+
+      try {
+        const nextNotifications = await fetchNotifications(currentUser.id)
+        if (isMounted) {
+          replaceNotifications(nextNotifications, { announce: true })
+        }
+      } catch {
+        return
+      }
+    }
+
+    const handleRefreshRequest = () => {
+      void loadNotifications()
+    }
+
+    const handleWindowFocus = () => {
+      void loadNotifications()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void loadNotifications()
+      }
+    }
+
+    void loadNotifications()
+    const intervalId = window.setInterval(() => {
+      void loadNotifications()
+    }, NOTIFICATION_POLL_INTERVAL_MS)
+    const unsubscribeRefresh = subscribeWebNotificationRefresh(handleRefreshRequest)
+    window.addEventListener('focus', handleWindowFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      isMounted = false
+      window.clearInterval(intervalId)
+      unsubscribeRefresh()
+      window.removeEventListener('focus', handleWindowFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [currentUser?.id, replaceNotifications])
+
+  const handleConfirmDeleteNotification = async () => {
     if (!notificationToDelete) return
+    if (!currentUser?.id) return
 
-    deleteNotification(notificationToDelete.id)
-    logAuditEvent({
-      user: getAuditActor(role),
-      action: 'DELETE',
-      module: 'Notifications',
-      description: `Deleted notification "${notificationToDelete.title}".`,
-    })
-    setNotificationToDelete(null)
+    try {
+      await deleteNotificationRecord(notificationToDelete.id, currentUser.id)
+      const nextNotifications = notifications.filter(
+        (notification) => notification.id !== notificationToDelete.id
+      )
+      replaceNotifications(nextNotifications)
+      logAuditEvent({
+        user: getAuditActor(role),
+        action: 'DELETE',
+        module: 'Notifications',
+        description: `Deleted notification "${notificationToDelete.title}".`,
+      })
+      setNotificationToDelete(null)
+      toast.success('Notification deleted.')
+    } catch {
+      toast.error('Unable to delete that notification right now.')
+    }
+  }
+
+  const handleClearAllNotifications = async () => {
+    if (!currentUser?.id) return
+
+    try {
+      await clearNotifications(currentUser.id)
+      replaceNotifications([])
+      toast.success('Notifications cleared.')
+    } catch {
+      toast.error('Unable to clear notifications right now.')
+    }
+  }
+
+  const handleOpenNotifications = async () => {
+    setIsNotificationsOpen(true)
+
+    if (!currentUser?.id || unreadCount === 0) return
+
+    try {
+      const nextNotifications = await markAllNotificationsRead(currentUser.id)
+      replaceNotifications(nextNotifications)
+    } catch {
+      return
+    }
   }
 
   const handleSignOut = () => {
@@ -174,10 +332,18 @@ export function AppNavbar() {
       module: 'Authentication',
       description: `${getAuditActor(role)} signed out.`,
     })
-    window.localStorage.removeItem('theme')
+    clearSession()
     router.push('/login')
     router.refresh()
   }
+
+  const userName =
+    currentUser && `${currentUser.firstName} ${currentUser.lastName}`.trim()
+      ? `${currentUser.firstName} ${currentUser.lastName}`.trim()
+      : getAuditActor(role)
+  const userEmail = currentUser?.email ?? ''
+  const userRoleLabel = currentUser ? getRoleLabel(currentUser.role) : getAuditActor(role)
+  const userAvatar = currentUser?.avatarUrl ?? ''
 
   return (
     <header className="sticky top-0 z-30 flex h-16 w-full items-center gap-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 lg:px-6">
@@ -265,7 +431,7 @@ export function AppNavbar() {
                     onClick={(event) => {
                       event.preventDefault()
                       event.stopPropagation()
-                      clearAllNotifications()
+                      void handleClearAllNotifications()
                     }}
                   >
                     Clear all
@@ -325,7 +491,7 @@ export function AppNavbar() {
               className="justify-center text-primary cursor-pointer"
               onSelect={(event) => {
                 event.preventDefault()
-                setIsNotificationsOpen(true)
+                void handleOpenNotifications()
               }}
             >
               View all notifications
@@ -337,25 +503,25 @@ export function AppNavbar() {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="h-10 gap-3 rounded-full px-2 sm:px-3">
               <Avatar className="size-8 border border-border">
-                <AvatarImage src={mockUser.avatar} alt={mockUser.name} />
+                <AvatarImage src={userAvatar} alt={userName} />
                 <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
-                  {mockUser.name
+                  {userName
                     .split(' ')
                     .map((name) => name[0])
                     .join('')}
                 </AvatarFallback>
               </Avatar>
               <div className="hidden min-w-0 text-left sm:block">
-                <p className="truncate text-sm font-medium">{mockUser.name}</p>
-                <p className="text-xs text-muted-foreground">{mockUser.role}</p>
+                <p className="truncate text-sm font-medium">{userName}</p>
+                <p className="text-xs text-muted-foreground">{userRoleLabel}</p>
               </div>
               <ChevronDown className="hidden size-4 text-muted-foreground sm:block" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <div className="px-2 py-1.5">
-              <p className="text-sm font-medium">{mockUser.name}</p>
-              <p className="text-xs text-muted-foreground">{mockUser.email}</p>
+              <p className="text-sm font-medium">{userName}</p>
+              <p className="text-xs text-muted-foreground">{userEmail}</p>
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
@@ -386,11 +552,18 @@ export function AppNavbar() {
                   Latest inventory, preparation, and allocation updates.
                 </DialogDescription>
               </div>
-              {notifications.length > 0 && (
-                <Button type="button" variant="outline" size="sm" onClick={clearAllNotifications}>
-                  Clear all
-                </Button>
-              )}
+              <div className="flex items-center gap-2">
+                {notifications.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleClearAllNotifications()}
+                  >
+                    Clear all
+                  </Button>
+                )}
+              </div>
             </div>
           </DialogHeader>
           <div className="space-y-3">

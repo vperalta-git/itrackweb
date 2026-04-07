@@ -5,11 +5,12 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   ArrowLeft,
+  Filter,
   MapPin,
   Navigation,
-  Truck,
+  ExternalLink,
   RefreshCw,
-  Filter,
+  Truck,
 } from 'lucide-react'
 
 import { PageHeader } from '@/components/page-header'
@@ -32,49 +33,58 @@ import { matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
 import {
   DRIVER_ALLOCATIONS_UPDATED_EVENT,
   DriverAllocationRecord,
+  getDriverAllocationEtaLabel,
+  getDriverAllocationLiveCoordinates,
+  getDriverAllocationProgress,
+  getDriverAllocationRemainingDistanceLabel,
   loadDriverAllocations,
+  syncDriverAllocationsFromBackend,
 } from '@/lib/driver-allocation-data'
 
-function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord) {
+type TrackingDriver = {
+  id: string
+  name: string
+  phone: string
+  vehicle: string
+  stockNumber: string
+  salesAgent: string
+  manager: string
+  status: DriverAllocationRecord['status']
+  origin: string
+  destination: string
+  progress: number
+  eta: string
+  distanceLeft: string
+  coordinates: { lat: number; lng: number }
+  originCoordinates: { lat: number; lng: number } | null
+  destinationCoordinates: { lat: number; lng: number } | null
+}
+
+const FALLBACK_ORIGIN = { x: 25, y: 60 }
+const FALLBACK_DRIVER = { x: 45, y: 48 }
+const FALLBACK_DESTINATION = { x: 75, y: 30 }
+const DEFAULT_MAP_BOUNDS = {
+  minLatitude: 14.49,
+  maxLatitude: 14.66,
+  minLongitude: 120.95,
+  maxLongitude: 121.15,
+}
+
+function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord): TrackingDriver {
   const vehicleLabel = `${allocation.unitName} ${allocation.variation}`.trim()
-
-  if (allocation.status === 'pending') {
-    return {
-      id: allocation.id,
-      name: allocation.assignedDriver,
-      phone: allocation.driverPhone,
-      vehicle: vehicleLabel,
-      stockNumber: allocation.conductionNumber,
-      salesAgent: allocation.salesAgent,
-      manager: allocation.manager,
-      status: allocation.status,
-      origin: allocation.pickupLocation,
-      destination: allocation.destination,
-      progress: 0,
-      eta: 'Awaiting driver acceptance',
-      distanceLeft: 'Not started',
-      coordinates: { lat: 14.575, lng: 121.085 },
-    }
-  }
-
-  if (allocation.status === 'available') {
-    return {
-      id: allocation.id,
-      name: allocation.assignedDriver,
-      phone: allocation.driverPhone,
-      vehicle: vehicleLabel,
-      stockNumber: allocation.conductionNumber,
-      salesAgent: allocation.salesAgent,
-      manager: allocation.manager,
-      status: allocation.status,
-      origin: allocation.pickupLocation,
-      destination: allocation.destination,
-      progress: 100,
-      eta: 'On site',
-      distanceLeft: 'At Isuzu Pasig',
-      coordinates: { lat: 14.575, lng: 121.085 },
-    }
-  }
+  const liveCoordinates = getDriverAllocationLiveCoordinates(allocation)
+  const originCoordinates = allocation.pickupLocationDetails
+    ? {
+        lat: allocation.pickupLocationDetails.latitude,
+        lng: allocation.pickupLocationDetails.longitude,
+      }
+    : null
+  const destinationCoordinates = allocation.destinationLocationDetails
+    ? {
+        lat: allocation.destinationLocationDetails.latitude,
+        lng: allocation.destinationLocationDetails.longitude,
+      }
+    : null
 
   return {
     id: allocation.id,
@@ -87,11 +97,122 @@ function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord) {
     status: allocation.status,
     origin: allocation.pickupLocation,
     destination: allocation.destination,
-    progress: 65,
-    eta: '18 mins',
-    distanceLeft: '2 km left',
-    coordinates: { lat: 14.5547, lng: 121.0244 },
+    progress: Math.round(getDriverAllocationProgress(allocation) * 100),
+    eta: getDriverAllocationEtaLabel(allocation),
+    distanceLeft:
+      getDriverAllocationRemainingDistanceLabel(allocation) ??
+      (allocation.status === 'pending'
+        ? 'Not started'
+        : allocation.status === 'assigned'
+        ? 'Preparing departure'
+        : allocation.status === 'available'
+        ? 'At destination'
+        : 'Completed'),
+    coordinates: liveCoordinates
+      ? { lat: liveCoordinates.latitude, lng: liveCoordinates.longitude }
+      : originCoordinates ?? destinationCoordinates ?? { lat: 14.575, lng: 121.085 },
+    originCoordinates,
+    destinationCoordinates,
   }
+}
+
+function getMapPointPositions(driver: TrackingDriver | null) {
+  if (!driver?.originCoordinates || !driver.destinationCoordinates) {
+    return {
+      origin: FALLBACK_ORIGIN,
+      driver: FALLBACK_DRIVER,
+      destination: FALLBACK_DESTINATION,
+    }
+  }
+
+  const bounds = getDriverMapBounds(driver)
+  const minLatitude = bounds.minLatitude
+  const maxLatitude = bounds.maxLatitude
+  const minLongitude = bounds.minLongitude
+  const maxLongitude = bounds.maxLongitude
+
+  const normalize = (latitude: number, longitude: number) => {
+    const xRatio =
+      maxLongitude === minLongitude
+        ? 0.5
+        : (longitude - minLongitude) / (maxLongitude - minLongitude)
+    const yRatio =
+      maxLatitude === minLatitude
+        ? 0.5
+        : 1 - (latitude - minLatitude) / (maxLatitude - minLatitude)
+
+    return {
+      x: 12 + xRatio * 76,
+      y: 12 + yRatio * 76,
+    }
+  }
+
+  return {
+    origin: normalize(driver.originCoordinates.lat, driver.originCoordinates.lng),
+    driver: normalize(driver.coordinates.lat, driver.coordinates.lng),
+    destination: normalize(driver.destinationCoordinates.lat, driver.destinationCoordinates.lng),
+  }
+}
+
+function getDriverMapBounds(driver: TrackingDriver | null) {
+  if (!driver) {
+    return DEFAULT_MAP_BOUNDS
+  }
+
+  const points = [
+    driver.originCoordinates,
+    driver.destinationCoordinates,
+    driver.coordinates,
+  ].filter(Boolean) as Array<{ lat: number; lng: number }>
+
+  if (!points.length) {
+    return DEFAULT_MAP_BOUNDS
+  }
+
+  const latitudes = points.map((point) => point.lat)
+  const longitudes = points.map((point) => point.lng)
+  const minLatitude = Math.min(...latitudes)
+  const maxLatitude = Math.max(...latitudes)
+  const minLongitude = Math.min(...longitudes)
+  const maxLongitude = Math.max(...longitudes)
+  const latitudePadding = Math.max((maxLatitude - minLatitude) * 0.35, 0.02)
+  const longitudePadding = Math.max((maxLongitude - minLongitude) * 0.35, 0.02)
+
+  return {
+    minLatitude: minLatitude - latitudePadding,
+    maxLatitude: maxLatitude + latitudePadding,
+    minLongitude: minLongitude - longitudePadding,
+    maxLongitude: maxLongitude + longitudePadding,
+  }
+}
+
+function getOpenStreetMapEmbedUrl(driver: TrackingDriver | null) {
+  const bounds = getDriverMapBounds(driver)
+  const bbox = [
+    bounds.minLongitude,
+    bounds.minLatitude,
+    bounds.maxLongitude,
+    bounds.maxLatitude,
+  ]
+    .map((value) => value.toFixed(6))
+    .join('%2C')
+
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik`
+}
+
+function getGoogleMapsDirectionsUrl(driver: TrackingDriver | null) {
+  if (!driver) {
+    return 'https://www.google.com/maps'
+  }
+
+  const origin = driver.status === 'in-transit' ? driver.coordinates : driver.originCoordinates
+  const destination = driver.destinationCoordinates
+
+  if (!origin || !destination) {
+    return `https://www.google.com/maps/search/?api=1&query=${driver.coordinates.lat},${driver.coordinates.lng}`
+  }
+
+  return `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&travelmode=driving`
 }
 
 export default function LiveTrackingPage() {
@@ -103,7 +224,6 @@ export default function LiveTrackingPage() {
   const [searchTerm, setSearchTerm] = React.useState('')
   const [statusFilter, setStatusFilter] = React.useState('all')
   const [managerFilter, setManagerFilter] = React.useState('all')
-  const [lastRefresh, setLastRefresh] = React.useState(new Date())
 
   React.useEffect(() => {
     const syncAllocations = () => {
@@ -111,6 +231,14 @@ export default function LiveTrackingPage() {
     }
 
     syncAllocations()
+    void syncDriverAllocationsFromBackend()
+      .then((nextAllocations) => {
+        setDriverAllocations(nextAllocations)
+      })
+      .catch(() => {
+        return null
+      })
+
     window.addEventListener(DRIVER_ALLOCATIONS_UPDATED_EVENT, syncAllocations)
 
     return () => {
@@ -122,14 +250,14 @@ export default function LiveTrackingPage() {
     () =>
       driverAllocations
         .filter((allocation) =>
-          ['pending', 'in-transit', 'available'].includes(allocation.status)
+          ['pending', 'assigned', 'in-transit', 'available'].includes(allocation.status)
         )
         .map(mapAllocationToTrackingDriver),
     [driverAllocations]
   )
 
   const availableManagers = React.useMemo(
-    () => Array.from(new Set(activeDrivers.map((driver) => driver.manager))),
+    () => Array.from(new Set(activeDrivers.map((driver) => driver.manager).filter(Boolean))),
     [activeDrivers]
   )
 
@@ -154,21 +282,50 @@ export default function LiveTrackingPage() {
 
     if (statusFilter === 'all') return searchScopedDrivers
     return searchScopedDrivers.filter((driver) => driver.status === statusFilter)
-  }, [managerFilter, role, searchTerm, statusFilter])
+  }, [activeDrivers, managerFilter, role, searchTerm, statusFilter])
 
-  const [selectedDriver, setSelectedDriver] = React.useState<(typeof activeDrivers)[number] | null>(null)
+  const [selectedDriver, setSelectedDriver] = React.useState<TrackingDriver | null>(null)
 
   React.useEffect(() => {
     if (scopedDrivers.length > 0) {
-      setSelectedDriver(scopedDrivers[0])
+      setSelectedDriver((current) =>
+        current && scopedDrivers.some((driver) => driver.id === current.id)
+          ? scopedDrivers.find((driver) => driver.id === current.id) ?? scopedDrivers[0]
+          : scopedDrivers[0]
+      )
       return
     }
+
     setSelectedDriver(null)
   }, [scopedDrivers])
 
-  const handleRefresh = () => {
-    setLastRefresh(new Date())
+  const markerPositions = React.useMemo(
+    () => getMapPointPositions(selectedDriver),
+    [selectedDriver]
+  )
+  const openStreetMapUrl = React.useMemo(
+    () => getOpenStreetMapEmbedUrl(selectedDriver),
+    [selectedDriver]
+  )
+  const googleMapsUrl = React.useMemo(
+    () => getGoogleMapsDirectionsUrl(selectedDriver),
+    [selectedDriver]
+  )
+
+  const handleRefresh = async () => {
+    const nextAllocations = await syncDriverAllocationsFromBackend().catch(() => null)
+    if (nextAllocations) {
+      setDriverAllocations(nextAllocations)
+    }
   }
+
+  const routeControlPoint = React.useMemo(
+    () => ({
+      x: (markerPositions.origin.x + markerPositions.destination.x) / 2,
+      y: Math.max(Math.min(markerPositions.origin.y, markerPositions.destination.y) - 12, 8),
+    }),
+    [markerPositions]
+  )
 
   return (
     <div className="space-y-6">
@@ -186,9 +343,7 @@ export default function LiveTrackingPage() {
           <Link
             href={buildRolePath(
               role,
-              role === 'admin' || role === 'supervisor'
-                ? 'allocation/drivers'
-                : 'dashboard'
+              role === 'admin' || role === 'supervisor' ? 'allocation/drivers' : 'dashboard'
             )}
           >
             <ArrowLeft className="mr-2 size-4" />
@@ -197,7 +352,7 @@ export default function LiveTrackingPage() {
               : 'Back to Dashboard'}
           </Link>
         </Button>
-        <Button variant="outline" size="sm" onClick={handleRefresh}>
+        <Button variant="outline" size="sm" onClick={() => void handleRefresh()}>
           <RefreshCw className="mr-2 size-4" />
           Refresh
         </Button>
@@ -220,6 +375,7 @@ export default function LiveTrackingPage() {
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="assigned">Assigned</SelectItem>
             <SelectItem value="in-transit">In Transit</SelectItem>
             <SelectItem value="available">Available</SelectItem>
           </SelectContent>
@@ -240,7 +396,6 @@ export default function LiveTrackingPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Active Drivers List */}
         <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
@@ -258,38 +413,39 @@ export default function LiveTrackingPage() {
                   <button
                     key={driver.id}
                     onClick={() => setSelectedDriver(driver)}
-                    className={`w-full text-left p-4 rounded-lg transition-colors ${
+                    className={`w-full rounded-lg p-4 text-left transition-colors ${
                       selectedDriver?.id === driver.id
-                        ? 'bg-primary/10 border border-primary/20'
+                        ? 'border border-primary/20 bg-primary/10'
                         : 'hover:bg-muted/50'
                     }`}
                   >
                     <div className="flex items-start gap-3">
                       <Avatar className="size-10">
-                        <AvatarFallback className="bg-primary/10 text-primary text-sm">
-                          {driver.name.split(' ').map(n => n[0]).join('')}
+                        <AvatarFallback className="bg-primary/10 text-sm text-primary">
+                          {driver.name
+                            .split(' ')
+                            .map((name) => name[0])
+                            .join('')}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="flex-1 min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between">
-                          <p className="font-medium truncate">{driver.name}</p>
+                          <p className="truncate font-medium">{driver.name}</p>
                           <StatusBadge status={driver.status} />
                         </div>
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
                           {driver.vehicle}
                         </p>
-                        <div className="flex items-center gap-2 mt-2">
-                          <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                             <div
-                              className="h-full bg-primary rounded-full transition-all"
+                              className="h-full rounded-full bg-primary transition-all"
                               style={{ width: `${driver.progress}%` }}
                             />
                           </div>
-                          <span className="text-xs text-muted-foreground">
-                            {driver.progress}%
-                          </span>
+                          <span className="text-xs text-muted-foreground">{driver.progress}%</span>
                         </div>
-                        <p className="text-[10px] text-muted-foreground mt-1">
+                        <p className="mt-1 text-[10px] text-muted-foreground">
                           ETA: {driver.eta} &bull; {driver.distanceLeft}
                         </p>
                       </div>
@@ -301,7 +457,6 @@ export default function LiveTrackingPage() {
           </CardContent>
         </Card>
 
-        {/* Map Area */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -316,132 +471,156 @@ export default function LiveTrackingPage() {
               </div>
             ) : (
               <>
-            {/* Placeholder Map */}
-            <div className="relative w-full h-[400px] rounded-xl bg-muted/50 overflow-hidden border">
-              {/* Map placeholder with grid pattern */}
-              <div className="absolute inset-0 bg-[linear-gradient(rgba(0,0,0,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.03)_1px,transparent_1px)] bg-[size:20px_20px]" />
-              
-              {/* Mock Map Markers */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="relative w-full h-full">
-                  {/* Origin Marker */}
-                  <div
-                    className="absolute flex flex-col items-center"
-                    style={{ left: '25%', top: '60%', transform: 'translate(-50%, -100%)' }}
-                  >
-                    <div className="p-2 rounded-full bg-muted border-2 border-muted-foreground">
-                      <MapPin className="size-4 text-muted-foreground" />
+                <div className="relative h-[400px] w-full overflow-hidden rounded-xl border bg-muted/50">
+                  <iframe
+                    title={`${selectedDriver.name} live trip map`}
+                    src={openStreetMapUrl}
+                    className="absolute inset-0 h-full w-full border-0"
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-background/10 via-transparent to-background/25" />
+
+                  <div className="pointer-events-none absolute inset-0">
+                    <svg
+                      className="absolute inset-0 h-full w-full pointer-events-none"
+                      viewBox="0 0 100 100"
+                      preserveAspectRatio="none"
+                    >
+                      <path
+                        d={`M ${markerPositions.origin.x} ${markerPositions.origin.y} Q ${routeControlPoint.x} ${routeControlPoint.y}, ${markerPositions.destination.x} ${markerPositions.destination.y}`}
+                        fill="none"
+                        stroke="var(--chart-1)"
+                        strokeWidth="1.8"
+                        strokeDasharray="4 3"
+                        opacity="0.7"
+                      />
+                    </svg>
+
+                    <div
+                      className="absolute flex flex-col items-center"
+                      style={{
+                        left: `${markerPositions.origin.x}%`,
+                        top: `${markerPositions.origin.y}%`,
+                        transform: 'translate(-50%, -100%)',
+                      }}
+                    >
+                      <div className="rounded-full border-2 border-muted-foreground bg-muted p-2">
+                        <MapPin className="size-4 text-muted-foreground" />
+                      </div>
+                      <span className="mt-1 rounded bg-background px-1.5 py-0.5 text-[10px] shadow-sm">
+                        Origin
+                      </span>
                     </div>
-                    <span className="text-[10px] mt-1 bg-background px-1.5 py-0.5 rounded shadow-sm">
-                      Origin
-                    </span>
+
+                    <div
+                      className="absolute flex flex-col items-center animate-pulse"
+                      style={{
+                        left: `${markerPositions.driver.x}%`,
+                        top: `${markerPositions.driver.y}%`,
+                        transform: 'translate(-50%, -100%)',
+                      }}
+                    >
+                      <div className="rounded-full bg-primary p-2 shadow-lg">
+                        <Truck className="size-5 text-primary-foreground" />
+                      </div>
+                      <span className="mt-1 rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground shadow-sm">
+                        {selectedDriver.name.split(' ')[0]}
+                      </span>
+                    </div>
+
+                    <div
+                      className="absolute flex flex-col items-center"
+                      style={{
+                        left: `${markerPositions.destination.x}%`,
+                        top: `${markerPositions.destination.y}%`,
+                        transform: 'translate(-50%, -100%)',
+                      }}
+                    >
+                      <div className="rounded-full border-2 border-success bg-success p-2">
+                        <Navigation className="size-4 text-success-foreground" />
+                      </div>
+                      <span className="mt-1 rounded bg-success px-1.5 py-0.5 text-[10px] text-success-foreground shadow-sm">
+                        Destination
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Driver Marker (animated) */}
-                  <div
-                    className="absolute flex flex-col items-center animate-pulse"
-                    style={{ 
-                      left: `${25 + (selectedDriver.progress * 0.5)}%`, 
-                      top: `${60 - (selectedDriver.progress * 0.2)}%`, 
-                      transform: 'translate(-50%, -100%)' 
-                    }}
-                  >
-                    <div className="p-2 rounded-full bg-primary shadow-lg">
-                      <Truck className="size-5 text-primary-foreground" />
-                    </div>
-                    <span className="text-[10px] mt-1 bg-primary text-primary-foreground px-2 py-0.5 rounded shadow-sm font-medium">
-                      {selectedDriver.name.split(' ')[0]}
-                    </span>
+                  <div className="absolute right-4 top-4 flex flex-col gap-2">
+                    <Button variant="outline" size="sm" className="bg-background/95" asChild>
+                      <a
+                        href={googleMapsUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <ExternalLink className="mr-2 size-4" />
+                        Open in Maps
+                      </a>
+                    </Button>
                   </div>
 
-                  {/* Destination Marker */}
-                  <div
-                    className="absolute flex flex-col items-center"
-                    style={{ left: '75%', top: '30%', transform: 'translate(-50%, -100%)' }}
-                  >
-                    <div className="p-2 rounded-full bg-success border-2 border-success">
-                      <Navigation className="size-4 text-success-foreground" />
-                    </div>
-                    <span className="text-[10px] mt-1 bg-success text-success-foreground px-1.5 py-0.5 rounded shadow-sm">
-                      Destination
-                    </span>
-                  </div>
-
-                  {/* Route line */}
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none">
-                    <path
-                      d="M 25% 60% Q 50% 45%, 75% 30%"
-                      fill="none"
-                      stroke="var(--chart-1)"
-                      strokeWidth="2"
-                      strokeDasharray="8 4"
-                      opacity="0.5"
-                    />
-                  </svg>
-                </div>
-              </div>
-
-              {/* Map Controls Placeholder */}
-              <div className="absolute top-4 right-4 flex flex-col gap-2">
-                <Button variant="outline" size="icon" className="size-8 bg-background">
-                  +
-                </Button>
-                <Button variant="outline" size="icon" className="size-8 bg-background">
-                  -
-                </Button>
-              </div>
-
-              {/* Info overlay */}
-              <div className="absolute bottom-4 left-4 right-4">
-                <div className="bg-background/95 backdrop-blur rounded-lg p-4 shadow-lg border">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <Avatar className="size-10">
-                        <AvatarFallback className="bg-primary/10 text-primary">
-                          {selectedDriver.name.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-semibold">{selectedDriver.name}</p>
-                        <p className="text-xs text-muted-foreground">{selectedDriver.vehicle}</p>
+                  <div className="pointer-events-none absolute bottom-4 left-4 right-4">
+                    <div className="rounded-lg border bg-background/95 p-4 shadow-lg backdrop-blur">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <Avatar className="size-10">
+                            <AvatarFallback className="bg-primary/10 text-primary">
+                              {selectedDriver.name
+                                .split(' ')
+                                .map((name) => name[0])
+                                .join('')}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-semibold">{selectedDriver.name}</p>
+                            <p className="text-xs text-muted-foreground">{selectedDriver.vehicle}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid grid-cols-3 gap-4 text-center">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Progress</p>
+                          <p className="font-semibold text-primary">{selectedDriver.progress}%</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">ETA</p>
+                          <p className="font-semibold">{selectedDriver.eta}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Distance Left</p>
+                          <p className="font-semibold">{selectedDriver.distanceLeft}</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-4 text-[11px] text-muted-foreground">
+                        <span>
+                          Driver position: {selectedDriver.coordinates.lat.toFixed(4)},{' '}
+                          {selectedDriver.coordinates.lng.toFixed(4)}
+                        </span>
+                        <span className="hidden sm:inline">
+                          Real map base via OpenStreetMap
+                        </span>
                       </div>
                     </div>
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-4 text-center">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Progress</p>
-                      <p className="font-semibold text-primary">{selectedDriver.progress}%</p>
+                </div>
+
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-lg bg-muted/50 p-4">
+                    <div className="mb-1 flex items-center gap-2 text-sm text-muted-foreground">
+                      <MapPin className="size-4" />
+                      From
                     </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">ETA</p>
-                      <p className="font-semibold">{selectedDriver.eta}</p>
+                    <p className="font-medium">{selectedDriver.origin}</p>
+                  </div>
+                  <div className="rounded-lg bg-muted/50 p-4">
+                    <div className="mb-1 flex items-center gap-2 text-sm text-muted-foreground">
+                      <Navigation className="size-4" />
+                      To
                     </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Distance Left</p>
-                      <p className="font-semibold">{selectedDriver.distanceLeft}</p>
-                    </div>
+                    <p className="font-medium">{selectedDriver.destination}</p>
                   </div>
                 </div>
-              </div>
-            </div>
-
-            {/* Route Details */}
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div className="p-4 rounded-lg bg-muted/50">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                  <MapPin className="size-4" />
-                  From
-                </div>
-                <p className="font-medium">{selectedDriver.origin}</p>
-              </div>
-              <div className="p-4 rounded-lg bg-muted/50">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                  <Navigation className="size-4" />
-                  To
-                </div>
-                <p className="font-medium">{selectedDriver.destination}</p>
-              </div>
-            </div>
               </>
             )}
           </CardContent>

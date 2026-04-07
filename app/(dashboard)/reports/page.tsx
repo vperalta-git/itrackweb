@@ -47,66 +47,11 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
-
-// Mock data for charts
-const monthlySalesData = [
-  { month: 'Jan', sales: 45, target: 50 },
-  { month: 'Feb', sales: 52, target: 50 },
-  { month: 'Mar', sales: 48, target: 55 },
-  { month: 'Apr', sales: 61, target: 55 },
-  { month: 'May', sales: 55, target: 60 },
-  { month: 'Jun', sales: 67, target: 60 },
-]
-
-// Isuzu model distribution
-const inventoryByModel = [
-  { model: 'mu-X', count: 45, percentage: 27 },
-  { model: 'D-Max', count: 38, percentage: 23 },
-  { model: 'Traviz', count: 28, percentage: 17 },
-  { model: 'NLR/NMR', count: 22, percentage: 13 },
-  { model: 'NPR/NQR', count: 18, percentage: 11 },
-  { model: 'FRR/FVR', count: 15, percentage: 9 },
-]
-
-const statusDistribution = [
-  { name: 'Available', value: 156, color: 'var(--chart-1)' },
-  { name: 'In Stockyard', value: 34, color: 'var(--chart-4)' },
-  { name: 'In Transit', value: 18, color: 'var(--chart-2)' },
-  { name: 'Pending', value: 12, color: 'var(--chart-5)' },
-  { name: 'In Dispatch', value: 20, color: 'var(--chart-3)' },
-  { name: 'Released', value: 8, color: 'var(--muted)' },
-]
-
-const recentReports = [
-  {
-    id: '1',
-    name: 'Monthly Sales Report - January 2024',
-    type: 'Sales',
-    generatedBy: 'Maria Santos',
-    date: '2024-02-01',
-  },
-  {
-    id: '2',
-    name: 'Inventory Status Report',
-    type: 'Inventory',
-    generatedBy: 'Carlos Garcia',
-    date: '2024-02-03',
-  },
-  {
-    id: '3',
-    name: 'Test Drive Analytics - Q1',
-    type: 'Test Drive',
-    generatedBy: 'Anna Lim',
-    date: '2024-02-05',
-  },
-  {
-    id: '4',
-    name: 'Driver Performance Report',
-    type: 'Operations',
-    generatedBy: 'Maria Santos',
-    date: '2024-02-05',
-  },
-]
+import {
+  deriveReportsDashboardData,
+  fetchReportSnapshot,
+  type ReportsDashboardData,
+} from '@/lib/report-data'
 
 const salesChartConfig: ChartConfig = {
   sales: {
@@ -129,6 +74,34 @@ const brandChartConfig: ChartConfig = {
 export default function ReportsPage() {
   const [dateRange, setDateRange] = React.useState('this-month')
   const [reportType, setReportType] = React.useState('all')
+  const [dashboardData, setDashboardData] = React.useState<ReportsDashboardData | null>(null)
+
+  React.useEffect(() => {
+    let isMounted = true
+
+    const loadReportsData = async () => {
+      try {
+        const snapshot = await fetchReportSnapshot()
+        if (!isMounted) return
+
+        setDashboardData(deriveReportsDashboardData(snapshot))
+      } catch {
+        if (!isMounted) return
+        setDashboardData(null)
+      }
+    }
+
+    void loadReportsData()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const monthlySalesData = dashboardData?.monthlySalesData ?? []
+  const inventoryByModel = dashboardData?.inventoryByModel ?? []
+  const statusDistribution = dashboardData?.statusDistribution ?? []
+  const recentReports = dashboardData?.recentReports ?? []
 
   return (
     <div className="space-y-6">
@@ -188,10 +161,11 @@ export default function ReportsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">67</div>
+            <div className="text-2xl font-bold">{dashboardData?.unitsSold ?? 0}</div>
             <p className="text-xs text-success flex items-center gap-1 mt-1">
               <TrendingUp className="size-3" />
-              +8 from last month
+              {`${dashboardData?.unitsSoldDelta ?? 0}`.startsWith('-') ? '' : '+'}
+              {(dashboardData?.unitsSoldDelta ?? 0).toFixed(0)} from last month
             </p>
           </CardContent>
         </Card>
@@ -203,9 +177,9 @@ export default function ReportsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">248</div>
+            <div className="text-2xl font-bold">{dashboardData?.currentInventory ?? 0}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              156 available in Isuzu Pasig
+              {dashboardData?.currentInventoryAvailable ?? 0} available in Isuzu Pasig
             </p>
           </CardContent>
         </Card>
@@ -217,7 +191,7 @@ export default function ReportsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">18</div>
+            <div className="text-2xl font-bold">{dashboardData?.activeAgents ?? 0}</div>
             <p className="text-xs text-muted-foreground mt-1">Across vehicle allocations</p>
           </CardContent>
         </Card>
@@ -229,7 +203,9 @@ export default function ReportsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">2.4 days</div>
+            <div className="text-2xl font-bold">
+              {(dashboardData?.averagePreparationTimeDays ?? 0).toFixed(1)} days
+            </div>
             <p className="text-xs text-muted-foreground mt-1">Preparation turnaround</p>
           </CardContent>
         </Card>
@@ -394,8 +370,13 @@ export default function ReportsPage() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Avg. Sales Per Agent</p>
-                  <p className="text-2xl font-bold">11.2</p>
-                  <p className="text-xs text-success">+2.3 from last month</p>
+                  <p className="text-2xl font-bold">
+                    {(dashboardData?.averageSalesPerAgent ?? 0).toFixed(1)}
+                  </p>
+                  <p className="text-xs text-success">
+                    {`${dashboardData?.averageSalesPerAgentDelta ?? 0}`.startsWith('-') ? '' : '+'}
+                    {(dashboardData?.averageSalesPerAgentDelta ?? 0).toFixed(1)} from last month
+                  </p>
                 </div>
               </div>
             </Card>
@@ -406,8 +387,12 @@ export default function ReportsPage() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Avg. Prep Time</p>
-                  <p className="text-2xl font-bold">2.4 days</p>
-                  <p className="text-xs text-success">-0.5 days improved</p>
+                  <p className="text-2xl font-bold">
+                    {(dashboardData?.averagePreparationTimeDays ?? 0).toFixed(1)} days
+                  </p>
+                  <p className="text-xs text-success">
+                    {(dashboardData?.averagePreparationTimeDelta ?? 0).toFixed(1)} days vs last month
+                  </p>
                 </div>
               </div>
             </Card>
@@ -418,8 +403,13 @@ export default function ReportsPage() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Test Drive Conversion</p>
-                  <p className="text-2xl font-bold">75%</p>
-                  <p className="text-xs text-success">+5% from last month</p>
+                  <p className="text-2xl font-bold">
+                    {(dashboardData?.testDriveConversionRate ?? 0).toFixed(0)}%
+                  </p>
+                  <p className="text-xs text-success">
+                    {`${dashboardData?.testDriveConversionDelta ?? 0}`.startsWith('-') ? '' : '+'}
+                    {(dashboardData?.testDriveConversionDelta ?? 0).toFixed(0)}% from last month
+                  </p>
                 </div>
               </div>
             </Card>

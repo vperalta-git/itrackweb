@@ -48,9 +48,11 @@ import { Textarea } from '@/components/ui/textarea'
 import { getAuditActor, logAuditEvent } from '@/lib/audit-log'
 import { exportPdfReport } from '@/lib/export-pdf'
 import {
-  inventorySeed,
+  createInventoryVehicleRecord,
+  deleteInventoryVehicleRecord,
   loadInventoryVehicles,
-  persistInventoryVehicles,
+  syncInventoryVehiclesFromBackend,
+  updateInventoryVehicleRecord,
   type InventoryVehicle as Vehicle,
 } from '@/lib/inventory-data'
 import { getRoleFromPathname } from '@/lib/rbac'
@@ -122,7 +124,7 @@ export default function InventoryPage() {
     }
   }
 
-  const handleAddVehicle = () => {
+  const handleAddVehicle = async () => {
     if (
       !addVehicleForm.unitName ||
       !addVehicleForm.variation ||
@@ -143,27 +145,22 @@ export default function InventoryPage() {
       return
     }
 
-    const nextVehicle: Vehicle = {
-      id: `VH-${Date.now()}`,
+    const nextVehicles = await createInventoryVehicleRecord({
       unitName: addVehicleForm.unitName,
       variation: addVehicleForm.variation,
       conductionNumber: normalizedConductionNumber,
       bodyColor: addVehicleForm.bodyColor.trim(),
-      assignedAgent: 'Unassigned',
-      manager: 'Unassigned',
-      ageInStorage: 0,
       status: addVehicleForm.status as Vehicle['status'],
-      dateAdded: new Date().toISOString().slice(0, 10),
       notes: addVehicleForm.notes.trim(),
-    }
+    })
 
-    setVehicles((current) => [nextVehicle, ...current])
+    setVehicles(nextVehicles)
     handleAddDialogChange(false)
     logAuditEvent({
       user: getAuditActor(role),
       action: 'CREATE',
       module: 'Inventory',
-      description: `Added vehicle ${nextVehicle.conductionNumber} (${nextVehicle.unitName} ${nextVehicle.variation}).`,
+      description: `Added vehicle ${normalizedConductionNumber} (${addVehicleForm.unitName} ${addVehicleForm.variation}).`,
     })
     toast.success('Vehicle added to stocks.')
   }
@@ -193,7 +190,7 @@ export default function InventoryPage() {
     setIsEditDialogOpen(true)
   }
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!selectedVehicle) return
     if (!editVehicleForm.unitName || !editVehicleForm.status) return
 
@@ -209,22 +206,19 @@ export default function InventoryPage() {
       return
     }
 
-    const updatedVehicle: Vehicle = {
-      ...selectedVehicle,
+    const nextVehicles = await updateInventoryVehicleRecord(selectedVehicle.id, {
       unitName: editVehicleForm.unitName,
       variation: editVehicleForm.variation,
       conductionNumber: normalizedConductionNumber,
       bodyColor: editVehicleForm.bodyColor.trim(),
       status: editVehicleForm.status,
       notes: editVehicleForm.notes.trim(),
-    }
+    })
 
-    setVehicles((current) =>
-      current.map((vehicle) =>
-        vehicle.id === selectedVehicle.id ? updatedVehicle : vehicle
-      )
-    )
+    const updatedVehicle =
+      nextVehicles.find((vehicle) => vehicle.id === selectedVehicle.id) ?? null
 
+    setVehicles(nextVehicles)
     setSelectedVehicle(updatedVehicle)
 
     handleEditDialogChange(false)
@@ -232,15 +226,16 @@ export default function InventoryPage() {
       user: getAuditActor(role),
       action: 'UPDATE',
       module: 'Inventory',
-      description: `Updated vehicle ${updatedVehicle.conductionNumber}.`,
+      description: `Updated vehicle ${updatedVehicle?.conductionNumber ?? normalizedConductionNumber}.`,
     })
     toast.success('Vehicle details updated.')
   }
 
-  const handleDeleteVehicle = () => {
+  const handleDeleteVehicle = async () => {
     if (!vehicleToDelete) return
 
-    setVehicles((current) => current.filter((vehicle) => vehicle.id !== vehicleToDelete.id))
+    const nextVehicles = await deleteInventoryVehicleRecord(vehicleToDelete.id)
+    setVehicles(nextVehicles)
 
     if (selectedVehicle?.id === vehicleToDelete.id) {
       setSelectedVehicle(null)
@@ -405,8 +400,25 @@ export default function InventoryPage() {
   }, [role, scope.agentName, scope.agentNames, vehicles, statusFilter])
 
   React.useEffect(() => {
-    persistInventoryVehicles(vehicles)
-  }, [vehicles])
+    let isMounted = true
+
+    const loadBackendVehicles = async () => {
+      try {
+        const nextVehicles = await syncInventoryVehiclesFromBackend()
+        if (isMounted) {
+          setVehicles(nextVehicles)
+        }
+      } catch {
+        return
+      }
+    }
+
+    void loadBackendVehicles()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const handleExportPdf = () => {
     logAuditEvent({

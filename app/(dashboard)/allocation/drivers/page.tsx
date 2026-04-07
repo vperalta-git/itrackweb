@@ -52,19 +52,23 @@ import {
 } from '@/components/ui/select'
 import { getAuditActor, logAuditEvent } from '@/lib/audit-log'
 import {
+  createDriverAllocationRecord,
+  deleteDriverAllocationRecord,
   DriverAllocationRecord,
   loadDriverAllocations,
-  persistDriverAllocations,
+  syncDriverAllocationsFromBackend,
+  updateDriverAllocationRecord,
 } from '@/lib/driver-allocation-data'
 import {
   INVENTORY_UPDATED_EVENT,
   InventoryVehicle,
   loadInventoryVehicles,
+  syncInventoryVehiclesFromBackend,
 } from '@/lib/inventory-data'
 import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
 import { exportPdfReport } from '@/lib/export-pdf'
 import { matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
-import { loadUsers, SystemUser, USERS_UPDATED_EVENT } from '@/lib/user-data'
+import { loadUsers, syncUsersFromBackend, SystemUser, USERS_UPDATED_EVENT } from '@/lib/user-data'
 import { toast } from 'sonner'
 
 type DriverAllocation = DriverAllocationRecord
@@ -121,6 +125,13 @@ export default function DriverAllocationPage() {
     }
 
     syncInventory()
+    void syncInventoryVehiclesFromBackend()
+      .then((nextVehicles) => {
+        setInventoryVehicles(nextVehicles)
+      })
+      .catch(() => {
+        return null
+      })
     window.addEventListener(INVENTORY_UPDATED_EVENT, syncInventory)
 
     return () => {
@@ -134,6 +145,13 @@ export default function DriverAllocationPage() {
     }
 
     syncUsers()
+    void syncUsersFromBackend()
+      .then((nextUsers) => {
+        setUsers(nextUsers)
+      })
+      .catch(() => {
+        return null
+      })
     window.addEventListener(USERS_UPDATED_EVENT, syncUsers)
 
     return () => {
@@ -142,8 +160,25 @@ export default function DriverAllocationPage() {
   }, [])
 
   React.useEffect(() => {
-    persistDriverAllocations(allocations)
-  }, [allocations])
+    let isMounted = true
+
+    const loadBackendAllocations = async () => {
+      try {
+        const nextAllocations = await syncDriverAllocationsFromBackend()
+        if (isMounted) {
+          setAllocations(nextAllocations)
+        }
+      } catch {
+        return
+      }
+    }
+
+    void loadBackendAllocations()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const handleAssignmentDialogChange = (open: boolean) => {
     setIsNewAllocationOpen(open)
@@ -214,7 +249,9 @@ export default function DriverAllocationPage() {
     const unitMatch = inventoryVehicles.find(
       (vehicle) => vehicle.conductionNumber === allocation.conductionNumber
     )
-    const driverMatch = drivers.find((driver) => driver.name === allocation.assignedDriver)
+    const driverMatch = drivers.find(
+      (driver) => driver.id === allocation.driverId || driver.name === allocation.assignedDriver
+    )
 
     setAssignmentBeingEdited(allocation)
     setAssignmentForm({
@@ -226,7 +263,7 @@ export default function DriverAllocationPage() {
     setIsNewAllocationOpen(true)
   }
 
-  const createAssignment = () => {
+  const createAssignment = async () => {
     const selectedUnit = inventoryVehicles.find((vehicle) => vehicle.id === assignmentForm.unitId)
     const selectedDriver = drivers.find((driver) => driver.id === assignmentForm.driverId)
 
@@ -239,73 +276,64 @@ export default function DriverAllocationPage() {
       return
     }
 
-    if (assignmentBeingEdited) {
-      const updatedAllocation: DriverAllocation = {
-        ...assignmentBeingEdited,
-        unitName: selectedUnit.unitName,
-        conductionNumber: selectedUnit.conductionNumber,
-        bodyColor: selectedUnit.bodyColor,
-        variation: selectedUnit.variation,
-        salesAgent: selectedUnit.assignedAgent,
-        manager: selectedUnit.manager,
-        assignedDriver: selectedDriver.name,
-        driverPhone: selectedDriver.phone,
-        pickupLocation: assignmentForm.pickupLocation.trim(),
-        destination: assignmentForm.destination.trim(),
+    try {
+      if (assignmentBeingEdited) {
+        const nextAllocations = await updateDriverAllocationRecord(assignmentBeingEdited.id, {
+          managerId: null,
+          vehicleId: selectedUnit.id,
+          driverId: selectedDriver.id,
+          pickupLocation: assignmentForm.pickupLocation.trim(),
+          destination: assignmentForm.destination.trim(),
+          status: assignmentBeingEdited.status,
+        })
+
+        const updatedAllocation =
+          nextAllocations.find((allocation) => allocation.id === assignmentBeingEdited.id) ?? null
+
+        setAllocations(nextAllocations)
+        setSelectedAllocation(updatedAllocation)
+        handleAssignmentDialogChange(false)
+        logAuditEvent({
+          user: getAuditActor(role),
+          action: 'UPDATE',
+          module: 'Allocation',
+          description: `Updated driver allocation ${selectedUnit.conductionNumber} for ${selectedDriver.name}.`,
+        })
+        toast.success('Driver assignment updated.')
+        return
       }
 
-      setAllocations((current) =>
-        current.map((allocation) =>
-          allocation.id === assignmentBeingEdited.id ? updatedAllocation : allocation
-        )
-      )
-      setSelectedAllocation((current) =>
-        current?.id === assignmentBeingEdited.id ? updatedAllocation : current
-      )
+      const nextAllocations = await createDriverAllocationRecord({
+        managerId: null,
+        vehicleId: selectedUnit.id,
+        driverId: selectedDriver.id,
+        pickupLocation: assignmentForm.pickupLocation.trim(),
+        destination: assignmentForm.destination.trim(),
+      })
+
+      setAllocations(nextAllocations)
       handleAssignmentDialogChange(false)
       logAuditEvent({
         user: getAuditActor(role),
-        action: 'UPDATE',
+        action: 'CREATE',
         module: 'Allocation',
-        description: `Updated driver allocation ${updatedAllocation.conductionNumber} for ${updatedAllocation.assignedDriver}.`,
+        description: `Created driver allocation ${selectedUnit.conductionNumber} for ${selectedDriver.name}.`,
       })
-      toast.success('Driver assignment updated.')
-      return
+      toast.success('Driver assignment created and sent to the driver for acceptance.')
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Unable to save the driver assignment right now.'
+      )
     }
-
-    const nextAllocation: DriverAllocation = {
-      id: `DA-${Date.now()}`,
-      date: new Date().toISOString().slice(0, 10),
-      unitName: selectedUnit.unitName,
-      conductionNumber: selectedUnit.conductionNumber,
-      bodyColor: selectedUnit.bodyColor,
-      variation: selectedUnit.variation,
-      salesAgent: selectedUnit.assignedAgent,
-      manager: selectedUnit.manager,
-      assignedDriver: selectedDriver.name,
-      driverPhone: selectedDriver.phone,
-      pickupLocation: assignmentForm.pickupLocation.trim(),
-      destination: assignmentForm.destination.trim(),
-      status: 'pending',
-    }
-
-    setAllocations((current) => [nextAllocation, ...current])
-    handleAssignmentDialogChange(false)
-    logAuditEvent({
-      user: getAuditActor(role),
-      action: 'CREATE',
-      module: 'Allocation',
-      description: `Created driver allocation ${nextAllocation.conductionNumber} for ${nextAllocation.assignedDriver}.`,
-    })
-    toast.success('Driver assignment created and sent to the driver for acceptance.')
   }
 
-  const handleCancelAllocation = () => {
+  const handleCancelAllocation = async () => {
     if (!allocationToCancel) return
 
-    setAllocations((current) =>
-      current.filter((allocation) => allocation.id !== allocationToCancel.id)
-    )
+    const nextAllocations = await deleteDriverAllocationRecord(allocationToCancel.id)
+    setAllocations(nextAllocations)
     setSelectedAllocation((current) =>
       current?.id === allocationToCancel.id ? null : current
     )
@@ -844,6 +872,7 @@ export default function DriverAllocationPage() {
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="assigned">Assigned</SelectItem>
                 <SelectItem value="in-transit">In Transit</SelectItem>
                 <SelectItem value="available">Available</SelectItem>
               </SelectContent>

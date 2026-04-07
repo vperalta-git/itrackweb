@@ -26,17 +26,66 @@ import {
 } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  browserNotificationsSupported,
+  getBrowserNotificationPermission,
+  loadWebNotificationPreferences,
+  saveWebNotificationPreferences,
+} from '@/lib/notification-preferences'
 import { toast } from 'sonner'
 
 export default function SettingsPage() {
   const [isSaving, setIsSaving] = React.useState(false)
+  const [notificationPreferences, setNotificationPreferences] = React.useState(
+    loadWebNotificationPreferences
+  )
+  const [browserNotificationPermission, setBrowserNotificationPermission] = React.useState(
+    getBrowserNotificationPermission
+  )
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaving(true)
-    setTimeout(() => {
-      setIsSaving(false)
+
+    try {
+      let nextNotificationPreferences = notificationPreferences
+
+      if (nextNotificationPreferences.browserAlerts) {
+        if (!browserNotificationsSupported()) {
+          nextNotificationPreferences = {
+            ...nextNotificationPreferences,
+            browserAlerts: false,
+          }
+          setNotificationPreferences(nextNotificationPreferences)
+          setBrowserNotificationPermission('unsupported')
+          toast.error('This browser does not support native desktop notifications.')
+        } else {
+          const permission =
+            browserNotificationPermission === 'granted'
+              ? 'granted'
+              : await Notification.requestPermission()
+
+          setBrowserNotificationPermission(permission)
+
+          if (permission !== 'granted') {
+            nextNotificationPreferences = {
+              ...nextNotificationPreferences,
+              browserAlerts: false,
+            }
+            setNotificationPreferences(nextNotificationPreferences)
+            toast.error(
+              permission === 'denied'
+                ? 'Browser alerts are blocked. Allow notifications in your browser settings to enable them.'
+                : 'Browser alert permission was not granted.'
+            )
+          }
+        }
+      }
+
+      saveWebNotificationPreferences(nextNotificationPreferences)
       toast.success('Settings saved successfully')
-    }, 1000)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -210,7 +259,43 @@ export default function SettingsPage() {
                         Show live notifications for system events
                       </p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch
+                      checked={notificationPreferences.liveUpdates}
+                      onCheckedChange={(checked) =>
+                        setNotificationPreferences((current) => ({
+                          ...current,
+                          liveUpdates: checked,
+                          browserAlerts: checked ? current.browserAlerts : false,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label>Browser Alerts</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Show native browser notifications when the website is open in the background.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Permission:{' '}
+                        {browserNotificationPermission === 'unsupported'
+                          ? 'not supported'
+                          : browserNotificationPermission}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={
+                        notificationPreferences.liveUpdates &&
+                        notificationPreferences.browserAlerts
+                      }
+                      disabled={!notificationPreferences.liveUpdates}
+                      onCheckedChange={(checked) =>
+                        setNotificationPreferences((current) => ({
+                          ...current,
+                          browserAlerts: checked,
+                        }))
+                      }
+                    />
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
@@ -219,7 +304,16 @@ export default function SettingsPage() {
                         Play sound for important notifications
                       </p>
                     </div>
-                    <Switch />
+                    <Switch
+                      checked={notificationPreferences.soundAlerts}
+                      disabled={!notificationPreferences.liveUpdates}
+                      onCheckedChange={(checked) =>
+                        setNotificationPreferences((current) => ({
+                          ...current,
+                          soundAlerts: checked,
+                        }))
+                      }
+                    />
                   </div>
                 </div>
               </div>

@@ -50,7 +50,13 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { getAuditActor, logAuditEvent } from '@/lib/audit-log'
 import { getRoleFromPathname } from '@/lib/rbac'
-import { loadUsers, persistUsers, SystemUser } from '@/lib/user-data'
+import {
+  createUserRecord,
+  loadUsers,
+  SystemUser,
+  syncUsersFromBackend,
+  updateUserRecord,
+} from '@/lib/user-data'
 import { toast } from 'sonner'
 
 // Types
@@ -118,8 +124,25 @@ export default function UsersPage() {
   const [pendingRole, setPendingRole] = React.useState<User['role']>('sales-agent')
 
   React.useEffect(() => {
-    persistUsers(users)
-  }, [users])
+    let isMounted = true
+
+    const loadBackendUsers = async () => {
+      try {
+        const nextUsers = await syncUsersFromBackend()
+        if (isMounted) {
+          setUsers(nextUsers)
+        }
+      } catch {
+        return
+      }
+    }
+
+    void loadBackendUsers()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const openViewDetails = (user: User) => {
     setSelectedUser(user)
@@ -152,7 +175,7 @@ export default function UsersPage() {
     setSelectedUser(updatedUser)
   }
 
-  const handleEditUserSave = () => {
+  const handleEditUserSave = async () => {
     if (!selectedUser) return
     const firstName = editForm.firstName.trim()
     const lastName = editForm.lastName.trim()
@@ -175,15 +198,17 @@ export default function UsersPage() {
       return
     }
 
-    updateSelectedUser({
-      ...selectedUser,
+    const updatedUser = await updateUserRecord(selectedUser.id, {
       firstName,
       lastName,
       email,
       phone,
       role: editForm.role,
       status: editForm.status,
+      bio: selectedUser.bio,
     })
+
+    updateSelectedUser(updatedUser)
     setIsEditUserOpen(false)
     logAuditEvent({
       user: getAuditActor(role),
@@ -194,7 +219,7 @@ export default function UsersPage() {
     toast.success('User details updated.')
   }
 
-  const handleCreateUser = () => {
+  const handleCreateUser = async () => {
     const firstName = addForm.firstName.trim()
     const lastName = addForm.lastName.trim()
 
@@ -216,26 +241,16 @@ export default function UsersPage() {
       return
     }
 
-    const nextUser: User = {
-      id: `${Date.now()}`,
-      employeeId: `EMP-${String(users.length + 1).padStart(3, '0')}`,
+    const nextUser = await createUserRecord({
       firstName,
       lastName,
       email,
       phone,
       role: addForm.role,
-      department:
-        addForm.role === 'manager' || addForm.role === 'sales-agent'
-          ? 'Sales Department'
-          : addForm.role === 'driver' || addForm.role === 'dispatch' || addForm.role === 'supervisor'
-          ? 'Operations'
-          : 'General',
-      status: 'active',
-      lastLogin: 'Never',
-      createdAt: new Date().toISOString().slice(0, 10),
-    }
+      password: temporaryPassword,
+    })
 
-    setUsers((currentUsers) => [nextUser, ...currentUsers])
+    setUsers((currentUsers) => [nextUser, ...currentUsers.filter((user) => user.id !== nextUser.id)])
     setAddForm({
       firstName: '',
       lastName: '',
@@ -254,13 +269,20 @@ export default function UsersPage() {
     toast.success('User account created.')
   }
 
-  const handleChangeRoleSave = () => {
+  const handleChangeRoleSave = async () => {
     if (!selectedUser) return
 
-    updateSelectedUser({
-      ...selectedUser,
+    const updatedUser = await updateUserRecord(selectedUser.id, {
+      firstName: selectedUser.firstName,
+      lastName: selectedUser.lastName,
+      email: selectedUser.email,
+      phone: selectedUser.phone,
       role: pendingRole,
+      status: selectedUser.status,
+      bio: selectedUser.bio,
     })
+
+    updateSelectedUser(updatedUser)
     setIsChangeRoleOpen(false)
     logAuditEvent({
       user: getAuditActor(role),
@@ -271,13 +293,18 @@ export default function UsersPage() {
     toast.success('User role updated.')
   }
 
-  const handleDeactivateUser = () => {
+  const handleDeactivateUser = async () => {
     if (!userToDeactivate) return
 
-    const updatedUser = {
-      ...userToDeactivate,
-      status: 'inactive' as const,
-    }
+    const updatedUser = await updateUserRecord(userToDeactivate.id, {
+      firstName: userToDeactivate.firstName,
+      lastName: userToDeactivate.lastName,
+      email: userToDeactivate.email,
+      phone: userToDeactivate.phone,
+      role: userToDeactivate.role,
+      status: 'inactive',
+      bio: userToDeactivate.bio,
+    })
 
     updateSelectedUser(updatedUser)
     setUserToDeactivate(null)
@@ -290,13 +317,18 @@ export default function UsersPage() {
     toast.success('User account deactivated.')
   }
 
-  const handleActivateUser = () => {
+  const handleActivateUser = async () => {
     if (!userToActivate) return
 
-    const updatedUser = {
-      ...userToActivate,
-      status: 'active' as const,
-    }
+    const updatedUser = await updateUserRecord(userToActivate.id, {
+      firstName: userToActivate.firstName,
+      lastName: userToActivate.lastName,
+      email: userToActivate.email,
+      phone: userToActivate.phone,
+      role: userToActivate.role,
+      status: 'active',
+      bio: userToActivate.bio,
+    })
 
     updateSelectedUser(updatedUser)
     setUserToActivate(null)

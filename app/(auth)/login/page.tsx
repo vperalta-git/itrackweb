@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { Eye, EyeOff } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -11,43 +10,18 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { apiRequest, ApiError } from '@/lib/api-client'
 import { logAuditEvent } from '@/lib/audit-log'
-import { buildRolePath, type Role } from '@/lib/rbac'
+import { buildRolePath } from '@/lib/rbac'
+import { mapAuthUserFromBackend, saveSession } from '@/lib/session'
+import { syncUsersFromBackend } from '@/lib/user-data'
 
-const demoAccounts: Array<{
-  role: Role
-  email: string
-  password: string
-  label: string
-}> = [
-  {
-    role: 'admin',
-    email: 'admin@isuzupasig.com',
-    password: 'password',
-    label: 'Administrator',
-  },
-  {
-    role: 'supervisor',
-    email: 'supervisor@isuzupasig.com',
-    password: 'password',
-    label: 'Supervisor',
-  },
-  {
-    role: 'manager',
-    email: 'manager@isuzupasig.com',
-    password: 'password',
-    label: 'Manager',
-  },
-  {
-    role: 'sales-agent',
-    email: 'agent@isuzupasig.com',
-    password: 'password',
-    label: 'Sales Agent',
-  },
-]
+const WEB_API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api').replace(
+  /\/+$/,
+  ''
+)
 
 export default function LoginPage() {
-  const router = useRouter()
   const [isLoading, setIsLoading] = React.useState(false)
   const [showPassword, setShowPassword] = React.useState(false)
   const [formData, setFormData] = React.useState({
@@ -62,25 +36,73 @@ export default function LoginPage() {
     setError('')
     setIsLoading(true)
 
-    // Simulate authentication - replace with actual API call
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    try {
+      const response = await apiRequest<{
+        token: string
+        user: {
+          id?: string
+          _id?: string
+          firstName?: string
+          lastName?: string
+          email?: string
+          phone?: string
+          bio?: string
+          avatarUrl?: string | null
+          role?: string
+          managerId?:
+            | string
+            | {
+                id?: string
+                _id?: string
+                firstName?: string
+                lastName?: string
+              }
+            | null
+        }
+      }>('/auth/login', {
+        method: 'POST',
+        body: {
+          email: formData.email.trim().toLowerCase(),
+          password: formData.password,
+        },
+      })
 
-    const matchedAccount = demoAccounts.find(
-      (account) =>
-        account.email === formData.email.trim().toLowerCase() &&
-        account.password === formData.password
-    )
+      const user = mapAuthUserFromBackend(response.user)
 
-    if (matchedAccount) {
+      if (!user.routeRole) {
+        setError(
+          'This account does not have access to the web dashboard. Use an admin, supervisor, manager, or sales agent account.'
+        )
+        setIsLoading(false)
+        return
+      }
+
+      saveSession({
+        token: response.token,
+        remember: formData.remember,
+        user,
+      })
+
+      void syncUsersFromBackend().catch(() => {
+        return null
+      })
+
       logAuditEvent({
-        user: matchedAccount.label,
+        user: `${user.firstName} ${user.lastName}`.trim(),
         action: 'LOGIN',
         module: 'Authentication',
-        description: `${matchedAccount.label} signed in successfully.`,
+        description: `${user.email} signed in successfully.`,
       })
-      router.push(buildRolePath(matchedAccount.role, 'dashboard'))
-    } else {
-      setError('Invalid email or password.')
+
+      window.location.assign(buildRolePath(user.routeRole, 'dashboard'))
+    } catch (error) {
+      setError(
+        error instanceof ApiError
+          ? error.message
+          : error instanceof TypeError
+          ? `Cannot reach the backend at ${WEB_API_URL}. Make sure the backend server is running.`
+          : 'Unable to sign in right now.'
+      )
       setIsLoading(false)
     }
   }

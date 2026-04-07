@@ -28,110 +28,47 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { apiRequest } from '@/lib/api-client'
+import {
+  isValidMobilePhoneNumber,
+  MOBILE_PHONE_VALIDATION_MESSAGE,
+} from '@/lib/phone'
 import { toast } from 'sonner'
 import { getRoleFromPathname, type Role } from '@/lib/rbac'
+import { getRoleLabel, getSessionUser, updateSessionUser } from '@/lib/session'
+import { loadUsers, syncUsersFromBackend, type SystemUser, updateUserRecord } from '@/lib/user-data'
 
-const mockUsersByRole: Record<
-  Role,
-  {
-    id: string
-    firstName: string
-    lastName: string
-    email: string
-    phone: string
-    role: string
-    avatar: string
-    bio: string
-  }
-> = {
-  admin: {
-    id: '1',
-    firstName: 'Maria',
-    lastName: 'Santos',
-    email: 'admin@isuzupasig.com',
-    phone: '+63 917 111 2222',
-    role: 'Administrator',
-    avatar: '',
-    bio: 'Oversees the full I-TRACK platform, user access, inventory visibility, and operational reporting for Isuzu Pasig.',
-  },
-  supervisor: {
-    id: '9',
-    firstName: 'Ramon',
-    lastName: 'Flores',
-    email: 'supervisor@isuzupasig.com',
-    phone: '+63 924 888 9999',
-    role: 'Supervisor',
-    avatar: '',
-    bio: 'Supervises inventory operations, dispatch visibility, reporting access, and user oversight with the same platform permissions as admin.',
-  },
-  manager: {
-    id: '2',
-    firstName: 'Carlos',
-    lastName: 'Garcia',
-    email: 'manager@isuzupasig.com',
-    phone: '+63 918 222 3333',
-    role: 'Manager',
-    avatar: '',
-    bio: 'Leads the sales team, monitors assigned agents, and tracks vehicle movement, preparation, releases, and test drive activity.',
-  },
-  'sales-agent': {
-    id: '3',
-    firstName: 'Juan',
-    lastName: 'Dela Cruz',
-    email: 'agent@isuzupasig.com',
-    phone: '+63 919 333 4444',
-    role: 'Sales Agent',
-    avatar: '',
-    bio: 'Handles allocated units, customer coordination, test drive requests, and follows active deliveries and released vehicles.',
-  },
+type ProfileUser = {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  phone: string
+  role: string
+  avatar: string
+  bio: string
 }
 
-const otherProfiles = [
-  {
-    id: '10',
-    firstName: 'Anna',
-    lastName: 'Lim',
-    email: 'anna.lim@isuzupasig.com',
-    phone: '+63 920 444 5555',
-    position: 'Sales Agent',
-    bio: 'Handles customer coordination, test drive scheduling, and release support for assigned Isuzu units.',
-  },
-  {
-    id: '11',
-    firstName: 'Pedro',
-    lastName: 'Reyes',
-    email: 'pedro.reyes@isuzupasig.com',
-    phone: '+63 922 666 7777',
-    position: 'Sales Agent',
-    bio: 'Monitors allocated vehicle requests and assists customers through test drive and preparation workflows.',
-  },
-  {
-    id: '12',
-    firstName: 'Liza',
-    lastName: 'Mendoza',
-    email: 'liza.mendoza@isuzupasig.com',
-    phone: '+63 923 777 8888',
-    position: 'Dispatch Coordinator',
-    bio: 'Coordinates preparation completion, dispatch updates, and turnover readiness across active units.',
-  },
-  {
-    id: '13',
-    firstName: 'Ramon',
-    lastName: 'Flores',
-    email: 'supervisor@isuzupasig.com',
-    phone: '+63 924 888 9999',
-    position: 'Supervisor',
-    bio: 'Oversees inventory movement, team activity, and system-wide reporting visibility for Isuzu Pasig.',
-  },
-]
+const toProfileUser = (role: Role, user: ReturnType<typeof getSessionUser>): ProfileUser => ({
+  id: user?.id ?? '',
+  firstName: user?.firstName ?? '',
+  lastName: user?.lastName ?? '',
+  email: user?.email ?? '',
+  phone: user?.phone ?? '',
+  role: user ? getRoleLabel(user.role) : role,
+  avatar: user?.avatarUrl ?? '',
+  bio: user?.bio ?? '',
+})
 
 export default function ProfilePage() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
+  const sessionUser = getSessionUser()
   const [isSaving, setIsSaving] = React.useState(false)
   const [isOtherProfilesOpen, setIsOtherProfilesOpen] = React.useState(false)
-  const [user, setUser] = React.useState(mockUsersByRole[role])
-  const [selectedOtherProfile, setSelectedOtherProfile] = React.useState(otherProfiles[0])
+  const [user, setUser] = React.useState<ProfileUser>(() => toProfileUser(role, sessionUser))
+  const [otherProfiles, setOtherProfiles] = React.useState<SystemUser[]>(loadUsers())
+  const [selectedOtherProfile, setSelectedOtherProfile] = React.useState<SystemUser | null>(null)
   const [passwordForm, setPasswordForm] = React.useState({
     currentPassword: '',
     newPassword: '',
@@ -139,21 +76,64 @@ export default function ProfilePage() {
   })
 
   React.useEffect(() => {
-    setUser(mockUsersByRole[role])
-  }, [role])
+    setUser(toProfileUser(role, getSessionUser()))
+  }, [role, pathname])
 
   React.useEffect(() => {
-    const currentEmail = mockUsersByRole[role].email
-    const availableProfiles = otherProfiles.filter((profile) => profile.email !== currentEmail)
-    setSelectedOtherProfile(availableProfiles[0] ?? otherProfiles[0])
-  }, [role])
+    void syncUsersFromBackend()
+      .then((users) => {
+        setOtherProfiles(users)
+      })
+      .catch(() => {
+        return null
+      })
+  }, [])
 
-  const handleSave = () => {
+  React.useEffect(() => {
+    const availableProfiles = otherProfiles.filter((profile) => profile.email !== user.email)
+    setSelectedOtherProfile(availableProfiles[0] ?? null)
+  }, [otherProfiles, user.email])
+
+  const handleSave = async () => {
+    if (!sessionUser) return
+    if (!isValidMobilePhoneNumber(user.phone)) {
+      toast.error(MOBILE_PHONE_VALIDATION_MESSAGE)
+      return
+    }
+
     setIsSaving(true)
-    setTimeout(() => {
-      setIsSaving(false)
+    try {
+      const updatedUser = await updateUserRecord(sessionUser.id, {
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.phone,
+        role: sessionUser.role,
+        status: 'active',
+        bio: user.bio,
+      })
+
+      updateSessionUser({
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+        bio: updatedUser.bio ?? '',
+      })
+      setUser((current) => ({
+        ...current,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+        bio: updatedUser.bio ?? '',
+      }))
       toast.success('Profile updated successfully')
-    }, 1000)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to update your profile.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleInputChange = (field: string, value: string) => {
@@ -164,7 +144,9 @@ export default function ProfilePage() {
     setPasswordForm((prev) => ({ ...prev, [field]: value }))
   }
 
-  const handlePasswordSave = () => {
+  const handlePasswordSave = async () => {
+    if (!sessionUser) return
+
     if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
       toast.error('Please complete all password fields')
       return
@@ -174,6 +156,15 @@ export default function ProfilePage() {
       toast.error('New password and confirmation do not match')
       return
     }
+
+    await apiRequest('/auth/change-password', {
+      method: 'POST',
+      body: {
+        userId: sessionUser.id,
+        currentPassword: passwordForm.currentPassword,
+        nextPassword: passwordForm.newPassword,
+      },
+    })
 
     setPasswordForm({
       currentPassword: '',
@@ -427,7 +418,7 @@ export default function ProfilePage() {
                     type="button"
                     onClick={() => setSelectedOtherProfile(profile)}
                     className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
-                      selectedOtherProfile.id === profile.id
+                      selectedOtherProfile?.id === profile.id
                         ? 'border-primary bg-primary/5'
                         : 'border-border bg-background hover:bg-muted/40'
                     }`}
@@ -441,12 +432,13 @@ export default function ProfilePage() {
                       <p className="truncate font-medium">
                         {profile.firstName} {profile.lastName}
                       </p>
-                      <p className="truncate text-xs text-muted-foreground">{profile.position}</p>
+                      <p className="truncate text-xs text-muted-foreground">{profile.role}</p>
                     </div>
                   </button>
                 ))}
             </div>
 
+            {selectedOtherProfile && (
             <div className="rounded-2xl border bg-muted/20 p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                 <Avatar className="size-20 border">
@@ -458,7 +450,13 @@ export default function ProfilePage() {
                   <h3 className="text-xl font-semibold">
                     {selectedOtherProfile.firstName} {selectedOtherProfile.lastName}
                   </h3>
-                  <p className="text-sm text-muted-foreground">{selectedOtherProfile.position}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedOtherProfile.role === 'sales-agent'
+                      ? 'Sales Agent'
+                      : selectedOtherProfile.role === 'dispatch'
+                      ? 'Dispatch'
+                      : selectedOtherProfile.role.charAt(0).toUpperCase() + selectedOtherProfile.role.slice(1)}
+                  </p>
                 </div>
               </div>
 
@@ -491,18 +489,25 @@ export default function ProfilePage() {
                   <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
                     Position
                   </p>
-                  <p className="mt-2 font-medium">{selectedOtherProfile.position}</p>
+                  <p className="mt-2 font-medium">
+                    {selectedOtherProfile.role === 'sales-agent'
+                      ? 'Sales Agent'
+                      : selectedOtherProfile.role === 'dispatch'
+                      ? 'Dispatch'
+                      : selectedOtherProfile.role.charAt(0).toUpperCase() + selectedOtherProfile.role.slice(1)}
+                  </p>
                 </div>
                 <div className="rounded-xl bg-background p-4 sm:col-span-2">
                   <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
                     Bio
                   </p>
                   <p className="mt-2 text-sm leading-6 text-foreground/85">
-                    {selectedOtherProfile.bio}
+                    {selectedOtherProfile.bio || 'No bio available.'}
                   </p>
                 </div>
               </div>
             </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

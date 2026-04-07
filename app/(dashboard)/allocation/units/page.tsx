@@ -44,99 +44,22 @@ import {
 } from '@/components/ui/select'
 import { exportPdfReport } from '@/lib/export-pdf'
 import { getAuditActor, logAuditEvent } from '@/lib/audit-log'
+import {
+  InventoryVehicle,
+  loadInventoryVehicles,
+  syncInventoryVehiclesFromBackend,
+} from '@/lib/inventory-data'
 import { getRoleFromPathname } from '@/lib/rbac'
+import {
+  createUnitAllocationRecord,
+  loadUnitAllocations,
+  syncUnitAllocationsFromBackend,
+  type UnitAllocationRecord as AgentAllocation,
+  updateUnitAllocationRecord,
+  deleteUnitAllocationRecord,
+} from '@/lib/unit-allocation-data'
+import { loadUsers, syncUsersFromBackend, type SystemUser } from '@/lib/user-data'
 import { toast } from 'sonner'
-
-interface AgentAllocation {
-  id: string
-  unitName: string
-  conductionNumber: string
-  bodyColor: string
-  variation: string
-  assignedTo: string
-  manager: string
-}
-
-const mockAllocations: AgentAllocation[] = [
-  {
-    id: '1',
-    unitName: 'mu-X',
-    conductionNumber: 'ABC1234',
-    bodyColor: 'Silky White Pearl',
-    variation: 'LS-E 4x2 AT',
-    assignedTo: 'Juan Dela Cruz',
-    manager: 'Maria Santos',
-  },
-  {
-    id: '2',
-    unitName: 'mu-X',
-    conductionNumber: 'REL7744',
-    bodyColor: 'Cosmic Black',
-    variation: 'LS-A 4x4 AT',
-    assignedTo: 'Anna Lim',
-    manager: 'Maria Santos',
-  },
-  {
-    id: '3',
-    unitName: 'D-Max',
-    conductionNumber: 'TRN5566',
-    bodyColor: 'Obsidian Gray',
-    variation: 'LS 4x4 MT',
-    assignedTo: 'Pedro Reyes',
-    manager: 'Carlos Garcia',
-  },
-  {
-    id: '4',
-    unitName: 'Traviz',
-    conductionNumber: 'STK4401',
-    bodyColor: 'Splash White',
-    variation: 'L Utility Van',
-    assignedTo: 'Mike Santos',
-    manager: 'Carlos Garcia',
-  },
-]
-
-const availableUnits = [
-  {
-    id: '1',
-    unitName: 'mu-X',
-    conductionNumber: 'ABC1234',
-    bodyColor: 'Silky White Pearl',
-    variation: 'LS-E 4x2 AT',
-    status: 'available',
-  },
-  {
-    id: '2',
-    unitName: 'mu-X',
-    conductionNumber: 'REL7744',
-    bodyColor: 'Cosmic Black',
-    variation: 'LS-A 4x4 AT',
-    status: 'released',
-  },
-  {
-    id: '3',
-    unitName: 'D-Max',
-    conductionNumber: 'TRN5566',
-    bodyColor: 'Obsidian Gray',
-    variation: 'LS 4x4 MT',
-    status: 'pending',
-  },
-  {
-    id: '4',
-    unitName: 'Traviz',
-    conductionNumber: 'STK4401',
-    bodyColor: 'Splash White',
-    variation: 'L Utility Van',
-    status: 'in-stockyard',
-  },
-]
-
-const managerOptions = ['All Managers', 'Maria Santos', 'Carlos Garcia'] as const
-
-const agentsByManager: Record<string, string[]> = {
-  'Maria Santos': ['Juan Dela Cruz', 'Anna Lim', 'Robert Mendoza'],
-  'Carlos Garcia': ['Pedro Reyes', 'Mike Santos', 'Liza Cruz'],
-}
 
 const initialAllocationForm = {
   unitId: '',
@@ -147,7 +70,11 @@ const initialAllocationForm = {
 export default function UnitAllocationPage() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
-  const [allocations, setAllocations] = React.useState<AgentAllocation[]>(mockAllocations)
+  const [allocations, setAllocations] = React.useState<AgentAllocation[]>(loadUnitAllocations())
+  const [inventoryVehicles, setInventoryVehicles] = React.useState<InventoryVehicle[]>(
+    loadInventoryVehicles()
+  )
+  const [users, setUsers] = React.useState<SystemUser[]>(loadUsers())
   const [selectedAllocation, setSelectedAllocation] = React.useState<AgentAllocation | null>(null)
   const [isNewAllocationOpen, setIsNewAllocationOpen] = React.useState(false)
   const [isViewDetailsOpen, setIsViewDetailsOpen] = React.useState(false)
@@ -160,6 +87,52 @@ export default function UnitAllocationPage() {
     agent: '',
   })
 
+  React.useEffect(() => {
+    void Promise.all([
+      syncUnitAllocationsFromBackend(),
+      syncInventoryVehiclesFromBackend(),
+      syncUsersFromBackend(),
+    ])
+      .then(([nextAllocations, nextVehicles, nextUsers]) => {
+        setAllocations(nextAllocations)
+        setInventoryVehicles(nextVehicles)
+        setUsers(nextUsers)
+      })
+      .catch(() => {
+        return null
+      })
+  }, [])
+
+  const managerUsers = React.useMemo(
+    () => users.filter((user) => user.role === 'manager' && user.status === 'active'),
+    [users]
+  )
+
+  const managerOptions = React.useMemo(
+    () => ['All Managers', ...managerUsers.map((user) => `${user.firstName} ${user.lastName}`.trim())],
+    [managerUsers]
+  )
+
+  const agentsByManager = React.useMemo(() => {
+    const managerNameById = new Map(
+      managerUsers.map((user) => [user.id, `${user.firstName} ${user.lastName}`.trim()])
+    )
+
+    return users
+      .filter((user) => user.role === 'sales-agent' && user.status === 'active')
+      .reduce<Record<string, string[]>>((accumulator, user) => {
+        const managerName = managerNameById.get(user.managerId ?? '')
+        if (!managerName) return accumulator
+
+        if (!accumulator[managerName]) {
+          accumulator[managerName] = []
+        }
+
+        accumulator[managerName].push(`${user.firstName} ${user.lastName}`.trim())
+        return accumulator
+      }, {})
+  }, [managerUsers, users])
+
   const visibleAgents = allocationForm.manager ? agentsByManager[allocationForm.manager] ?? [] : []
   const reassignAgents = reassignForm.manager ? agentsByManager[reassignForm.manager] ?? [] : []
   const allocatedConductionNumbers = React.useMemo(
@@ -168,12 +141,12 @@ export default function UnitAllocationPage() {
   )
   const selectableUnits = React.useMemo(
     () =>
-      availableUnits.filter(
+      inventoryVehicles.filter(
         (unit) =>
           (unit.status === 'available' || unit.status === 'in-stockyard') &&
           !allocatedConductionNumbers.has(unit.conductionNumber)
       ),
-    [allocatedConductionNumbers]
+    [allocatedConductionNumbers, inventoryVehicles]
   )
 
   const handleOpenViewDetails = (allocation: AgentAllocation) => {
@@ -197,30 +170,31 @@ export default function UnitAllocationPage() {
     }
   }
 
-  const handleSaveReassign = () => {
+  const handleSaveReassign = async () => {
     if (!selectedAllocation || !reassignForm.manager || !reassignForm.agent) return
 
-    setAllocations((current) =>
-      current.map((allocation) =>
-        allocation.id === selectedAllocation.id
-          ? {
-              ...allocation,
-              manager: reassignForm.manager,
-              assignedTo: reassignForm.agent,
-            }
-          : allocation
-      )
+    const manager = managerUsers.find(
+      (user) => `${user.firstName} ${user.lastName}`.trim() === reassignForm.manager
+    )
+    const salesAgent = users.find(
+      (user) =>
+        user.role === 'sales-agent' &&
+        `${user.firstName} ${user.lastName}`.trim() === reassignForm.agent
     )
 
-    setSelectedAllocation((current) =>
-      current
-        ? {
-            ...current,
-            manager: reassignForm.manager,
-            assignedTo: reassignForm.agent,
-          }
-        : null
-    )
+    if (!manager || !salesAgent) return
+
+    const nextAllocations = await updateUnitAllocationRecord(selectedAllocation.id, {
+      managerId: manager.id,
+      salesAgentId: salesAgent.id,
+      vehicleId: selectedAllocation.vehicleId,
+    })
+
+    const updatedAllocation =
+      nextAllocations.find((allocation) => allocation.id === selectedAllocation.id) ?? null
+
+    setAllocations(nextAllocations)
+    setSelectedAllocation(updatedAllocation)
 
     handleReassignDialogChange(false)
     logAuditEvent({
@@ -232,11 +206,22 @@ export default function UnitAllocationPage() {
     toast.success('Allocation reassigned.')
   }
 
-  const handleCreateAllocation = () => {
+  const handleCreateAllocation = async () => {
     if (!allocationForm.manager || !allocationForm.agent || !allocationForm.unitId) return
 
     const selectedUnit = selectableUnits.find((unit) => unit.id === allocationForm.unitId)
     if (!selectedUnit) return
+
+    const manager = managerUsers.find(
+      (user) => `${user.firstName} ${user.lastName}`.trim() === allocationForm.manager
+    )
+    const salesAgent = users.find(
+      (user) =>
+        user.role === 'sales-agent' &&
+        `${user.firstName} ${user.lastName}`.trim() === allocationForm.agent
+    )
+
+    if (!manager || !salesAgent) return
 
     const conductionNumberExists = allocations.some(
       (allocation) => allocation.conductionNumber === selectedUnit.conductionNumber
@@ -247,33 +232,28 @@ export default function UnitAllocationPage() {
       return
     }
 
-    const nextAllocation: AgentAllocation = {
-      id: `AL-${Date.now()}`,
-      unitName: selectedUnit.unitName,
-      conductionNumber: selectedUnit.conductionNumber,
-      bodyColor: selectedUnit.bodyColor,
-      variation: selectedUnit.variation,
-      assignedTo: allocationForm.agent,
-      manager: allocationForm.manager,
-    }
+    const nextAllocations = await createUnitAllocationRecord({
+      managerId: manager.id,
+      salesAgentId: salesAgent.id,
+      vehicleId: selectedUnit.id,
+    })
 
-    setAllocations((current) => [nextAllocation, ...current])
+    setAllocations(nextAllocations)
     handleAllocationDialogChange(false)
     logAuditEvent({
       user: getAuditActor(role),
       action: 'CREATE',
       module: 'Allocation',
-      description: `Created agent allocation for ${nextAllocation.conductionNumber} to ${nextAllocation.assignedTo}.`,
+      description: `Created agent allocation for ${selectedUnit.conductionNumber} to ${allocationForm.agent}.`,
     })
     toast.success('Agent allocation created.')
   }
 
-  const handleRevokeAllocation = () => {
+  const handleRevokeAllocation = async () => {
     if (!allocationToRevoke) return
 
-    setAllocations((current) =>
-      current.filter((allocation) => allocation.id !== allocationToRevoke.id)
-    )
+    const nextAllocations = await deleteUnitAllocationRecord(allocationToRevoke.id)
+    setAllocations(nextAllocations)
 
     if (selectedAllocation?.id === allocationToRevoke.id) {
       setSelectedAllocation(null)

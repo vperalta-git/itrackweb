@@ -5,9 +5,7 @@ import AllocationDriversPage from '@/app/(dashboard)/allocation/drivers/page'
 import AllocationDriversTrackingPage from '@/app/(dashboard)/allocation/drivers/tracking/page'
 import AllocationUnitsPage from '@/app/(dashboard)/allocation/units/page'
 import DashboardPage from '@/app/(dashboard)/dashboard/page'
-import InventoryAddPage from '@/app/(dashboard)/inventory/add/page'
 import InventoryPage from '@/app/(dashboard)/inventory/page'
-import PreparationNewPage from '@/app/(dashboard)/preparation/new/page'
 import PreparationPage from '@/app/(dashboard)/preparation/page'
 import ProfilePage from '@/app/(dashboard)/profile/page'
 import ReportsAuditPage from '@/app/(dashboard)/reports/audit/page'
@@ -17,14 +15,13 @@ import ReportsVehiclesPage from '@/app/(dashboard)/reports/vehicles/page'
 import SettingsPage from '@/app/(dashboard)/settings/page'
 import TestDrivePage from '@/app/(dashboard)/test-drive/page'
 import UsersPage from '@/app/(dashboard)/users/page'
-import { buildRolePath, getCurrentUserRole, isValidRole } from '@/lib/rbac'
+import { buildRolePath, isValidRole } from '@/lib/rbac'
+import { getServerRouteRole, hasServerSession } from '@/lib/server-session'
 
 const routeMap: Record<string, ComponentType> = {
   dashboard: DashboardPage,
   inventory: InventoryPage,
-  'inventory/add': InventoryAddPage,
   preparation: PreparationPage,
-  'preparation/new': PreparationNewPage,
   'allocation/units': AllocationUnitsPage,
   'allocation/drivers': AllocationDriversPage,
   'allocation/drivers/tracking': AllocationDriversTrackingPage,
@@ -44,7 +41,14 @@ export default async function RolePage({
   params: Promise<{ role: string; slug?: string[] }>
 }) {
   const { role, slug } = await params
-  const currentUserRole = getCurrentUserRole()
+  const [currentUserRole, sessionExists] = await Promise.all([
+    getServerRouteRole(),
+    hasServerSession(),
+  ])
+
+  if (!sessionExists || !currentUserRole) {
+    redirect('/login')
+  }
 
   if (!isValidRole(role)) {
     redirect(buildRolePath(currentUserRole, 'dashboard'))
@@ -62,6 +66,14 @@ export default async function RolePage({
 
   if (key === 'reports/allocations') {
     redirect(buildRolePath(role, 'reports/vehicles'))
+  }
+
+  if (key === 'inventory/add') {
+    redirect(buildRolePath(role, 'inventory'))
+  }
+
+  if (key === 'preparation/new') {
+    redirect(buildRolePath(role, 'preparation'))
   }
 
   const PageComponent = routeMap[key]

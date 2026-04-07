@@ -1,5 +1,17 @@
 'use client'
 
+import { apiRequest } from '@/lib/api-client'
+import {
+  BackendUnitAgentAllocation,
+  BackendVehicle,
+  getDaysSince,
+  getEntityId,
+  getFullName,
+  getIsoDate,
+  mapUiVehicleStatusToBackend,
+  mapVehicleStatusToUi,
+} from '@/lib/backend-helpers'
+
 export interface InventoryVehicle {
   id: string
   unitName: string
@@ -23,124 +35,21 @@ export interface InventoryVehicle {
 export const INVENTORY_STORAGE_KEY = 'itrack.inventory.vehicles'
 export const INVENTORY_UPDATED_EVENT = 'inventory-updated'
 
-export const inventorySeed: InventoryVehicle[] = [
-  {
-    id: '1',
-    unitName: 'mu-X',
-    conductionNumber: 'ABC1234',
-    bodyColor: 'Silky White Pearl',
-    variation: 'LS-E 4x2 AT',
-    assignedAgent: 'Juan Dela Cruz',
-    manager: 'Carlos Garcia',
-    ageInStorage: 18,
-    status: 'available',
-    dateAdded: '2024-01-15',
-    notes: 'Ready for showroom display.',
-  },
-  {
-    id: '2',
-    unitName: 'D-Max',
-    conductionNumber: 'TRN5566',
-    bodyColor: 'Obsidian Gray',
-    variation: 'LS 4x4 MT',
-    assignedAgent: 'Pedro Reyes',
-    manager: 'Carlos Garcia',
-    ageInStorage: 22,
-    status: 'pending',
-    dateAdded: '2024-01-18',
-    notes: 'Awaiting driver acceptance for delivery.',
-  },
-  {
-    id: '3',
-    unitName: 'mu-X',
-    conductionNumber: 'LAG8821',
-    bodyColor: 'Sapphire Blue',
-    variation: 'RZ4E 4x2 AT',
-    assignedAgent: 'Anna Lim',
-    manager: 'Carlos Garcia',
-    ageInStorage: 16,
-    status: 'in-dispatch',
-    dateAdded: '2024-01-20',
-    notes: 'Undergoing preparation before release.',
-  },
-  {
-    id: '4',
-    unitName: 'Traviz',
-    conductionNumber: 'STK4401',
-    bodyColor: 'Splash White',
-    variation: 'L Utility Van',
-    assignedAgent: 'Mike Santos',
-    manager: 'Maria Santos',
-    ageInStorage: 14,
-    status: 'in-stockyard',
-    dateAdded: '2024-01-22',
-    notes: 'Still parked in Laguna stockyard.',
-  },
-  {
-    id: '5',
-    unitName: 'D-Max',
-    conductionNumber: 'DRV1020',
-    bodyColor: 'Valencia Orange',
-    variation: 'LT 4x2 AT',
-    assignedAgent: 'Juan Dela Cruz',
-    manager: 'Carlos Garcia',
-    ageInStorage: 4,
-    status: 'in-transit',
-    dateAdded: '2024-01-25',
-    notes: 'Driver is on the way to Isuzu Pasig.',
-  },
-  {
-    id: '6',
-    unitName: 'NLR',
-    conductionNumber: 'NLR4021',
-    bodyColor: 'White',
-    variation: '4-Wheeler Aluminum Van',
-    assignedAgent: 'Liza Cruz',
-    manager: 'Maria Santos',
-    ageInStorage: 11,
-    status: 'available',
-    dateAdded: '2024-01-28',
-    notes: 'Already delivered to Isuzu Pasig.',
-  },
-  {
-    id: '7',
-    unitName: 'mu-X',
-    conductionNumber: 'REL7744',
-    bodyColor: 'Cosmic Black',
-    variation: 'LS-A 4x4 AT',
-    assignedAgent: 'Anna Lim',
-    manager: 'Carlos Garcia',
-    ageInStorage: 2,
-    status: 'released',
-    dateAdded: '2024-02-01',
-    notes: 'Released to customer.',
-  },
-  {
-    id: '8',
-    unitName: 'NPR',
-    conductionNumber: 'PEN3344',
-    bodyColor: 'White',
-    variation: '6-Wheeler',
-    assignedAgent: 'Pedro Reyes',
-    manager: 'Carlos Garcia',
-    ageInStorage: 9,
-    status: 'pending',
-    dateAdded: '2024-02-03',
-    notes: 'Driver allocation still pending.',
-  },
-]
+const EMPTY_INVENTORY: InventoryVehicle[] = []
 
-export function loadInventoryVehicles(): InventoryVehicle[] {
-  if (typeof window === 'undefined') return inventorySeed
-
-  const stored = window.localStorage.getItem(INVENTORY_STORAGE_KEY)
-  if (!stored) return inventorySeed
+const safeParseVehicles = (raw: string | null) => {
+  if (!raw) return EMPTY_INVENTORY
 
   try {
-    return JSON.parse(stored) as InventoryVehicle[]
+    return JSON.parse(raw) as InventoryVehicle[]
   } catch {
-    return inventorySeed
+    return EMPTY_INVENTORY
   }
+}
+
+export function loadInventoryVehicles(): InventoryVehicle[] {
+  if (typeof window === 'undefined') return EMPTY_INVENTORY
+  return safeParseVehicles(window.localStorage.getItem(INVENTORY_STORAGE_KEY))
 }
 
 export function persistInventoryVehicles(vehicles: InventoryVehicle[]) {
@@ -148,4 +57,104 @@ export function persistInventoryVehicles(vehicles: InventoryVehicle[]) {
 
   window.localStorage.setItem(INVENTORY_STORAGE_KEY, JSON.stringify(vehicles))
   window.dispatchEvent(new Event(INVENTORY_UPDATED_EVENT))
+}
+
+const mapVehicleRecord = (
+  vehicle: BackendVehicle,
+  allocationByVehicleId: Map<string, BackendUnitAgentAllocation>
+): InventoryVehicle => {
+  const id = getEntityId(vehicle)
+  const allocation = allocationByVehicleId.get(id)
+
+  return {
+    id,
+    unitName: vehicle.unitName ?? '',
+    conductionNumber: vehicle.conductionNumber ?? '',
+    bodyColor: vehicle.bodyColor ?? '',
+    variation: vehicle.variation ?? '',
+    assignedAgent: getFullName(allocation?.salesAgentId) || 'Unassigned',
+    manager: getFullName(allocation?.managerId) || 'Unassigned',
+    ageInStorage: getDaysSince(vehicle.createdAt),
+    status: mapVehicleStatusToUi(vehicle.status) as InventoryVehicle['status'],
+    dateAdded: getIsoDate(vehicle.createdAt),
+    notes: vehicle.notes ?? '',
+  }
+}
+
+const sortVehicles = (vehicles: InventoryVehicle[]) =>
+  [...vehicles].sort((left, right) => right.dateAdded.localeCompare(left.dateAdded))
+
+export async function syncInventoryVehiclesFromBackend() {
+  const [vehicles, unitAgentAllocations] = await Promise.all([
+    apiRequest<BackendVehicle[]>('/vehicles'),
+    apiRequest<BackendUnitAgentAllocation[]>('/unit-agent-allocations'),
+  ])
+
+  const allocationByVehicleId = new Map(
+    unitAgentAllocations.map((allocation) => [getEntityId(allocation.vehicleId), allocation])
+  )
+
+  const mappedVehicles = sortVehicles(
+    vehicles.map((vehicle) => mapVehicleRecord(vehicle, allocationByVehicleId))
+  )
+
+  persistInventoryVehicles(mappedVehicles)
+  return mappedVehicles
+}
+
+export async function createInventoryVehicleRecord(input: {
+  unitName: string
+  variation: string
+  conductionNumber: string
+  bodyColor: string
+  status: InventoryVehicle['status']
+  notes?: string
+}) {
+  await apiRequest('/vehicles', {
+    method: 'POST',
+    body: {
+      unitName: input.unitName,
+      variation: input.variation,
+      conductionNumber: input.conductionNumber,
+      bodyColor: input.bodyColor,
+      status: mapUiVehicleStatusToBackend(input.status),
+      notes: input.notes?.trim() ?? '',
+    },
+  })
+
+  return syncInventoryVehiclesFromBackend()
+}
+
+export async function updateInventoryVehicleRecord(
+  id: string,
+  input: {
+    unitName: string
+    variation: string
+    conductionNumber: string
+    bodyColor: string
+    status: InventoryVehicle['status']
+    notes?: string
+  }
+) {
+  await apiRequest(`/vehicles/${id}`, {
+    method: 'PATCH',
+    body: {
+      unitName: input.unitName,
+      variation: input.variation,
+      conductionNumber: input.conductionNumber,
+      bodyColor: input.bodyColor,
+      status: mapUiVehicleStatusToBackend(input.status),
+      notes: input.notes?.trim() ?? '',
+    },
+  })
+
+  return syncInventoryVehiclesFromBackend()
+}
+
+export async function deleteInventoryVehicleRecord(id: string) {
+  await apiRequest(`/vehicles/${id}`, {
+    method: 'DELETE',
+  })
+
+  return syncInventoryVehiclesFromBackend()
 }

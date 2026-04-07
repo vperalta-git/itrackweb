@@ -8,6 +8,7 @@ type StatusType =
   | 'in-dispatch'
   | 'pending'
   | 'approved'
+  | 'assigned'
   | 'rejected'
   | 'completed'
   | 'released'
@@ -49,6 +50,10 @@ const statusConfig: Record<StatusType, { label: string; className: string }> = {
   approved: {
     label: 'Approved',
     className: 'bg-success/10 text-success border-success/20',
+  },
+  assigned: {
+    label: 'Assigned',
+    className: 'bg-primary/10 text-primary border-primary/20',
   },
   rejected: {
     label: 'Rejected',

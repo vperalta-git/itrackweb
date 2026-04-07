@@ -53,26 +53,30 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { getAuditActor, logAuditEvent } from '@/lib/audit-log'
 import { Progress } from '@/components/ui/progress'
 import { exportPdfReport } from '@/lib/export-pdf'
+import {
+  InventoryVehicle,
+  loadInventoryVehicles,
+  syncInventoryVehiclesFromBackend,
+} from '@/lib/inventory-data'
+import {
+  createPreparationRecord,
+  deletePreparationRecord,
+  loadPreparationRecords,
+  PreparationRequestRecord,
+  syncPreparationRecordsFromBackend,
+  updatePreparationRecord,
+  updatePreparationStatusRecord,
+} from '@/lib/preparation-data'
+import {
+  isValidMobilePhoneNumber,
+  MOBILE_PHONE_VALIDATION_MESSAGE,
+} from '@/lib/phone'
 import { getRoleFromPathname } from '@/lib/rbac'
 import { matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
+import { getSessionUser, mapUserRoleToBackendRole } from '@/lib/session'
 import { toast } from 'sonner'
 
-// Types
-interface PreparationRequest {
-  id: string
-  dateCreated: string
-  conductionNumber: string
-  unitName: string
-  service: string
-  salesAgent: string
-  manager: string
-  customerName: string
-  contactNumber: string
-  status: 'pending' | 'in-dispatch' | 'completed' | 'ready-for-release' | 'rejected'
-  estimatedTime: string
-  progress: number
-  notes: string
-}
+type PreparationRequest = PreparationRequestRecord
 
 interface ChecklistItem {
   id: string
@@ -81,116 +85,6 @@ interface ChecklistItem {
   completedBy?: string
   completedAt?: string
 }
-
-// Mock data - Isuzu vehicles
-const mockRequests: PreparationRequest[] = [
-  {
-    id: '1',
-    dateCreated: '2024-02-01',
-    conductionNumber: 'LAG8821',
-    unitName: 'mu-X',
-    service: 'Detailing, Tinting',
-    salesAgent: 'Anna Lim',
-    manager: 'Carlos Garcia',
-    customerName: 'Andrea Villanueva',
-    contactNumber: '09171234567',
-    status: 'in-dispatch',
-    estimatedTime: '3 hours',
-    progress: 60,
-    notes: 'Customer pickup scheduled for Feb 5',
-  },
-  {
-    id: '2',
-    dateCreated: '2024-02-02',
-    conductionNumber: 'DRV1020',
-    unitName: 'D-Max',
-    service: 'Ceramic Coating',
-    salesAgent: 'Juan Dela Cruz',
-    manager: 'Carlos Garcia',
-    customerName: 'Mark Anthony Lopez',
-    contactNumber: '09184567890',
-    status: 'pending',
-    estimatedTime: '5 hours',
-    progress: 10,
-    notes: '',
-  },
-  {
-    id: '3',
-    dateCreated: '2024-01-28',
-    conductionNumber: 'REL7744',
-    unitName: 'mu-X',
-    service: 'Accessories, Rust Proof',
-    salesAgent: 'Anna Lim',
-    manager: 'Carlos Garcia',
-    customerName: 'Josefina Mendoza',
-    contactNumber: '09201234567',
-    status: 'completed',
-    estimatedTime: '1 day',
-    progress: 100,
-    notes: 'Delivered to showroom',
-  },
-  {
-    id: '4',
-    dateCreated: '2024-02-03',
-    conductionNumber: 'STK4401',
-    unitName: 'Traviz',
-    service: 'Detailing',
-    salesAgent: 'Mike Santos',
-    manager: 'Maria Santos',
-    customerName: 'Antonio Garcia',
-    contactNumber: '09204567890',
-    status: 'in-dispatch',
-    estimatedTime: '2 hours',
-    progress: 20,
-    notes: 'Standard preparation',
-  },
-  {
-    id: '5',
-    dateCreated: '2024-01-30',
-    conductionNumber: 'PEN3344',
-    unitName: 'NLR',
-    service: 'Tinting',
-    salesAgent: 'Pedro Reyes',
-    manager: 'Carlos Garcia',
-    customerName: 'Lorenzo Cruz',
-    contactNumber: '09192345678',
-    status: 'rejected',
-    estimatedTime: '4 hours',
-    progress: 0,
-    notes: 'Vehicle already allocated',
-  },
-]
-
-const availableVehicleStocks = [
-  {
-    id: '1',
-    conductionNumber: 'ABC1234',
-    vehicleName: 'mu-X LS-E 4x2 AT',
-    salesAgent: 'Juan Dela Cruz',
-    manager: 'Carlos Garcia',
-  },
-  {
-    id: '4',
-    conductionNumber: 'STK4401',
-    vehicleName: 'Traviz L Utility Van',
-    salesAgent: 'Mike Santos',
-    manager: 'Maria Santos',
-  },
-  {
-    id: '6',
-    conductionNumber: 'NLR4021',
-    vehicleName: 'NLR 4-Wheeler Aluminum Van',
-    salesAgent: 'Liza Cruz',
-    manager: 'Maria Santos',
-  },
-  {
-    id: '7',
-    conductionNumber: 'REL7744',
-    vehicleName: 'mu-X LS-A 4x4 AT',
-    salesAgent: 'Anna Lim',
-    manager: 'Carlos Garcia',
-  },
-]
 
 const requestedServiceOptions = [
   'Detailing',
@@ -210,13 +104,14 @@ const initialRequestForm = {
   notes: '',
 }
 
-const mobileNumberPattern = /^(09\d{9}|\+639\d{9})$/
-const vehicleHistoryStorageKey = 'itrack.vehicle-history.records'
-
 export default function PreparationPage() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
-  const [requests, setRequests] = React.useState<PreparationRequest[]>(mockRequests)
+  const currentUser = getSessionUser()
+  const [requests, setRequests] = React.useState<PreparationRequest[]>(loadPreparationRecords())
+  const [inventoryVehicles, setInventoryVehicles] = React.useState<InventoryVehicle[]>(
+    loadInventoryVehicles()
+  )
   const [selectedRequest, setSelectedRequest] = React.useState<PreparationRequest | null>(null)
   const [isNewRequestOpen, setIsNewRequestOpen] = React.useState(false)
   const [isViewDetailsOpen, setIsViewDetailsOpen] = React.useState(false)
@@ -226,6 +121,20 @@ export default function PreparationPage() {
   const [requestToDelete, setRequestToDelete] = React.useState<PreparationRequest | null>(null)
   const [requestToReadyForRelease, setRequestToReadyForRelease] =
     React.useState<PreparationRequest | null>(null)
+
+  React.useEffect(() => {
+    void Promise.all([
+      syncPreparationRecordsFromBackend(),
+      syncInventoryVehiclesFromBackend(),
+    ])
+      .then(([nextRequests, nextVehicles]) => {
+        setRequests(nextRequests)
+        setInventoryVehicles(nextVehicles)
+      })
+      .catch(() => {
+        return null
+      })
+  }, [])
 
   const scopedRequests = React.useMemo(
     () =>
@@ -239,46 +148,36 @@ export default function PreparationPage() {
 
   const scopedAvailableVehicleStocks = React.useMemo(
     () =>
-      availableVehicleStocks.filter(
+      inventoryVehicles
+        .filter((vehicle) => vehicle.status === 'available')
+        .map((vehicle) => ({
+          id: vehicle.id,
+          conductionNumber: vehicle.conductionNumber,
+          vehicleName: `${vehicle.unitName} ${vehicle.variation}`.trim(),
+          salesAgent: vehicle.assignedAgent,
+          manager: vehicle.manager,
+        }))
+        .filter(
         (vehicle) =>
           matchesScopedAgent(role, vehicle.salesAgent) &&
           matchesScopedManager(role, vehicle.manager)
       ),
-    [role]
+    [inventoryVehicles, role]
   )
 
-  const isValidMobileNumber = mobileNumberPattern.test(requestForm.contactNumber)
+  const isValidMobileNumber = isValidMobilePhoneNumber(requestForm.contactNumber)
 
   const selectedChecklist = React.useMemo<ChecklistItem[]>(() => {
     if (!selectedRequest) return []
 
-    const requestedTasks = selectedRequest.service
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-
-    const completedCount =
-      selectedRequest.status === 'completed' || selectedRequest.status === 'ready-for-release'
-        ? requestedTasks.length
-        : Math.min(
-            requestedTasks.length,
-            Math.floor((selectedRequest.progress / 100) * requestedTasks.length)
-          )
-
-    return requestedTasks.map((task, index) => ({
-      id: `${selectedRequest.id}-${index + 1}`,
-      task,
-      completed: index < completedCount,
-      completedBy:
-        index < completedCount
-          ? index % 2 === 0
-            ? 'Dispatcher: Mike R.'
-            : 'Dispatcher: Juan D.'
-          : undefined,
-      completedAt:
-        index < completedCount
-          ? `${selectedRequest.dateCreated} ${String(9 + index).padStart(2, '0')}:30`
-          : undefined,
+    return selectedRequest.dispatcherChecklist.map((item, index) => ({
+      id: item.id,
+      task: item.label,
+      completed: item.completed,
+      completedBy: item.completed ? 'Dispatcher' : undefined,
+      completedAt: item.completed
+        ? `${selectedRequest.dateCreated} ${String(9 + index).padStart(2, '0')}:30`
+        : undefined,
     }))
   }, [selectedRequest])
 
@@ -291,18 +190,21 @@ export default function PreparationPage() {
   }
 
   const openEditRequest = (request: PreparationRequest) => {
-    const selectedServices = request.service
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-
     setRequestBeingEdited(request)
     setRequestForm({
       vehicleId: '',
-      requestedServices: selectedServices.filter((item) =>
-        requestedServiceOptions.includes(item as (typeof requestedServiceOptions)[number])
-      ),
-      customRequests: selectedServices.filter(
+      requestedServices: request.requestedServices
+        .map((service) =>
+          service === 'ceramic_coating'
+            ? 'Ceramic Coating'
+            : service === 'rust_proof'
+            ? 'Rust Proof'
+            : service.charAt(0).toUpperCase() + service.slice(1).replace('_', ' ')
+        )
+        .filter((item) =>
+          requestedServiceOptions.includes(item as (typeof requestedServiceOptions)[number])
+        ),
+      customRequests: request.customRequests.filter(
         (item) => !requestedServiceOptions.includes(item as (typeof requestedServiceOptions)[number])
       ),
       customRequestInput: '',
@@ -342,41 +244,44 @@ export default function PreparationPage() {
     }))
   }
 
-  const submitRequest = () => {
+  const submitRequest = async () => {
     if (requestBeingEdited) {
       if (
         (requestForm.requestedServices.length === 0 && requestForm.customRequests.length === 0) ||
         !requestForm.customerName.trim() ||
         !isValidMobileNumber
       ) {
+        if (requestForm.contactNumber.trim() && !isValidMobileNumber) {
+          toast.error(MOBILE_PHONE_VALIDATION_MESSAGE)
+        }
         return
       }
 
-      const requestedServiceList = [...requestForm.requestedServices, ...requestForm.customRequests]
+      try {
+        const nextRequests = await updatePreparationRecord(requestBeingEdited.id, {
+          requestedServices: requestForm.requestedServices,
+          customRequests: requestForm.customRequests,
+          customerName: requestForm.customerName,
+          contactNumber: requestForm.contactNumber,
+          notes: requestForm.notes,
+        })
 
-      const updatedRequest: PreparationRequest = {
-        ...requestBeingEdited,
-        service: requestedServiceList.join(', '),
-        customerName: requestForm.customerName.trim(),
-        contactNumber: requestForm.contactNumber.trim(),
-        notes: requestForm.notes.trim(),
-        estimatedTime: requestedServiceList.length > 2 ? '1 day' : '3 hours',
+        const updatedRequest =
+          nextRequests.find((item) => item.id === requestBeingEdited.id) ?? null
+
+        setRequests(nextRequests)
+        setSelectedRequest(updatedRequest)
+        handleRequestDialogChange(false)
+        logAuditEvent({
+          user: getAuditActor(role),
+          action: 'UPDATE',
+          module: 'Preparation',
+          description: `Updated preparation request ${updatedRequest?.conductionNumber ?? requestBeingEdited.conductionNumber}.`,
+        })
+        toast.success('Preparation request updated.')
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Unable to update the preparation request.')
       }
-
-      setRequests((current) =>
-        current.map((item) => (item.id === requestBeingEdited.id ? updatedRequest : item))
-      )
-      setSelectedRequest((current) =>
-        current?.id === requestBeingEdited.id ? updatedRequest : current
-      )
-      handleRequestDialogChange(false)
-      logAuditEvent({
-        user: getAuditActor(role),
-        action: 'UPDATE',
-        module: 'Preparation',
-        description: `Updated preparation request ${updatedRequest.conductionNumber}.`,
-      })
-      toast.success('Preparation request updated.')
       return
     }
 
@@ -385,51 +290,54 @@ export default function PreparationPage() {
     )
 
     if (
+      !currentUser ||
       !selectedVehicle ||
       (requestForm.requestedServices.length === 0 && requestForm.customRequests.length === 0) ||
       !requestForm.customerName.trim() ||
       !isValidMobileNumber
     ) {
+      if (requestForm.contactNumber.trim() && !isValidMobileNumber) {
+        toast.error(MOBILE_PHONE_VALIDATION_MESSAGE)
+      }
       return
     }
 
-    const requestedServiceList = [...requestForm.requestedServices, ...requestForm.customRequests]
-    const nextStatus = role === 'admin' || role === 'supervisor' ? 'in-dispatch' : 'pending'
-    const nextRequest: PreparationRequest = {
-      id: `PR-${Date.now()}`,
-      dateCreated: new Date().toISOString().slice(0, 10),
-      conductionNumber: selectedVehicle.conductionNumber,
-      unitName: selectedVehicle.vehicleName,
-      service: requestedServiceList.join(', '),
-      salesAgent: selectedVehicle.salesAgent,
-      manager: selectedVehicle.manager,
-      customerName: requestForm.customerName.trim(),
-      contactNumber: requestForm.contactNumber.trim(),
-      status: nextStatus,
-      estimatedTime: requestedServiceList.length > 2 ? '1 day' : '3 hours',
-      progress: nextStatus === 'in-dispatch' ? 20 : 0,
-      notes: requestForm.notes.trim(),
-    }
+    try {
+      const nextRequests = await createPreparationRecord({
+        currentUser,
+        vehicleId: selectedVehicle.id,
+        requestedServices: requestForm.requestedServices,
+        customRequests: requestForm.customRequests,
+        customerName: requestForm.customerName,
+        contactNumber: requestForm.contactNumber,
+        notes: requestForm.notes,
+      })
 
-    setRequests((current) => [nextRequest, ...current])
-    handleRequestDialogChange(false)
-    logAuditEvent({
-      user: getAuditActor(role),
-      action: 'CREATE',
-      module: 'Preparation',
-      description: `Created preparation request for ${nextRequest.conductionNumber}.`,
-    })
-    toast.success(
-      nextStatus === 'in-dispatch'
-        ? 'Preparation request sent straight to Dispatch.'
-        : 'Preparation request submitted for admin/supervisor approval.'
-    )
+      const nextStatus = role === 'admin' || role === 'supervisor' ? 'in-dispatch' : 'pending'
+
+      setRequests(nextRequests)
+      handleRequestDialogChange(false)
+      logAuditEvent({
+        user: getAuditActor(role),
+        action: 'CREATE',
+        module: 'Preparation',
+        description: `Created preparation request for ${selectedVehicle.conductionNumber}.`,
+      })
+      toast.success(
+        nextStatus === 'in-dispatch'
+          ? 'Preparation request sent straight to Dispatch.'
+          : 'Preparation request submitted for admin/supervisor approval.'
+      )
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to create the preparation request.')
+    }
   }
 
-  const handleDeleteRequest = () => {
+  const handleDeleteRequest = async () => {
     if (!requestToDelete) return
 
-    setRequests((current) => current.filter((item) => item.id !== requestToDelete.id))
+    const nextRequests = await deletePreparationRecord(requestToDelete.id)
+    setRequests(nextRequests)
     setSelectedRequest((current) => (current?.id === requestToDelete.id ? null : current))
     setIsViewDetailsOpen(false)
     logAuditEvent({
@@ -442,31 +350,20 @@ export default function PreparationPage() {
     setRequestToDelete(null)
   }
 
-  const updateRequestStatus = (
-    request: PreparationRequest,
-    status: PreparationRequest['status']
-  ) => {
-    const updatedRequest: PreparationRequest = {
-      ...request,
-      status,
-      progress:
-        status === 'pending'
-          ? 0
-          : status === 'in-dispatch'
-          ? Math.max(request.progress, 20)
-          : status === 'completed' || status === 'ready-for-release'
-          ? 100
-          : request.progress,
-    }
+  const handleApproveRequest = async (request: PreparationRequest) => {
+    if (!currentUser) return
 
-    setRequests((current) =>
-      current.map((item) => (item.id === request.id ? updatedRequest : item))
-    )
-    setSelectedRequest((current) => (current?.id === request.id ? updatedRequest : current))
-  }
+    const nextRequests = await updatePreparationStatusRecord(request.id, {
+      status: 'in-dispatch',
+      progress: Math.max(request.progress, 20),
+      approvalStatus: 'approved',
+      approvedByRole: mapUserRoleToBackendRole(currentUser.role),
+      approvedByName: `${currentUser.firstName} ${currentUser.lastName}`.trim(),
+      approvedAt: new Date().toISOString(),
+    })
 
-  const handleApproveRequest = (request: PreparationRequest) => {
-    updateRequestStatus(request, 'in-dispatch')
+    setRequests(nextRequests)
+    setSelectedRequest(nextRequests.find((item) => item.id === request.id) ?? null)
     logAuditEvent({
       user: getAuditActor(role),
       action: 'UPDATE',
@@ -476,8 +373,20 @@ export default function PreparationPage() {
     toast.success('Preparation request approved and sent to Dispatch.')
   }
 
-  const handleRejectRequest = (request: PreparationRequest) => {
-    updateRequestStatus(request, 'rejected')
+  const handleRejectRequest = async (request: PreparationRequest) => {
+    if (!currentUser) return
+
+    const nextRequests = await updatePreparationStatusRecord(request.id, {
+      status: 'rejected',
+      progress: request.progress,
+      approvalStatus: 'rejected',
+      approvedByRole: mapUserRoleToBackendRole(currentUser.role),
+      approvedByName: `${currentUser.firstName} ${currentUser.lastName}`.trim(),
+      approvedAt: new Date().toISOString(),
+    })
+
+    setRequests(nextRequests)
+    setSelectedRequest(nextRequests.find((item) => item.id === request.id) ?? null)
     logAuditEvent({
       user: getAuditActor(role),
       action: 'UPDATE',
@@ -487,74 +396,17 @@ export default function PreparationPage() {
     toast.success('Preparation request rejected.')
   }
 
-  const handleReadyForRelease = () => {
+  const handleReadyForRelease = async () => {
     if (!requestToReadyForRelease) return
 
-    const releasedAt = new Date().toISOString().slice(0, 16).replace('T', ' ')
-    const preparationSteps = requestToReadyForRelease.service
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((task, index) => ({
-        task,
-        completedAt: `${requestToReadyForRelease.dateCreated} ${String(9 + index).padStart(2, '0')}:30`,
-      }))
+    const nextRequests = await updatePreparationStatusRecord(requestToReadyForRelease.id, {
+      status: 'ready-for-release',
+      progress: 100,
+      readyForReleaseAt: new Date().toISOString(),
+    })
 
-    const releasedHistoryRecord = {
-      id: `VH-${requestToReadyForRelease.id}`,
-      vehicleAddedAt: requestToReadyForRelease.dateCreated,
-      unitName: requestToReadyForRelease.unitName,
-      variation: '-',
-      conductionNumber: requestToReadyForRelease.conductionNumber,
-      bodyColor: '-',
-      deliveryPickupAt: requestToReadyForRelease.dateCreated,
-      preparationSteps,
-      agentAssigned: requestToReadyForRelease.salesAgent,
-      agentAssignedAt: requestToReadyForRelease.dateCreated,
-      customerName: requestToReadyForRelease.customerName,
-      customerContact: requestToReadyForRelease.contactNumber,
-      releasedAt,
-      status: 'released',
-      historyEvents: [
-        {
-          at: requestToReadyForRelease.dateCreated,
-          title: 'Vehicle preparation requested',
-          detail: `Preparation request created for ${requestToReadyForRelease.unitName}.`,
-        },
-        {
-          at: requestToReadyForRelease.dateCreated,
-          title: 'Agent assigned',
-          detail: `Handled by sales agent ${requestToReadyForRelease.salesAgent}.`,
-        },
-        {
-          at: requestToReadyForRelease.dateCreated,
-          title: 'Preparation dispatched',
-          detail: `Request endorsed to Dispatch for ${requestToReadyForRelease.service}.`,
-        },
-        {
-          at: releasedAt,
-          title: 'Vehicle released',
-          detail: `Released to ${requestToReadyForRelease.customerName}. Contact: ${requestToReadyForRelease.contactNumber}.`,
-        },
-      ],
-    }
-
-    if (typeof window !== 'undefined') {
-      const existingRecords = window.localStorage.getItem(vehicleHistoryStorageKey)
-      const parsedRecords = existingRecords ? JSON.parse(existingRecords) : []
-      window.localStorage.setItem(
-        vehicleHistoryStorageKey,
-        JSON.stringify([releasedHistoryRecord, ...parsedRecords])
-      )
-      window.dispatchEvent(new Event('vehicle-history-updated'))
-    }
-
-    setRequests((current) =>
-      current.filter((item) => item.id !== requestToReadyForRelease.id)
-    )
-    setSelectedRequest((current) =>
-      current?.id === requestToReadyForRelease.id ? null : current
-    )
+    setRequests(nextRequests)
+    setSelectedRequest(nextRequests.find((item) => item.id === requestToReadyForRelease.id) ?? null)
     setIsViewDetailsOpen(false)
     logAuditEvent({
       user: getAuditActor(role),

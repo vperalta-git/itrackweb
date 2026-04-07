@@ -38,282 +38,112 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { exportPdfReport } from '@/lib/export-pdf'
+import { BackendPopulatedUser, getEntityId } from '@/lib/backend-helpers'
+import {
+  deriveReleaseHistoryRecords,
+  fetchReportSnapshot,
+  type ReleaseHistoryRecord,
+  type ReleaseHistoryStatus,
+} from '@/lib/report-data'
 import { getRoleFromPathname } from '@/lib/rbac'
-import { getScopedRoleData, matchesScopedAgent } from '@/lib/role-scope'
+import { getSessionUser } from '@/lib/session'
 
-type VehicleLifecycleStatus = 'in-preparation' | 'ready-for-pickup' | 'released'
-
-interface PreparationStep {
-  task: string
-  completedAt: string
-}
-
-interface VehicleHistoryEvent {
-  at: string
-  title: string
-  detail: string
-}
-
-interface VehicleHistoryRecord {
-  id: string
-  vehicleAddedAt: string
-  unitName: string
-  variation: string
-  conductionNumber: string
-  bodyColor: string
-  deliveryPickupAt: string
-  preparationSteps: PreparationStep[]
-  agentAssigned: string
-  agentAssignedAt: string
-  customerName: string
-  customerContact: string
-  releasedAt: string
-  status: VehicleLifecycleStatus
-  historyEvents: VehicleHistoryEvent[]
-}
-
-const vehicleHistoryStorageKey = 'itrack.vehicle-history.records'
-
-const vehicleHistoryRecords: VehicleHistoryRecord[] = [
-  {
-    id: 'VH-001',
-    vehicleAddedAt: '2024-01-15 08:30',
-    unitName: 'mu-X',
-    variation: 'LS-E 4x2 AT',
-    conductionNumber: 'ABC1234',
-    bodyColor: 'Silky White Pearl',
-    deliveryPickupAt: '2024-01-20 14:00',
-    preparationSteps: [
-      { task: 'Exterior wash and polish', completedAt: '2024-01-21 09:10' },
-      { task: 'Interior detailing', completedAt: '2024-01-21 10:25' },
-      { task: 'Tint installation', completedAt: '2024-01-21 13:40' },
-      { task: 'Final inspection', completedAt: '2024-01-21 16:00' },
-    ],
-    agentAssigned: 'Juan Dela Cruz',
-    agentAssignedAt: '2024-01-19 11:15',
-    customerName: 'Andrea Villanueva',
-    customerContact: '09171234567',
-    releasedAt: '2024-01-22 15:30',
-    status: 'released',
-    historyEvents: [
-      {
-        at: '2024-01-15 08:30',
-        title: 'Vehicle added',
-        detail: 'Unit entered inventory as mu-X LS-E 4x2 AT in Silky White Pearl.',
-      },
-      {
-        at: '2024-01-19 11:15',
-        title: 'Agent assigned',
-        detail: 'Assigned to sales agent Juan Dela Cruz.',
-      },
-      {
-        at: '2024-01-20 14:00',
-        title: 'Delivery pickup scheduled',
-        detail: 'Vehicle pulled for delivery and preparation handling.',
-      },
-      {
-        at: '2024-01-21 16:00',
-        title: 'Preparation completed',
-        detail: 'Wash, detailing, tinting, and final inspection completed.',
-      },
-      {
-        at: '2024-01-22 15:30',
-        title: 'Vehicle released',
-        detail: 'Released to Andrea Villanueva. Contact: 09171234567.',
-      },
-    ],
-  },
-  {
-    id: 'VH-002',
-    vehicleAddedAt: '2024-01-18 09:05',
-    unitName: 'D-Max',
-    variation: 'LS 4x4 MT',
-    conductionNumber: 'TRN5566',
-    bodyColor: 'Obsidian Gray',
-    deliveryPickupAt: '2024-01-24 08:45',
-    preparationSteps: [
-      { task: 'Exterior wash and polish', completedAt: '2024-01-24 10:00' },
-      { task: 'Rust proof application', completedAt: '2024-01-24 13:20' },
-      { task: 'Accessories installation', completedAt: '2024-01-25 09:15' },
-    ],
-    agentAssigned: 'Pedro Reyes',
-    agentAssignedAt: '2024-01-22 16:30',
-    customerName: 'Mark Anthony Lopez',
-    customerContact: '09184567890',
-    releasedAt: 'Pending release',
-    status: 'in-preparation',
-    historyEvents: [
-      {
-        at: '2024-01-18 09:05',
-        title: 'Vehicle added',
-        detail: 'Unit entered inventory as D-Max LS 4x4 MT in Obsidian Gray.',
-      },
-      {
-        at: '2024-01-22 16:30',
-        title: 'Agent assigned',
-        detail: 'Assigned to sales agent Pedro Reyes.',
-      },
-      {
-        at: '2024-01-24 08:45',
-        title: 'Delivery pickup started',
-        detail: 'Vehicle pulled from yard for preparation and turnover processing.',
-      },
-      {
-        at: '2024-01-25 09:15',
-        title: 'Preparation in progress',
-        detail: 'Wash, rust proofing, and accessories installation already completed.',
-      },
-    ],
-  },
-  {
-    id: 'VH-003',
-    vehicleAddedAt: '2024-01-20 10:10',
-    unitName: 'mu-X',
-    variation: 'RZ4E 4x2 AT',
-    conductionNumber: 'LAG8821',
-    bodyColor: 'Sapphire Blue',
-    deliveryPickupAt: '2024-02-03 13:30',
-    preparationSteps: [
-      { task: 'Exterior wash and polish', completedAt: '2024-02-03 15:00' },
-      { task: 'Interior deep cleaning', completedAt: '2024-02-03 16:20' },
-      { task: 'Engine bay cleaning', completedAt: '2024-02-04 08:40' },
-      { task: 'Quality assurance inspection', completedAt: '2024-02-04 11:10' },
-    ],
-    agentAssigned: 'Anna Lim',
-    agentAssignedAt: '2024-02-01 10:50',
-    customerName: 'Catherine Ramos',
-    customerContact: '09192345678',
-    releasedAt: '2024-02-04 17:45',
-    status: 'released',
-    historyEvents: [
-      {
-        at: '2024-01-20 10:10',
-        title: 'Vehicle added',
-        detail: 'Unit entered inventory as mu-X RZ4E 4x2 AT in Sapphire Blue.',
-      },
-      {
-        at: '2024-02-01 10:50',
-        title: 'Agent assigned',
-        detail: 'Assigned to sales agent Anna Lim.',
-      },
-      {
-        at: '2024-02-03 13:30',
-        title: 'Delivery pickup scheduled',
-        detail: 'Vehicle endorsed for customer pickup preparation.',
-      },
-      {
-        at: '2024-02-04 11:10',
-        title: 'Preparation completed',
-        detail: 'Cleaning and quality assurance checklist finished.',
-      },
-      {
-        at: '2024-02-04 17:45',
-        title: 'Vehicle released',
-        detail: 'Released to Catherine Ramos. Contact: 09192345678.',
-      },
-    ],
-  },
-  {
-    id: 'VH-004',
-    vehicleAddedAt: '2024-02-01 08:20',
-    unitName: 'mu-X',
-    variation: 'LS-A 4x4 AT',
-    conductionNumber: 'REL7744',
-    bodyColor: 'Cosmic Black',
-    deliveryPickupAt: '2024-02-05 09:00',
-    preparationSteps: [
-      { task: 'Exterior wash and polish', completedAt: '2024-02-05 09:45' },
-      { task: 'Interior detailing', completedAt: '2024-02-05 11:05' },
-      { task: 'Accessories fitment', completedAt: '2024-02-05 14:30' },
-      { task: 'Final inspection', completedAt: '2024-02-05 16:10' },
-    ],
-    agentAssigned: 'Anna Lim',
-    agentAssignedAt: '2024-02-03 14:25',
-    customerName: 'Josefina Mendoza',
-    customerContact: '09201234567',
-    releasedAt: '2024-02-06 10:20',
-    status: 'released',
-    historyEvents: [
-      {
-        at: '2024-02-01 08:20',
-        title: 'Vehicle added',
-        detail: 'Unit entered inventory as mu-X LS-A 4x4 AT in Cosmic Black.',
-      },
-      {
-        at: '2024-02-03 14:25',
-        title: 'Agent assigned',
-        detail: 'Assigned to sales agent Anna Lim.',
-      },
-      {
-        at: '2024-02-05 09:00',
-        title: 'Delivery pickup started',
-        detail: 'Vehicle moved to dispatch area for customer turnover.',
-      },
-      {
-        at: '2024-02-05 16:10',
-        title: 'Preparation completed',
-        detail: 'Detailing, accessories fitment, and inspection completed.',
-      },
-      {
-        at: '2024-02-06 10:20',
-        title: 'Vehicle released',
-        detail: 'Released to Josefina Mendoza. Contact: 09201234567.',
-      },
-    ],
-  },
-]
-
-const statusLabels: Record<VehicleLifecycleStatus, string> = {
+const statusLabels: Record<ReleaseHistoryStatus, string> = {
   'in-preparation': 'In Preparation',
   'ready-for-pickup': 'Ready for Pickup',
   released: 'Released',
 }
 
-const statusBadgeClasses: Record<VehicleLifecycleStatus, string> = {
+const statusBadgeClasses: Record<ReleaseHistoryStatus, string> = {
   'in-preparation': 'border-warning/30 bg-warning/10 text-warning',
   'ready-for-pickup': 'border-info/30 bg-info/10 text-info',
   released: 'border-success/30 bg-success/10 text-success',
 }
 
-const buildPreparationSummary = (steps: PreparationStep[]) =>
+const buildPreparationSummary = (steps: ReleaseHistoryRecord['preparationSteps']) =>
   steps.map((step) => `${step.completedAt} - ${step.task}`).join('\n')
 
-const buildHistorySummary = (events: VehicleHistoryEvent[]) =>
+const buildHistorySummary = (events: ReleaseHistoryRecord['historyEvents']) =>
   events.map((event) => `${event.at} - ${event.title}: ${event.detail}`).join('\n')
+
+const getFullName = (value?: { firstName?: string; lastName?: string } | null) =>
+  `${value?.firstName ?? ''} ${value?.lastName ?? ''}`.trim()
 
 export default function VehicleHistoryPage() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
-  const scope = getScopedRoleData(role)
-  const [dynamicHistoryRecords, setDynamicHistoryRecords] = React.useState<VehicleHistoryRecord[]>([])
-  const [statusFilter, setStatusFilter] = React.useState<'all' | VehicleLifecycleStatus>('all')
+  const sessionUser = getSessionUser()
+  const currentUserName = React.useMemo(
+    () => getFullName(sessionUser),
+    [sessionUser]
+  )
+  const [users, setUsers] = React.useState<BackendPopulatedUser[]>([])
+  const [records, setRecords] = React.useState<ReleaseHistoryRecord[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [statusFilter, setStatusFilter] = React.useState<'all' | ReleaseHistoryStatus>('all')
   const [searchTerm, setSearchTerm] = React.useState('')
   const [currentPage, setCurrentPage] = React.useState(1)
   const [itemsPerPage, setItemsPerPage] = React.useState(10)
-  const [selectedRecord, setSelectedRecord] = React.useState<VehicleHistoryRecord | null>(null)
+  const [selectedRecord, setSelectedRecord] = React.useState<ReleaseHistoryRecord | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = React.useState(false)
 
   React.useEffect(() => {
-    const loadDynamicHistory = () => {
-      if (typeof window === 'undefined') return
-      const storedRecords = window.localStorage.getItem(vehicleHistoryStorageKey)
-      setDynamicHistoryRecords(storedRecords ? JSON.parse(storedRecords) : [])
+    let isMounted = true
+
+    const loadHistory = async () => {
+      setIsLoading(true)
+
+      try {
+        const snapshot = await fetchReportSnapshot()
+        if (!isMounted) return
+
+        setUsers(snapshot.users)
+        setRecords(deriveReleaseHistoryRecords(snapshot))
+      } catch {
+        if (!isMounted) return
+        setUsers([])
+        setRecords([])
+      } finally {
+        if (isMounted) {
+          setIsLoading(false)
+        }
+      }
     }
 
-    loadDynamicHistory()
-    window.addEventListener('vehicle-history-updated', loadDynamicHistory)
+    void loadHistory()
 
     return () => {
-      window.removeEventListener('vehicle-history-updated', loadDynamicHistory)
+      isMounted = false
     }
   }, [])
 
+  const scopedAgentNames = React.useMemo(() => {
+    if (role === 'manager') {
+      return users
+        .filter(
+          (user) => user.role === 'sales_agent' && getEntityId(user.managerId) === sessionUser?.id
+        )
+        .map(getFullName)
+        .filter(Boolean)
+    }
+
+    if (role === 'sales-agent') {
+      return currentUserName ? [currentUserName] : []
+    }
+
+    return []
+  }, [currentUserName, role, sessionUser?.id, users])
+
   const filteredRecords = React.useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase()
-    const mergedRecords = [...dynamicHistoryRecords, ...vehicleHistoryRecords]
 
-    return mergedRecords.filter((record) => {
-      const matchesScope = matchesScopedAgent(role, record.agentAssigned)
+    return records.filter((record) => {
+      const matchesScope =
+        role === 'admin' || role === 'supervisor'
+          ? true
+          : role === 'manager'
+          ? scopedAgentNames.includes(record.agentAssigned)
+          : record.agentAssigned === currentUserName
       const matchesReleasedScope =
         role === 'admin' || role === 'supervisor' ? true : record.status === 'released'
       const matchesStatus = statusFilter === 'all' || record.status === statusFilter
@@ -332,7 +162,7 @@ export default function VehicleHistoryPage() {
 
       return matchesScope && matchesReleasedScope && matchesStatus && matchesSearch
     })
-  }, [dynamicHistoryRecords, role, searchTerm, statusFilter])
+  }, [currentUserName, records, role, scopedAgentNames, searchTerm, statusFilter])
 
   const totalReleased = filteredRecords.filter((record) => record.status === 'released').length
   const totalPreparationSteps = filteredRecords.reduce(
@@ -358,11 +188,11 @@ export default function VehicleHistoryPage() {
   const handleExportPdf = () => {
     exportPdfReport({
       title: 'Release History Report',
-      subtitle: 'Complete unit history from inventory entry to release',
+      subtitle: 'Complete unit history from backend preparation and release records',
       filename: 'vehicle-history-report',
       layout: 'cards',
-      recordTitle: (row) => `${row.conductionNumber} • ${row.unitName}`,
-      recordSubtitle: (row) => `${row.variation} • ${row.bodyColor}`,
+      recordTitle: (row) => `${row.conductionNumber} - ${row.unitName}`,
+      recordSubtitle: (row) => `${row.variation} - ${row.bodyColor}`,
       columns: [
         { header: 'Vehicle Added', value: (row) => row.vehicleAddedAt },
         { header: 'Conduction Number', value: (row) => row.conductionNumber },
@@ -378,19 +208,19 @@ export default function VehicleHistoryPage() {
     })
   }
 
-  const handleOpenDetails = (record: VehicleHistoryRecord) => {
+  const handleOpenDetails = (record: ReleaseHistoryRecord) => {
     setSelectedRecord(record)
     setIsDetailsOpen(true)
   }
 
-  const handleExportSingleRecord = (record: VehicleHistoryRecord) => {
+  const handleExportSingleRecord = (record: ReleaseHistoryRecord) => {
     exportPdfReport({
       title: 'Release History Report',
-      subtitle: 'Complete unit history from inventory entry to release',
+      subtitle: 'Complete unit history from backend preparation and release records',
       filename: `vehicle-history-${record.conductionNumber.toLowerCase()}`,
       layout: 'cards',
-      recordTitle: (row) => `${row.conductionNumber} • ${row.unitName}`,
-      recordSubtitle: (row) => `${row.variation} • ${row.bodyColor}`,
+      recordTitle: (row) => `${row.conductionNumber} - ${row.unitName}`,
+      recordSubtitle: (row) => `${row.variation} - ${row.bodyColor}`,
       columns: [
         { header: 'Vehicle Added', value: (row) => row.vehicleAddedAt },
         { header: 'Conduction Number', value: (row) => row.conductionNumber },
@@ -418,13 +248,13 @@ export default function VehicleHistoryPage() {
         title="Release History"
         description={
           role === 'admin' || role === 'supervisor'
-            ? 'Complete release history with dated events from inventory entry up to release'
+            ? 'Complete release history with dated events from backend preparation records'
             : role === 'manager'
-            ? `Release history for released units handled by agents under ${scope.managerName}`
-            : `Release history for ${scope.agentName}`
+            ? `Release history for released units handled by agents under ${currentUserName || 'your team'}`
+            : `Release history for ${currentUserName || 'your account'}`
         }
       >
-        <Button variant="outline" onClick={handleExportPdf}>
+        <Button variant="outline" onClick={handleExportPdf} disabled={filteredRecords.length === 0}>
           <FileDown className="mr-2 size-4" />
           Export Report
         </Button>
@@ -473,7 +303,7 @@ export default function VehicleHistoryPage() {
         />
         <Select
           value={statusFilter}
-          onValueChange={(value) => setStatusFilter(value as 'all' | VehicleLifecycleStatus)}
+          onValueChange={(value) => setStatusFilter(value as 'all' | ReleaseHistoryStatus)}
         >
           <SelectTrigger className="w-full lg:w-52">
             <SelectValue />
@@ -493,7 +323,9 @@ export default function VehicleHistoryPage() {
             <div>
               <CardTitle className="text-base">Release History List</CardTitle>
               <CardDescription>
-                Showing {paginatedRecords.length} of {filteredRecords.length} record{filteredRecords.length === 1 ? '' : 's'}
+                {isLoading
+                  ? 'Loading backend release history...'
+                  : `Showing ${paginatedRecords.length} of ${filteredRecords.length} record${filteredRecords.length === 1 ? '' : 's'}`}
               </CardDescription>
             </div>
             <div className="text-sm text-muted-foreground">
@@ -502,78 +334,82 @@ export default function VehicleHistoryPage() {
           </div>
         </CardHeader>
         <CardContent className="px-0">
-        {filteredRecords.length === 0 ? (
+          {isLoading ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              Loading release history records...
+            </div>
+          ) : filteredRecords.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
               No release history records match the current filters.
             </div>
-        ) : (
-          paginatedRecords.map((record) => (
-            <div key={record.id} className="border-b px-5 py-4 last:border-b-0">
-              <div className="rounded-xl border bg-background p-4">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0 space-y-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-base font-semibold text-primary">{record.conductionNumber}</p>
-                      <Badge variant="outline" className={statusBadgeClasses[record.status]}>
-                        {statusLabels[record.status]}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {record.unitName} {record.variation} in {record.bodyColor}
-                    </p>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                          Added
-                        </p>
-                        <p className="mt-1 text-sm font-medium">{record.vehicleAddedAt}</p>
+          ) : (
+            paginatedRecords.map((record) => (
+              <div key={record.id} className="border-b px-5 py-4 last:border-b-0">
+                <div className="rounded-xl border bg-background p-4">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0 space-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-base font-semibold text-primary">{record.conductionNumber}</p>
+                        <Badge variant="outline" className={statusBadgeClasses[record.status]}>
+                          {statusLabels[record.status]}
+                        </Badge>
                       </div>
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                          Pickup
-                        </p>
-                        <p className="mt-1 text-sm font-medium">{record.deliveryPickupAt}</p>
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                          Agent
-                        </p>
-                        <p className="mt-1 text-sm font-medium">{record.agentAssigned}</p>
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                          Customer
-                        </p>
-                        <p className="mt-1 text-sm font-medium">{record.customerName}</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-3">
-                    <div className="rounded-lg border bg-muted/20 px-3 py-2 text-right">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                        Released
+                      <p className="text-sm text-muted-foreground">
+                        {record.unitName} {record.variation} in {record.bodyColor}
                       </p>
-                      <p className="mt-1 text-sm font-medium">{record.releasedAt}</p>
+                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-lg border bg-muted/20 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                            Added
+                          </p>
+                          <p className="mt-1 text-sm font-medium">{record.vehicleAddedAt}</p>
+                        </div>
+                        <div className="rounded-lg border bg-muted/20 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                            Pickup
+                          </p>
+                          <p className="mt-1 text-sm font-medium">{record.deliveryPickupAt}</p>
+                        </div>
+                        <div className="rounded-lg border bg-muted/20 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                            Agent
+                          </p>
+                          <p className="mt-1 text-sm font-medium">{record.agentAssigned}</p>
+                        </div>
+                        <div className="rounded-lg border bg-muted/20 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                            Customer
+                          </p>
+                          <p className="mt-1 text-sm font-medium">{record.customerName}</p>
+                        </div>
+                      </div>
                     </div>
-                    <Button variant="outline" onClick={() => handleExportSingleRecord(record)}>
-                      <FileDown className="mr-2 size-4" />
-                      Export Report
-                    </Button>
-                    <Button onClick={() => handleOpenDetails(record)}>
-                      <Eye className="mr-2 size-4" />
-                      View Details
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <div className="rounded-lg border bg-muted/20 px-3 py-2 text-right">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          Released
+                        </p>
+                        <p className="mt-1 text-sm font-medium">{record.releasedAt}</p>
+                      </div>
+                      <Button variant="outline" onClick={() => handleExportSingleRecord(record)}>
+                        <FileDown className="mr-2 size-4" />
+                        Export Report
+                      </Button>
+                      <Button onClick={() => handleOpenDetails(record)}>
+                        <Eye className="mr-2 size-4" />
+                        View Details
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))
-        )}
+            ))
+          )}
         </CardContent>
       </Card>
 
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <DialogContent className="w-[96vw] max-w-[96vw] sm:!max-w-[1600px] overflow-hidden p-0">
+        <DialogContent className="w-[96vw] max-w-[96vw] overflow-hidden p-0 sm:!max-w-[1600px]">
           <DialogHeader className="border-b bg-gradient-to-r from-background via-muted/15 to-accent/20 px-6 py-5">
             <DialogTitle>Release History Details</DialogTitle>
             <DialogDescription>
@@ -683,20 +519,26 @@ export default function VehicleHistoryPage() {
                       Preparation Done
                     </h3>
                     <div className="mt-4 grid gap-3">
-                      {selectedRecord.preparationSteps.map((step, index) => (
-                        <div
-                          key={`${selectedRecord.id}-${step.task}`}
-                          className="flex items-start gap-3 rounded-xl border border-success/15 bg-success/5 p-3"
-                        >
-                          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-success/15 text-xs font-semibold text-success">
-                            {index + 1}
+                      {selectedRecord.preparationSteps.length > 0 ? (
+                        selectedRecord.preparationSteps.map((step, index) => (
+                          <div
+                            key={`${selectedRecord.id}-${step.task}`}
+                            className="flex items-start gap-3 rounded-xl border border-success/15 bg-success/5 p-3"
+                          >
+                            <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-success/15 text-xs font-semibold text-success">
+                              {index + 1}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">{step.task}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{step.completedAt}</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-sm font-medium">{step.task}</p>
-                            <p className="mt-1 text-xs text-muted-foreground">{step.completedAt}</p>
-                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                          No completed checklist items were stored for this release.
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
                 </div>
@@ -708,7 +550,7 @@ export default function VehicleHistoryPage() {
                   <div className="mt-4 space-y-4">
                     {selectedRecord.historyEvents.map((event, index) => (
                       <div
-                        key={`${selectedRecord.id}-${event.at}-${event.title}`}
+                        key={`${selectedRecord.id}-${event.atIso}-${event.title}`}
                         className="flex gap-4 rounded-xl border bg-muted/10 p-3"
                       >
                         <div className="flex flex-col items-center">

@@ -1,3 +1,5 @@
+import { getSessionUser } from '@/lib/session'
+import { loadUsers } from '@/lib/user-data'
 import type { Role } from '@/lib/rbac'
 
 export type ScopedRoleData = {
@@ -7,53 +9,64 @@ export type ScopedRoleData = {
   agentNames: string[]
 }
 
-const managerAgentMap: Record<string, string[]> = {
-  'Carlos Garcia': ['Juan Dela Cruz', 'Anna Lim', 'Pedro Reyes'],
-  'Maria Santos': ['Mike Santos', 'Liza Cruz', 'Robert Mendoza'],
-}
+const getUserName = (input: { firstName?: string; lastName?: string } | null | undefined) =>
+  `${input?.firstName ?? ''} ${input?.lastName ?? ''}`.trim()
 
 export function getScopedRoleData(role: Role): ScopedRoleData {
+  const sessionUser = getSessionUser()
+  const currentUserName = getUserName(sessionUser)
+  const allUsers = loadUsers()
+
   if (role === 'manager') {
+    const agentNames = allUsers
+      .filter((user) => user.role === 'sales-agent' && user.managerId === sessionUser?.id)
+      .map((user) => getUserName(user))
+      .filter(Boolean)
+
     return {
       roleTitle: 'Manager',
-      managerName: 'Carlos Garcia',
-      agentNames: managerAgentMap['Carlos Garcia'],
+      managerName: currentUserName,
+      agentNames,
     }
   }
 
   if (role === 'sales-agent') {
     return {
       roleTitle: 'Sales Agent',
-      managerName: 'Carlos Garcia',
-      agentName: 'Juan Dela Cruz',
-      agentNames: ['Juan Dela Cruz'],
+      managerName: sessionUser?.managerName ?? undefined,
+      agentName: currentUserName,
+      agentNames: currentUserName ? [currentUserName] : [],
     }
   }
 
   return {
     roleTitle: role === 'supervisor' ? 'Supervisor' : 'Admin',
-    agentNames: Object.values(managerAgentMap).flat(),
+    agentNames: allUsers
+      .filter((user) => user.role === 'sales-agent')
+      .map((user) => getUserName(user))
+      .filter(Boolean),
   }
 }
 
 export function matchesScopedAgent(role: Role, agentName?: string | null) {
   if (!agentName) return role === 'admin' || role === 'supervisor'
 
-  const scope = getScopedRoleData(role)
-
   if (role === 'admin' || role === 'supervisor') return true
 
-  return scope.agentNames.includes(agentName)
+  const scope = getScopedRoleData(role)
+
+  if (role === 'manager') {
+    return scope.agentNames.length === 0 || scope.agentNames.includes(agentName)
+  }
+
+  return scope.agentName === agentName
 }
 
 export function matchesScopedManager(role: Role, managerName?: string | null) {
   if (!managerName) return role === 'admin' || role === 'supervisor'
 
-  const scope = getScopedRoleData(role)
-
   if (role === 'admin' || role === 'supervisor') return true
 
-  if (role === 'manager') return scope.managerName === managerName
-
+  const scope = getScopedRoleData(role)
   return scope.managerName === managerName
 }

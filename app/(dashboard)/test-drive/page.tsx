@@ -20,26 +20,24 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { getAuditActor, logAuditEvent } from '@/lib/audit-log'
 import { exportPdfReport } from '@/lib/export-pdf'
+import {
+  isValidMobilePhoneNumber,
+  MOBILE_PHONE_VALIDATION_MESSAGE,
+} from '@/lib/phone'
 import { getRoleFromPathname, type Role } from '@/lib/rbac'
 import { getScopedRoleData, matchesScopedAgent } from '@/lib/role-scope'
+import {
+  createTestDriveRecord,
+  deleteTestDriveRecord,
+  loadTestDriveRecords,
+  syncTestDriveRecordsFromBackend,
+  syncTestDriveVehiclesFromBackend,
+  type TestDriveRequestRecord as TestDriveRequest,
+  updateTestDriveRecord,
+  updateTestDriveStatusRecord,
+} from '@/lib/test-drive-data'
+import { getSessionUser } from '@/lib/session'
 import { toast } from 'sonner'
-
-interface TestDriveRequest {
-  id: string
-  requestNumber: string
-  customerName: string
-  customerPhone: string
-  customerEmail?: string
-  vehicleStockNumber: string
-  vehicleName: string
-  scheduledDate: string
-  scheduledTime: string
-  salesAgent: string
-  requestedByName: string
-  requestedByRole: Role
-  status: 'pending' | 'approved' | 'completed' | 'cancelled' | 'no-show'
-  notes: string
-}
 
 interface TestDriveVehicle {
   id: string
@@ -57,30 +55,16 @@ type FormState = {
   notes: string
 }
 
-const requestsSeed: TestDriveRequest[] = [
-  { id: '1', requestNumber: 'TD-2024-001', customerName: 'Maria Clara Santos', customerPhone: '+63 917 111 2222', customerEmail: 'maria.santos@email.com', vehicleStockNumber: 'IP-2024-001', vehicleName: 'Isuzu mu-X LS-E 4x2 AT', scheduledDate: '2024-02-06', scheduledTime: '10:00 AM', salesAgent: 'Juan Dela Cruz', requestedByName: 'Juan Dela Cruz', requestedByRole: 'sales-agent', status: 'approved', notes: 'First time buyer, interested in SUV' },
-  { id: '2', requestNumber: 'TD-2024-002', customerName: 'Roberto Fernandez', customerPhone: '+63 918 222 3333', customerEmail: 'roberto.f@email.com', vehicleStockNumber: 'IP-2024-007', vehicleName: 'Isuzu mu-X LS-A 4x4 AT', scheduledDate: '2024-02-06', scheduledTime: '2:00 PM', salesAgent: 'Anna Lim', requestedByName: 'Carlos Garcia', requestedByRole: 'manager', status: 'pending', notes: 'Upgrading from old SUV' },
-  { id: '3', requestNumber: 'TD-2024-003', customerName: 'Christine Reyes', customerPhone: '+63 919 333 4444', customerEmail: 'christine.r@email.com', vehicleStockNumber: 'IP-2024-002', vehicleName: 'Isuzu D-Max LS 4x4 MT', scheduledDate: '2024-02-05', scheduledTime: '11:00 AM', salesAgent: 'Pedro Reyes', requestedByName: 'Pedro Reyes', requestedByRole: 'sales-agent', status: 'completed', notes: 'Very interested, follow up tomorrow' },
-  { id: '4', requestNumber: 'TD-2024-004', customerName: 'Antonio Garcia', customerPhone: '+63 920 444 5555', customerEmail: 'antonio.g@email.com', vehicleStockNumber: 'IP-2024-004', vehicleName: 'Isuzu Traviz L Utility Van', scheduledDate: '2024-02-04', scheduledTime: '3:00 PM', salesAgent: 'Juan Dela Cruz', requestedByName: 'Juan Dela Cruz', requestedByRole: 'sales-agent', status: 'no-show', notes: 'Did not show up, attempted to contact' },
-]
-
-const vehicles: TestDriveVehicle[] = [
-  { id: 'ip-001', vehicleStockNumber: 'ABC1234', vehicleName: 'Isuzu mu-X LS-E 4x2 AT', status: 'available', allocatedTo: 'Juan Dela Cruz' },
-  { id: 'ip-006', vehicleStockNumber: 'NLR4021', vehicleName: 'Isuzu NLR 4-Wheeler Aluminum Van', status: 'available', allocatedTo: null },
-  { id: 'ip-009', vehicleStockNumber: 'AVA5512', vehicleName: 'Isuzu D-Max LS 4x2 AT', status: 'available', allocatedTo: null },
-  { id: 'ip-010', vehicleStockNumber: 'TRN5566', vehicleName: 'Isuzu D-Max LS 4x4 MT', status: 'pending', allocatedTo: 'Pedro Reyes' },
-]
-
 const emptyForm: FormState = { customerName: '', customerPhone: '', vehicleId: '', scheduledAt: '', notes: '' }
 const isApprover = (role: Role) => role === 'admin' || role === 'supervisor'
-const formatDate = (value: string) => new Intl.DateTimeFormat('en-PH', { month: 'short', day: '2-digit', year: 'numeric' }).format(new Date(value))
-const formatTime = (value: string) => new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(value))
 
 export default function TestDrivePage() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
   const scope = getScopedRoleData(role)
-  const [testDrives, setTestDrives] = React.useState(requestsSeed)
+  const currentUser = getSessionUser()
+  const [testDrives, setTestDrives] = React.useState<TestDriveRequest[]>(loadTestDriveRecords())
+  const [vehicles, setVehicles] = React.useState<TestDriveVehicle[]>([])
   const [selected, setSelected] = React.useState<TestDriveRequest | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [sheetOpen, setSheetOpen] = React.useState(false)
@@ -91,9 +75,29 @@ export default function TestDrivePage() {
   const [statusFilter, setStatusFilter] = React.useState('all')
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [form, setForm] = React.useState<FormState>(emptyForm)
+  const todayLabel = React.useMemo(
+    () =>
+      new Intl.DateTimeFormat('en-PH', {
+        month: 'short',
+        day: '2-digit',
+        year: 'numeric',
+      }).format(new Date()),
+    []
+  )
 
-  const requesterName = role === 'manager' ? scope.managerName ?? 'Manager' : role === 'sales-agent' ? scope.agentName ?? 'Sales Agent' : role === 'supervisor' ? 'Supervisor' : 'Administrator'
-  const ownerAgent = role === 'sales-agent' ? scope.agentName ?? 'Sales Agent' : role === 'manager' ? scope.agentNames[0] ?? scope.managerName ?? 'Manager' : 'Admin Pool'
+  React.useEffect(() => {
+    void Promise.all([
+      syncTestDriveRecordsFromBackend(),
+      syncTestDriveVehiclesFromBackend(),
+    ])
+      .then(([nextTestDrives, nextVehicles]) => {
+        setTestDrives(nextTestDrives)
+        setVehicles(nextVehicles)
+      })
+      .catch(() => {
+        return null
+      })
+  }, [])
 
   const scoped = React.useMemo(() => testDrives.filter((request) => {
     if (role === 'admin' || role === 'supervisor') return true
@@ -143,17 +147,14 @@ export default function TestDrivePage() {
     setForm({ customerName: request.customerName, customerPhone: request.customerPhone, vehicleId: vehicle?.id ?? '', scheduledAt: new Date(`${request.scheduledDate} ${request.scheduledTime}`).toISOString().slice(0, 16), notes: request.notes })
     setDialogOpen(true)
   }
-  const updateStatus = (id: string, status: TestDriveRequest['status']) => {
-    setTestDrives((current) => current.map((request) => request.id === id ? { ...request, status } : request))
-    setSelected((current) => current && current.id === id ? { ...current, status } : current)
-  }
-  const removeRequest = (id: string) => {
-    setTestDrives((current) => current.filter((request) => request.id !== id))
-    if (selected?.id === id) { setSelected(null); setSheetOpen(false) }
-  }
-  const confirmDeleteRequest = () => {
+  const confirmDeleteRequest = async () => {
     if (!requestToDelete) return
-    removeRequest(requestToDelete.id)
+    const nextRequests = await deleteTestDriveRecord(requestToDelete.id)
+    setTestDrives(nextRequests)
+    if (selected?.id === requestToDelete.id) {
+      setSelected(null)
+      setSheetOpen(false)
+    }
     logAuditEvent({
       user: getAuditActor(role),
       action: 'DELETE',
@@ -163,9 +164,11 @@ export default function TestDrivePage() {
     setRequestToDelete(null)
     toast.success('Test drive request deleted.')
   }
-  const confirmApproveRequest = () => {
+  const confirmApproveRequest = async () => {
     if (!requestToApprove) return
-    updateStatus(requestToApprove.id, 'approved')
+    const nextRequests = await updateTestDriveStatusRecord(requestToApprove.id, 'approved')
+    setTestDrives(nextRequests)
+    setSelected(nextRequests.find((request) => request.id === requestToApprove.id) ?? null)
     logAuditEvent({
       user: getAuditActor(role),
       action: 'UPDATE',
@@ -175,9 +178,11 @@ export default function TestDrivePage() {
     setRequestToApprove(null)
     toast.success('Test drive request approved.')
   }
-  const confirmRejectRequest = () => {
+  const confirmRejectRequest = async () => {
     if (!requestToReject) return
-    updateStatus(requestToReject.id, 'cancelled')
+    const nextRequests = await updateTestDriveStatusRecord(requestToReject.id, 'cancelled')
+    setTestDrives(nextRequests)
+    setSelected(nextRequests.find((request) => request.id === requestToReject.id) ?? null)
     logAuditEvent({
       user: getAuditActor(role),
       action: 'UPDATE',
@@ -187,9 +192,11 @@ export default function TestDrivePage() {
     setRequestToReject(null)
     toast.success('Test drive request rejected.')
   }
-  const confirmCompleteRequest = () => {
+  const confirmCompleteRequest = async () => {
     if (!requestToComplete) return
-    updateStatus(requestToComplete.id, 'completed')
+    const nextRequests = await updateTestDriveStatusRecord(requestToComplete.id, 'completed')
+    setTestDrives(nextRequests)
+    setSelected(nextRequests.find((request) => request.id === requestToComplete.id) ?? null)
     logAuditEvent({
       user: getAuditActor(role),
       action: 'UPDATE',
@@ -199,36 +206,46 @@ export default function TestDrivePage() {
     setRequestToComplete(null)
     toast.success('Test drive marked as completed.')
   }
-  const saveRequest = () => {
+  const saveRequest = async () => {
     const vehicle = dialogVehicles.find((item) => item.id === form.vehicleId)
     if (!vehicle || !form.customerName.trim() || !form.customerPhone.trim() || !form.scheduledAt) return
-    const existing = editingId ? testDrives.find((request) => request.id === editingId) : null
-    const next: TestDriveRequest = {
-      id: editingId ?? `td-${Date.now()}`,
-      requestNumber: existing?.requestNumber ?? `TD-2024-${String(testDrives.length + 1).padStart(3, '0')}`,
-      customerName: form.customerName.trim(),
-      customerPhone: form.customerPhone.trim(),
-      vehicleStockNumber: vehicle.vehicleStockNumber,
-      vehicleName: vehicle.vehicleName,
-      scheduledDate: formatDate(form.scheduledAt),
-      scheduledTime: formatTime(form.scheduledAt),
-      salesAgent: existing?.salesAgent ?? ownerAgent,
-      requestedByName: existing?.requestedByName ?? requesterName,
-      requestedByRole: existing?.requestedByRole ?? role,
-      status: existing?.status ?? (isApprover(role) ? 'approved' : 'pending'),
-      notes: form.notes.trim(),
+    if (!currentUser) return
+    if (!isValidMobilePhoneNumber(form.customerPhone)) {
+      toast.error(MOBILE_PHONE_VALIDATION_MESSAGE)
+      return
     }
-    setTestDrives((current) => editingId ? current.map((request) => request.id === editingId ? next : request) : [next, ...current])
-    setSelected((current) => current && current.id === next.id ? next : current)
-    setDialogOpen(false)
-    logAuditEvent({
-      user: getAuditActor(role),
-      action: editingId ? 'UPDATE' : 'CREATE',
-      module: 'Test Drive',
-      description: `${editingId ? 'Updated' : 'Created'} test drive request ${next.requestNumber}.`,
-    })
-    toast.success(editingId ? 'Test drive request updated.' : 'Test drive request created.')
-    resetForm()
+
+    try {
+      const nextRequests = editingId
+        ? await updateTestDriveRecord(editingId, {
+            vehicleId: vehicle.id,
+            customerName: form.customerName,
+            customerPhone: form.customerPhone,
+            scheduledAt: form.scheduledAt,
+            notes: form.notes,
+          })
+        : await createTestDriveRecord({
+            currentUser,
+            vehicleId: vehicle.id,
+            customerName: form.customerName,
+            customerPhone: form.customerPhone,
+            scheduledAt: form.scheduledAt,
+            notes: form.notes,
+          })
+
+      setTestDrives(nextRequests)
+      setDialogOpen(false)
+      logAuditEvent({
+        user: getAuditActor(role),
+        action: editingId ? 'UPDATE' : 'CREATE',
+        module: 'Test Drive',
+        description: `${editingId ? 'Updated' : 'Created'} test drive request for ${form.customerName.trim()}.`,
+      })
+      toast.success(editingId ? 'Test drive request updated.' : 'Test drive request created.')
+      resetForm()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to save the test drive request.')
+    }
   }
   const exportList = () => {
     logAuditEvent({
@@ -323,7 +340,7 @@ export default function TestDrivePage() {
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2"><Label>Customer Name</Label><Input placeholder="Full name" value={form.customerName} onChange={(event) => setField('customerName', event.target.value)} /></div>
-                <div className="space-y-2"><Label>Phone Number</Label><Input placeholder="+63 9XX XXX XXXX" value={form.customerPhone} onChange={(event) => setField('customerPhone', event.target.value)} /></div>
+                <div className="space-y-2"><Label>Phone Number</Label><Input placeholder="09171234567 or +639171234567" value={form.customerPhone} onChange={(event) => setField('customerPhone', event.target.value)} /></div>
               </div>
               <div className="space-y-2">
                 <Label>Select Vehicle</Label>
@@ -349,7 +366,7 @@ export default function TestDrivePage() {
       </PageHeader>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card><CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground"><Clock className="size-4" />Today&apos;s Schedule</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{filtered.filter((td) => td.scheduledDate === 'Feb 06, 2024').length}</div></CardContent></Card>
+        <Card><CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground"><Clock className="size-4" />Today&apos;s Schedule</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{filtered.filter((td) => td.scheduledDate === todayLabel).length}</div></CardContent></Card>
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Pending Approval</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-warning">{filtered.filter((td) => td.status === 'pending').length}</div></CardContent></Card>
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Completed This Week</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-success">{filtered.filter((td) => td.status === 'completed').length}</div></CardContent></Card>
         <Card><CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground"><Car className="size-4" />Available Units</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{baseVehicles.length}</div><p className="mt-1 text-xs text-muted-foreground">Available and not allocated to any agent</p></CardContent></Card>
