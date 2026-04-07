@@ -4,7 +4,7 @@
     "slug": "i-track-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "icon": "./public/logo.png",
     "userInterfaceStyle": "light",
     "splash": {

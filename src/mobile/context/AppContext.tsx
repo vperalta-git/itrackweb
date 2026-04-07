@@ -16,7 +16,9 @@ import {
 } from '../data/notifications';
 import {
   PushRegistrationStatus,
+  ensureNotificationsRuntimeConfigured,
   registerDeviceForPushNotificationsAsync,
+  supportsExpoNotificationsRuntime,
 } from '../lib/pushNotifications';
 import { getApiErrorMessage } from '../lib/api';
 
@@ -261,6 +263,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [popupNotification]);
 
   useEffect(() => {
+    if (!supportsExpoNotificationsRuntime) {
+      return;
+    }
+
+    ensureNotificationsRuntimeConfigured();
+
     const receivedSubscription =
       Notifications.addNotificationReceivedListener((receivedNotification) => {
         const { content } = receivedNotification.request;

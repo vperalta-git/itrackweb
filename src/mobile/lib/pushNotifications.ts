@@ -3,13 +3,30 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+export const supportsExpoNotificationsRuntime =
+  Constants.executionEnvironment !== 'storeClient' &&
+  Constants.appOwnership !== 'expo';
+
+let isNotificationHandlerConfigured = false;
+
+export const ensureNotificationsRuntimeConfigured = () => {
+  if (
+    !supportsExpoNotificationsRuntime ||
+    isNotificationHandlerConfigured
+  ) {
+    return;
+  }
+
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+
+  isNotificationHandlerConfigured = true;
+};
 
 export type PushRegistrationStatus =
   | 'idle'
@@ -96,6 +113,16 @@ const ensureAndroidNotificationChannel = async () => {
 export const registerDeviceForPushNotificationsAsync =
   async (): Promise<PushRegistrationResult> => {
     try {
+      if (!supportsExpoNotificationsRuntime) {
+        return {
+          status: 'unsupported',
+          token: null,
+          message:
+            'Remote push notifications are not available in Expo Go for this app. Use a development build to test device registration and delivery.',
+        };
+      }
+
+      ensureNotificationsRuntimeConfigured();
       await ensureAndroidNotificationChannel();
 
       if (!Device.isDevice) {

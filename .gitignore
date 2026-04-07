@@ -19,3 +19,6 @@ node_modules
 .gradle-user-home/
 .DS_Store
 android/local.properties
+android/app/src/main/res/mipmap-*/ic_launcher.webp
+android/app/src/main/res/mipmap-*/ic_launcher_foreground.webp
+android/app/src/main/res/mipmap-*/ic_launcher_round.webp

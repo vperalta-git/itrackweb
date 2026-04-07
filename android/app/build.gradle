@@ -126,6 +126,35 @@ android {
     }
 }
 
+def duplicateLauncherWebpIncludes = [
+    "mipmap-*/ic_launcher.webp",
+    "mipmap-*/ic_launcher_foreground.webp",
+    "mipmap-*/ic_launcher_round.webp",
+]
+
+tasks.register("removeDuplicateLauncherWebp") {
+    doLast {
+        def staleLauncherIcons = fileTree(
+            dir: "${projectDir}/src/main/res",
+            include: duplicateLauncherWebpIncludes,
+        ).files
+
+        staleLauncherIcons.each { staleIcon ->
+            if (staleIcon.exists()) {
+                delete(staleIcon)
+            }
+        }
+
+        if (!staleLauncherIcons.isEmpty()) {
+            println("Removed stale launcher WebP resources that conflict with Expo-generated PNG icons.")
+        }
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("removeDuplicateLauncherWebp")
+}
+
 // Apply static values from `gradle.properties` to the `android.packagingOptions`
 // Accepts values in comma delimited lists, example:
 // android.packagingOptions.pickFirsts=/LICENSE,**/picasa.ini
