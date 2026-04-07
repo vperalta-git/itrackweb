@@ -3,6 +3,11 @@ import { api, getApiErrorMessage, getResponseData } from '../lib/api';
 import { User, UserRole } from '@/src/mobile/types';
 import { toDate } from './shared';
 import {
+  mapUserAuditEventRecord,
+  type UserAuditEventApiRecord,
+  upsertUserAuditEventRecord,
+} from './user-audit-events';
+import {
   areMobilePhoneNumbersEqual,
   normalizeMobilePhoneNumber,
 } from '../utils/phone';
@@ -298,7 +303,15 @@ export const syncUserManagementRecordProfile = (
 };
 
 export const deleteUserManagementRecord = async (userId: string) => {
-  await api.delete(`/users/${userId}`);
+  const response = await api.delete(`/users/${userId}`);
+  const deletedPayload = getResponseData<{
+    auditEvent?: UserAuditEventApiRecord | null;
+  }>(response);
+
+  if (deletedPayload?.auditEvent) {
+    upsertUserAuditEventRecord(mapUserAuditEventRecord(deletedPayload.auditEvent));
+  }
+
   userManagementRecords = userManagementRecords.filter(
     (record) => record.id !== userId
   );

@@ -8,6 +8,7 @@ import {
   setApiAuthToken,
 } from '../lib/api';
 import { preloadMobileData } from '../data/bootstrap';
+import { recordLogoutAuthEvent } from '../data/auth-events';
 import { syncUserManagementRecordProfile } from '../data/users';
 import {
   clearPersistedAuthSession,
@@ -21,7 +22,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<User>;
-  logout: () => void;
+  logout: () => Promise<void>;
   updateProfile: (profile: {
     name: string;
     email: string;
@@ -143,11 +144,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    const currentUser = user;
+
     setApiAuthToken(null);
     setUser(null);
     setToken(null);
-    void clearPersistedAuthSession().catch(() => undefined);
+    await clearPersistedAuthSession().catch(() => undefined);
+
+    try {
+      if (currentUser) {
+        await recordLogoutAuthEvent({
+          userId: currentUser.id,
+          name: currentUser.name,
+          email: currentUser.email,
+          role: currentUser.role,
+        });
+      }
+    } catch (error) {
+      console.warn(
+        '[auth] Unable to record logout event:',
+        error instanceof Error ? error.message : error
+      );
+    }
   };
 
   const updateProfile = async ({

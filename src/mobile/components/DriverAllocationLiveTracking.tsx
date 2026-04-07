@@ -6,8 +6,10 @@ import { AllocationStatus } from '../types';
 import {
   DRIVER_ALLOCATION_LOCATION_OPTIONS,
   DriverAllocationRecord,
+  formatDriverAllocationRemainingDistance,
   formatDriverAllocationStatusLabel,
   getDriverAllocationBadgeStatus,
+  getDriverAllocationLiveLocation,
 } from '../data/driver-allocation';
 import { Card } from './Card';
 import { EmptyState } from './EmptyState';
@@ -26,79 +28,6 @@ interface DriverAllocationLiveTrackingProps {
   onOpenAllocation: (allocationId: string) => void;
 }
 
-const DEFAULT_IN_TRANSIT_PROGRESS = 0.62;
-const EARTH_RADIUS_KM = 6371;
-
-const toRadians = (value: number) => (value * Math.PI) / 180;
-
-const getRouteProgress = (allocation: DriverAllocationRecord) =>
-  Math.min(Math.max(allocation.routeProgress ?? DEFAULT_IN_TRANSIT_PROGRESS, 0), 1);
-
-const formatRemainingDistanceLabel = (allocation: DriverAllocationRecord) => {
-  if (allocation.status !== AllocationStatus.IN_TRANSIT) {
-    return null;
-  }
-
-  const pickup = DRIVER_ALLOCATION_LOCATION_OPTIONS.find(
-    (location) => location.value === allocation.pickupId
-  );
-  const destination = DRIVER_ALLOCATION_LOCATION_OPTIONS.find(
-    (location) => location.value === allocation.destinationId
-  );
-
-  if (!pickup || !destination) {
-    return null;
-  }
-
-  const latitudeDelta = toRadians(
-    destination.location.latitude - pickup.location.latitude
-  );
-  const longitudeDelta = toRadians(
-    destination.location.longitude - pickup.location.longitude
-  );
-  const pickupLatitude = toRadians(pickup.location.latitude);
-  const destinationLatitude = toRadians(destination.location.latitude);
-  const haversine =
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(pickupLatitude) *
-      Math.cos(destinationLatitude) *
-      Math.sin(longitudeDelta / 2) ** 2;
-  const totalDistanceKm =
-    2 *
-    EARTH_RADIUS_KM *
-    Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
-  const remainingDistanceKm = Math.max(
-    totalDistanceKm * (1 - getRouteProgress(allocation)),
-    0
-  );
-
-  return `${remainingDistanceKm.toFixed(1)} km left`;
-};
-
-const getDriverLiveLocation = (allocation: DriverAllocationRecord) => {
-  const pickup = DRIVER_ALLOCATION_LOCATION_OPTIONS.find(
-    (location) => location.value === allocation.pickupId
-  );
-  const destination = DRIVER_ALLOCATION_LOCATION_OPTIONS.find(
-    (location) => location.value === allocation.destinationId
-  );
-
-  if (!pickup || !destination) {
-    return null;
-  }
-
-  const progress = getRouteProgress(allocation);
-
-  return {
-    latitude:
-      pickup.location.latitude +
-      (destination.location.latitude - pickup.location.latitude) * progress,
-    longitude:
-      pickup.location.longitude +
-      (destination.location.longitude - pickup.location.longitude) * progress,
-  };
-};
-
 const getLiveTrackingMapPayload = (
   allocation: DriverAllocationRecord | null
 ): { markers: MarkerData[]; routes: Location[][] } => {
@@ -115,7 +44,7 @@ const getLiveTrackingMapPayload = (
   const destination = DRIVER_ALLOCATION_LOCATION_OPTIONS.find(
     (location) => location.value === allocation.destinationId
   );
-  const driverLocation = getDriverLiveLocation(allocation);
+  const driverLocation = getDriverAllocationLiveLocation(allocation);
 
   if (!pickup || !destination || !driverLocation) {
     return {
@@ -124,7 +53,7 @@ const getLiveTrackingMapPayload = (
     };
   }
 
-  const remainingDistanceLabel = formatRemainingDistanceLabel(allocation);
+  const remainingDistanceLabel = formatDriverAllocationRemainingDistance(allocation);
 
   return {
     markers: [
@@ -166,7 +95,7 @@ const getLiveTrackingInitialRegion = (allocations: DriverAllocationRecord[]) => 
       const destination = DRIVER_ALLOCATION_LOCATION_OPTIONS.find(
         (location) => location.value === allocation.destinationId
       )?.location;
-      const driver = getDriverLiveLocation(allocation);
+      const driver = getDriverAllocationLiveLocation(allocation);
 
       return [pickup, destination, driver].filter(Boolean);
     })
@@ -355,9 +284,9 @@ export function DriverAllocationLiveTracking({
                     <Text style={styles.routeText}>
                       {allocation.pickupLabel} to {allocation.destinationLabel}
                     </Text>
-                    {formatRemainingDistanceLabel(allocation) ? (
+                    {formatDriverAllocationRemainingDistance(allocation) ? (
                       <Text style={styles.routeMeta}>
-                        {formatRemainingDistanceLabel(allocation)}
+                        {formatDriverAllocationRemainingDistance(allocation)}
                       </Text>
                     ) : null}
                   </View>

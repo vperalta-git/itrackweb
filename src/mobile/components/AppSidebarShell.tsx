@@ -178,7 +178,7 @@ export function AppSidebarShell({
           text: 'Sign Out',
           style: 'destructive',
           onPress: () => {
-            logout();
+            void logout();
             router.replace('/(auth)/sign-in');
           },
         },

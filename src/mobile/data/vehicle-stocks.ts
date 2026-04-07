@@ -29,6 +29,15 @@ type VehicleApiRecord = {
   } | null;
 };
 
+export const VEHICLE_STOCK_FORM_STATUSES = [
+  VehicleStatus.AVAILABLE,
+  VehicleStatus.IN_STOCKYARD,
+] as const;
+
+const vehicleStockFormStatusSet = new Set<VehicleStatus>(
+  VEHICLE_STOCK_FORM_STATUSES
+);
+
 export const VEHICLE_STATUS_OPTIONS = [
   { label: 'Available', value: VehicleStatus.AVAILABLE },
   { label: 'In Stockyard', value: VehicleStatus.IN_STOCKYARD },
@@ -37,6 +46,10 @@ export const VEHICLE_STATUS_OPTIONS = [
   { label: 'Maintenance', value: VehicleStatus.MAINTENANCE },
   { label: 'Completed', value: VehicleStatus.COMPLETED },
 ] as const;
+
+export const VEHICLE_STOCK_FORM_STATUS_OPTIONS = VEHICLE_STATUS_OPTIONS.filter(
+  (option) => vehicleStockFormStatusSet.has(option.value)
+);
 
 let vehicleStocks: Vehicle[] = [];
 
@@ -90,6 +103,10 @@ export const saveVehicleStock = async ({
   status,
   notes,
 }: SaveVehicleStockInput) => {
+  if (!vehicleStockFormStatusSet.has(status)) {
+    throw new Error('Vehicle status must be Available or In Stockyard.');
+  }
+
   const payload = {
     unitName: unitName.trim(),
     variation: variation.trim(),
@@ -115,6 +132,9 @@ export const saveVehicleStock = async ({
 
   return savedVehicle;
 };
+
+export const isVehicleStockFormStatusAllowed = (status: VehicleStatus) =>
+  vehicleStockFormStatusSet.has(status);
 
 export const deleteVehicleStock = async (vehicleId: string) => {
   await api.delete(`/vehicles/${vehicleId}`);

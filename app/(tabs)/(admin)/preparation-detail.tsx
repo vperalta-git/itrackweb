@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -31,8 +32,9 @@ import {
   getPreparationRecordById,
   getPreparationRecordRequesterLabel,
   getPreparationStatusLabel,
+  isPreparationEditable,
   loadPreparationRecords,
-  markPreparationReadyForRelease,
+  markPreparationCompleted,
   rejectPreparationRequest,
 } from '@/src/mobile/data/preparation';
 import {
@@ -53,6 +55,7 @@ export default function PreparationDetailScreen() {
   const resolvedPreparationId = Array.isArray(preparationId)
     ? preparationId[0]
     : preparationId;
+  const [refreshing, setRefreshing] = useState(false);
   const [record, setRecord] = useState(() =>
     resolvedPreparationId ? getPreparationRecordById(resolvedPreparationId) : null
   );
@@ -102,12 +105,53 @@ export default function PreparationDetailScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            await deletePreparationRecord(record.id);
-            router.dismiss();
+            try {
+              await deletePreparationRecord(record.id);
+              Alert.alert(
+                'Deleted',
+                `${record.unitName} preparation request has been deleted.`,
+                [
+                  {
+                    text: 'OK',
+                    onPress: () => router.dismiss(),
+                  },
+                ]
+              );
+            } catch (error) {
+              Alert.alert(
+                'Unable to delete preparation',
+                error instanceof Error
+                  ? error.message
+                  : 'The preparation request could not be deleted right now.'
+              );
+            }
           },
         },
       ]
     );
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+
+    try {
+      await loadPreparationRecords();
+      setRecord(
+        resolvedPreparationId ? getPreparationRecordById(resolvedPreparationId) : null
+      );
+    } catch (error) {
+      setRecord(
+        resolvedPreparationId ? getPreparationRecordById(resolvedPreparationId) : null
+      );
+      Alert.alert(
+        'Unable to refresh preparation details',
+        error instanceof Error
+          ? error.message
+          : 'The latest preparation details could not be loaded right now.'
+      );
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleApprovePreparation = () => {
@@ -181,24 +225,24 @@ export default function PreparationDetailScreen() {
     );
   };
 
-  const handleReadyForRelease = () => {
+  const handleCompletePreparation = () => {
     if (!record) {
       return;
     }
 
     Alert.alert(
-      'Mark ready for release?',
-      `${record.unitName} will be marked as Ready for Release.`,
+      'Mark preparation as completed?',
+      `${record.unitName} is already ready for release and will now be marked as Completed.`,
       [
         {
           text: 'Cancel',
           style: 'cancel',
         },
         {
-          text: 'Ready for Release',
+          text: 'Mark Completed',
           onPress: async () => {
             try {
-              setRecord(await markPreparationReadyForRelease(record.id));
+              setRecord(await markPreparationCompleted(record.id));
             } catch (error) {
               Alert.alert(
                 'Unable to update preparation',
@@ -244,8 +288,10 @@ export default function PreparationDetailScreen() {
     role === UserRole.ADMIN || role === UserRole.SUPERVISOR;
   const canApproveOrReject =
     canReviewPreparation && record.status === PreparationStatus.PENDING;
-  const canMarkReadyForRelease =
-    canReviewPreparation && record.status === PreparationStatus.COMPLETED;
+  const canMarkCompleted =
+    canReviewPreparation && record.status === PreparationStatus.READY_FOR_RELEASE;
+  const canEditPreparation =
+    access.canEdit && isPreparationEditable(record.status);
 
   return (
     <View style={styles.container}>
@@ -261,7 +307,18 @@ export default function PreparationDetailScreen() {
         onLeftPress={() => router.dismiss()}
       />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+            progressBackgroundColor={theme.colors.surface}
+          />
+        }
+      >
         <AccessScopeNotice
           title={access.scopeLabel}
           message={access.scopeNote}
@@ -371,12 +428,12 @@ export default function PreparationDetailScreen() {
               value: record.dispatcherName ?? 'Unassigned',
             },
             {
-              label: 'Completed At',
-              value: record.completedAt ?? 'Not completed yet',
-            },
-            {
               label: 'Ready for Release',
               value: record.readyForReleaseAt ?? 'Not marked yet',
+            },
+            {
+              label: 'Completed At',
+              value: record.completedAt ?? 'Not completed yet',
             },
           ].map((item, index, items) => (
             <View
@@ -398,8 +455,8 @@ export default function PreparationDetailScreen() {
         </Card>
 
         {canApproveOrReject ||
-        canMarkReadyForRelease ||
-        access.canEdit ||
+        canMarkCompleted ||
+        canEditPreparation ||
         access.canDelete ? (
           <View style={styles.actions}>
             {canApproveOrReject ? (
@@ -440,29 +497,29 @@ export default function PreparationDetailScreen() {
               </View>
             ) : null}
 
-            {canMarkReadyForRelease ? (
+            {canMarkCompleted ? (
               <View style={styles.actionRow}>
                 <TouchableOpacity
                   style={[styles.statusActionButton, styles.releaseButton]}
                   activeOpacity={0.88}
-                  onPress={handleReadyForRelease}
+                  onPress={handleCompletePreparation}
                 >
                   <Ionicons
-                    name="shield-checkmark-outline"
+                    name="checkmark-done-outline"
                     size={18}
                     color={theme.colors.white}
                   />
                   <Text
                     style={[styles.actionButtonText, styles.releaseButtonText]}
                   >
-                    Ready for Release
+                    Mark Completed
                   </Text>
                 </TouchableOpacity>
               </View>
             ) : null}
 
             <View style={styles.actionRow}>
-              {access.canEdit ? (
+              {canEditPreparation ? (
                 <TouchableOpacity
                   style={[styles.actionButton, styles.editButton]}
                   activeOpacity={0.88}

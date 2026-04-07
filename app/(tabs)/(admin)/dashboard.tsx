@@ -254,8 +254,8 @@ export default function AdminDashboard() {
       (record) => record.vehicleId,
       (record) =>
         toDate(
-          record.readyForReleaseAt ??
-            record.completedAt ??
+          record.completedAt ??
+            record.readyForReleaseAt ??
             record.approvedAt ??
             record.createdAt
         )

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import {
@@ -15,13 +15,19 @@ import {
 import { theme } from '@/src/mobile/constants/theme';
 import { useAuth } from '@/src/mobile/context/AuthContext';
 import {
+  getAuthEventRecords,
+  loadAuthEventRecords,
+} from '@/src/mobile/data/auth-events';
+import {
   formatDriverAllocationStatusLabel,
   getDriverAllocations,
+  loadDriverAllocations,
 } from '@/src/mobile/data/driver-allocation';
 import {
   formatRequestedServices,
   getPreparationRecords,
   getPreparationStatusLabel,
+  loadPreparationRecords,
 } from '@/src/mobile/data/preparation';
 import {
   formatReleaseDateTime,
@@ -33,20 +39,31 @@ import {
   formatTestDriveSchedule,
   formatTestDriveStatusLabel,
   getTestDriveBookings,
+  loadTestDriveBookings,
 } from '@/src/mobile/data/test-drive';
 import {
   formatAllocationStatusLabel,
   getUnitAgentAllocations,
+  loadUnitAgentAllocations,
 } from '@/src/mobile/data/unit-agent-allocation';
 import {
   formatUserRoleLabel,
   getUserManagementRecords,
+  loadUserManagementRecords,
 } from '@/src/mobile/data/users';
+import {
+  getUserAuditEventRecords,
+  loadUserAuditEventRecords,
+} from '@/src/mobile/data/user-audit-events';
 import {
   formatVehicleStatusLabel,
   getVehicleStocks,
+  loadVehicleStocks,
 } from '@/src/mobile/data/vehicle-stocks';
-import { toDate } from '@/src/mobile/data/shared';
+import {
+  getFirstValidDate,
+  isDateValueValid,
+} from '@/src/mobile/data/shared';
 import {
   getModuleAccess,
   getRoleLabel,
@@ -56,8 +73,15 @@ import { UserRole } from '@/src/mobile/types';
 import { shareExport } from '@/src/mobile/utils/shareExport';
 
 type ReportTab = 'audit' | 'release';
-type ActivityKind = 'created' | 'updated' | 'released';
+type ActivityKind =
+  | 'created'
+  | 'updated'
+  | 'released'
+  | 'login'
+  | 'logout'
+  | 'deleted';
 type ActivityModule =
+  | 'authentication'
   | 'users'
   | 'vehicle_stocks'
   | 'unit_allocations'
@@ -75,16 +99,18 @@ type ActivityRecord = {
   timestamp: Date;
   module: ActivityModule;
   kind: ActivityKind;
+  name: string;
   title: string;
   description: string;
 };
 
 const ALL_RELEASE_UNITS = 'all_units';
 const ALL_RELEASE_PERIODS = 'all_periods';
+const ITEMS_PER_PAGE = 10;
 
 const REPORT_SUBTITLES: Record<ReportTab, string> = {
   audit:
-    'Review derived backend activity from real users, vehicle stocks, allocations, preparations, bookings, and release records.',
+    'Review the derived audit trail from authentication, user lifecycle events, vehicle stocks, allocations, preparations, bookings, and release records.',
   release:
     'Review released unit history with customer, preparation, and assignment details.',
 };
@@ -93,9 +119,13 @@ const ACTIVITY_KIND_LABELS: Record<ActivityKind, string> = {
   created: 'Created',
   updated: 'Updated',
   released: 'Released',
+  login: 'Login',
+  logout: 'Logout',
+  deleted: 'Deleted',
 };
 
 const ACTIVITY_MODULE_LABELS: Record<ActivityModule, string> = {
+  authentication: 'Authentication',
   users: 'Users',
   vehicle_stocks: 'Vehicle Stocks',
   unit_allocations: 'Unit Allocations',
@@ -106,14 +136,18 @@ const ACTIVITY_MODULE_LABELS: Record<ActivityModule, string> = {
 };
 
 const ACTIVITY_KIND_FILTERS = [
-  { label: 'All Activity', value: 'all' },
+  { label: 'All Entries', value: 'all' },
   { label: 'Created', value: 'created' },
   { label: 'Updated', value: 'updated' },
   { label: 'Released', value: 'released' },
+  { label: 'Login', value: 'login' },
+  { label: 'Logout', value: 'logout' },
+  { label: 'Deleted', value: 'deleted' },
 ] as const;
 
 const ACTIVITY_MODULE_FILTERS = [
   { label: 'All Modules', value: 'all_modules' },
+  { label: 'Authentication', value: 'authentication' },
   { label: 'Users', value: 'users' },
   { label: 'Vehicle Stocks', value: 'vehicle_stocks' },
   { label: 'Unit Allocations', value: 'unit_allocations' },
@@ -131,25 +165,43 @@ const getActivityBadgeStatus = (kind: ActivityKind) => {
       return 'active' as const;
     case 'released':
       return 'verified' as const;
+    case 'login':
+      return 'confirmed' as const;
+    case 'logout':
+      return 'inactive' as const;
+    case 'deleted':
+      return 'cancelled' as const;
     default:
       return 'inactive' as const;
   }
 };
 
 const formatActivityTimestamp = (value: Date) =>
-  value.toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  isDateValueValid(value)
+    ? value.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : 'Unavailable';
 
 const getReleasePeriodValue = (value: Date) =>
-  `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`;
+  isDateValueValid(value)
+    ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`
+    : 'unknown-period';
 
 const formatReleasePeriodLabel = (value: string) => {
+  if (value === 'unknown-period') {
+    return 'Unknown Release Date';
+  }
+
   const [year, month] = value.split('-').map(Number);
+
+  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+    return 'Unknown Release Date';
+  }
 
   return new Date(year, Math.max(month - 1, 0), 1).toLocaleDateString('en-US', {
     month: 'short',
@@ -177,12 +229,45 @@ const buildReleaseTimelineSummary = (record: ReleaseHistoryRecord) =>
     )
     .join('\n\n');
 
+const getSortableActivityTime = (value: Date) =>
+  Number.isFinite(value.getTime()) ? value.getTime() : 0;
+
+const formatActivityName = (value: string | null | undefined) =>
+  String(value ?? '').trim() || 'Unavailable';
+
+const formatActivityRoleLabel = (value?: UserRole | null) =>
+  value ? formatUserRoleLabel(value) : 'User';
+
 const buildActivityRecords = (): ActivityRecord[] => {
+  const authRecords = getAuthEventRecords().map((record) => ({
+    id: `auth-${record.id}`,
+    timestamp: record.createdAt,
+    module: 'authentication' as const,
+    kind: record.eventType,
+    name: formatActivityName(record.name || record.email),
+    title:
+      record.eventType === 'login'
+        ? 'User signed in'
+        : 'User signed out',
+    description: `${record.email} ${record.eventType === 'login' ? 'signed in' : 'signed out'} as ${formatActivityRoleLabel(record.role)}.`,
+  }));
+
+  const deletedUserRecords = getUserAuditEventRecords().map((record) => ({
+    id: `user-audit-${record.id}`,
+    timestamp: record.createdAt,
+    module: 'users' as const,
+    kind: 'deleted' as const,
+    name: formatActivityName(record.name),
+    title: 'User account deleted',
+    description: `${record.email} was removed. Previous role: ${formatUserRoleLabel(record.role)}.`,
+  }));
+
   const userRecords = getUserManagementRecords().map((record) => ({
     id: `user-${record.id}`,
     timestamp: record.createdAt,
     module: 'users' as const,
     kind: 'created' as const,
+    name: formatActivityName(`${record.firstName} ${record.lastName}`),
     title: `${record.firstName} ${record.lastName}`.trim(),
     description: `User account created as ${formatUserRoleLabel(record.role)}.`,
   }));
@@ -192,6 +277,7 @@ const buildActivityRecords = (): ActivityRecord[] => {
     timestamp: record.createdAt,
     module: 'vehicle_stocks' as const,
     kind: 'created' as const,
+    name: formatActivityName(record.conductionNumber || record.unitName),
     title: `${record.unitName} ${record.variation}`.trim(),
     description: `Vehicle stock saved with status ${formatVehicleStatusLabel(record.status)}.`,
   }));
@@ -201,6 +287,7 @@ const buildActivityRecords = (): ActivityRecord[] => {
     timestamp: record.createdAt,
     module: 'unit_allocations' as const,
     kind: 'created' as const,
+    name: formatActivityName(record.salesAgentName || record.managerName),
     title: `${record.unitName} allocation`,
     description: `Assigned to ${record.salesAgentName} under ${record.managerName}. Status: ${formatAllocationStatusLabel(record.status)}.`,
   }));
@@ -211,23 +298,27 @@ const buildActivityRecords = (): ActivityRecord[] => {
     module: 'driver_allocation' as const,
     kind:
       record.status === 'completed' ? ('released' as const) : ('updated' as const),
+    name: formatActivityName(record.driverName),
     title: `${record.unitName} dispatch`,
     description: `${record.driverName} route from ${record.pickupLabel} to ${record.destinationLabel}. Status: ${formatDriverAllocationStatusLabel(record.status)}.`,
   }));
 
   const preparationRecords = getPreparationRecords().map((record) => ({
     id: `preparation-${record.id}`,
-    timestamp: toDate(
-      record.readyForReleaseAt ??
-        record.completedAt ??
-        record.approvedAt ??
-        record.createdAt
-    ),
+    timestamp: getFirstValidDate([
+      record.completedAt,
+      record.readyForReleaseAt,
+      record.approvedAt,
+      record.createdAt,
+    ]),
     module: 'preparation' as const,
     kind:
-      record.status === 'ready_for_release'
+      record.status === 'completed'
         ? ('released' as const)
         : ('updated' as const),
+    name: formatActivityName(
+      record.approvedByName || record.requestedByName || record.customerName
+    ),
     title: `${record.unitName} preparation`,
     description: `${record.customerName} requested ${formatRequestedServices(record.requestedServices, record.customRequests)}. Current status: ${getPreparationStatusLabel(record.status)}.`,
   }));
@@ -238,6 +329,7 @@ const buildActivityRecords = (): ActivityRecord[] => {
     module: 'test_drive' as const,
     kind:
       record.status === 'completed' ? ('released' as const) : ('created' as const),
+    name: formatActivityName(record.customerName),
     title: `${record.unitName} test drive`,
     description: `${record.customerName} booked ${formatTestDriveSchedule(record.scheduledDate, record.scheduledTime)}. Status: ${formatTestDriveStatusLabel(record.status)}.`,
   }));
@@ -247,11 +339,14 @@ const buildActivityRecords = (): ActivityRecord[] => {
     timestamp: record.releasedAt,
     module: 'release_history' as const,
     kind: 'released' as const,
+    name: formatActivityName(record.assignedAgent),
     title: `${record.unitName} released`,
     description: `${record.assignedAgent} released this unit to ${record.customerName}.`,
   }));
 
   return [
+    ...authRecords,
+    ...deletedUserRecords,
     ...releaseHistoryRecords,
     ...preparationRecords,
     ...driverAllocationRecords,
@@ -259,7 +354,11 @@ const buildActivityRecords = (): ActivityRecord[] => {
     ...testDriveRecords,
     ...vehicleRecords,
     ...userRecords,
-  ].sort((left, right) => right.timestamp.getTime() - left.timestamp.getTime());
+  ].sort(
+    (left, right) =>
+      getSortableActivityTime(right.timestamp) -
+      getSortableActivityTime(left.timestamp)
+  );
 };
 
 export default function ReportsScreen() {
@@ -285,6 +384,10 @@ export default function ReportsScreen() {
     useState<ReleaseUnitFilter>(ALL_RELEASE_UNITS);
   const [releasePeriodFilter, setReleasePeriodFilter] =
     useState<ReleasePeriodFilter>(ALL_RELEASE_PERIODS);
+  const [activityPage, setActivityPage] = useState(1);
+  const [releasePage, setReleasePage] = useState(1);
+  const [refreshing, setRefreshing] = useState(false);
+  const [dataVersion, setDataVersion] = useState(0);
 
   useEffect(() => {
     if (!availableTabs.includes(activeTab)) {
@@ -292,8 +395,36 @@ export default function ReportsScreen() {
     }
   }, [activeTab, availableTabs]);
 
-  const activityRecords = useMemo(() => buildActivityRecords(), []);
-  const releaseHistory = useMemo(() => getReleaseHistoryRecords(), []);
+  const activityRecords = useMemo(() => buildActivityRecords(), [dataVersion]);
+  const releaseHistory = useMemo(() => getReleaseHistoryRecords(), [dataVersion]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+
+    try {
+      await Promise.all([
+        loadAuthEventRecords(),
+        loadUserAuditEventRecords(),
+        loadUserManagementRecords(),
+        loadVehicleStocks(),
+        loadUnitAgentAllocations(),
+        loadDriverAllocations(),
+        loadPreparationRecords(),
+        loadTestDriveBookings(),
+      ]);
+      setDataVersion((current) => current + 1);
+    } catch (error) {
+      setDataVersion((current) => current + 1);
+      Alert.alert(
+        'Unable to refresh reports',
+        error instanceof Error
+          ? error.message
+          : 'The latest audit trail and release history data could not be loaded right now.'
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const filteredActivity = useMemo(
     () =>
@@ -301,6 +432,7 @@ export default function ReportsScreen() {
         const query = activitySearchValue.trim().toLowerCase();
         const matchesSearch =
           !query ||
+          record.name.toLowerCase().includes(query) ||
           record.title.toLowerCase().includes(query) ||
           record.description.toLowerCase().includes(query) ||
           ACTIVITY_KIND_LABELS[record.kind].toLowerCase().includes(query) ||
@@ -316,6 +448,24 @@ export default function ReportsScreen() {
       }),
     [activityKindFilter, activityModuleFilter, activityRecords, activitySearchValue]
   );
+  const activityTotalPages = Math.max(
+    1,
+    Math.ceil(filteredActivity.length / ITEMS_PER_PAGE)
+  );
+  const paginatedActivity = useMemo(() => {
+    const startIndex = (activityPage - 1) * ITEMS_PER_PAGE;
+    return filteredActivity.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [activityPage, filteredActivity]);
+  const activityPaginationRangeLabel = useMemo(() => {
+    if (!filteredActivity.length) {
+      return 'Showing 0 of 0';
+    }
+
+    const start = (activityPage - 1) * ITEMS_PER_PAGE + 1;
+    const end = Math.min(activityPage * ITEMS_PER_PAGE, filteredActivity.length);
+
+    return `Showing ${start}-${end} of ${filteredActivity.length}`;
+  }, [activityPage, filteredActivity]);
 
   const releaseUnitOptions = useMemo(
     () => [
@@ -372,18 +522,64 @@ export default function ReportsScreen() {
       }),
     [releaseHistory, releasePeriodFilter, releaseSearchValue, releaseUnitFilter]
   );
+  const releaseTotalPages = Math.max(
+    1,
+    Math.ceil(filteredReleaseHistory.length / ITEMS_PER_PAGE)
+  );
+  const paginatedReleaseHistory = useMemo(() => {
+    const startIndex = (releasePage - 1) * ITEMS_PER_PAGE;
+    return filteredReleaseHistory.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredReleaseHistory, releasePage]);
+  const releasePaginationRangeLabel = useMemo(() => {
+    if (!filteredReleaseHistory.length) {
+      return 'Showing 0 of 0';
+    }
+
+    const start = (releasePage - 1) * ITEMS_PER_PAGE + 1;
+    const end = Math.min(
+      releasePage * ITEMS_PER_PAGE,
+      filteredReleaseHistory.length
+    );
+
+    return `Showing ${start}-${end} of ${filteredReleaseHistory.length}`;
+  }, [filteredReleaseHistory, releasePage]);
+
+  useEffect(() => {
+    setActivityPage(1);
+  }, [
+    activityKindFilter,
+    activityModuleFilter,
+    activitySearchValue,
+    dataVersion,
+  ]);
+
+  useEffect(() => {
+    if (activityPage > activityTotalPages) {
+      setActivityPage(activityTotalPages);
+    }
+  }, [activityPage, activityTotalPages]);
+
+  useEffect(() => {
+    setReleasePage(1);
+  }, [dataVersion, releasePeriodFilter, releaseSearchValue, releaseUnitFilter]);
+
+  useEffect(() => {
+    if (releasePage > releaseTotalPages) {
+      setReleasePage(releaseTotalPages);
+    }
+  }, [releasePage, releaseTotalPages]);
 
   const handleExportActivity = async () => {
     await shareExport({
-      title: 'Activity Report',
-      subtitle: 'Derived backend activity from current operational records',
+      title: 'Audit Trail Report',
+      subtitle: 'Derived audit trail from current operational, authentication, and user lifecycle records',
       metadata: [
         { label: 'Scope', value: getRoleLabel(role) },
         {
           label: 'Kind Filter',
           value:
             activityKindFilter === 'all'
-              ? 'All Activity'
+              ? 'All Entries'
               : ACTIVITY_KIND_LABELS[activityKindFilter],
         },
         {
@@ -402,19 +598,20 @@ export default function ReportsScreen() {
           value: (record) => formatActivityTimestamp(record.timestamp),
         },
         {
-          header: 'Activity',
+          header: 'Entry Type',
           value: (record) => ACTIVITY_KIND_LABELS[record.kind],
         },
         {
           header: 'Module',
           value: (record) => ACTIVITY_MODULE_LABELS[record.module],
         },
+        { header: 'Name', value: (record) => record.name },
         { header: 'Title', value: (record) => record.title },
         { header: 'Description', value: (record) => record.description },
       ],
       rows: filteredActivity,
-      emptyStateMessage: 'No matching backend activity records.',
-      errorMessage: 'The backend activity records could not be exported right now.',
+      emptyStateMessage: 'No matching audit trail records.',
+      errorMessage: 'The audit trail records could not be exported right now.',
     });
   };
 
@@ -559,15 +756,15 @@ export default function ReportsScreen() {
   const renderActivityTab = () => (
     <>
       <FilterSummaryCard
-        title="Activity View"
-        value={`${filteredActivity.length} of ${activityRecords.length} backend activity records shown`}
+        title="Audit Trail View"
+        value={`${filteredActivity.length} of ${activityRecords.length} audit trail records shown`}
         iconName="shield-checkmark-outline"
         items={[
           {
             label: 'Kind Filter',
             value:
               activityKindFilter === 'all'
-                ? 'All Activity'
+                ? 'All Entries'
                 : ACTIVITY_KIND_LABELS[activityKindFilter],
             dotColor:
               activityKindFilter === 'released'
@@ -586,7 +783,7 @@ export default function ReportsScreen() {
           },
           {
             label: 'Data Source',
-            value: 'Derived from current backend records',
+            value: 'Backend records, authentication events, and saved user lifecycle events',
             iconName: 'server-outline',
             iconColor: theme.colors.textSubtle,
           },
@@ -596,7 +793,7 @@ export default function ReportsScreen() {
 
       <View style={styles.list}>
         {filteredActivity.length ? (
-          filteredActivity.map((record) => (
+          paginatedActivity.map((record) => (
             <Card key={record.id} style={styles.card} variant="elevated" padding="large">
               <View style={styles.cardTop}>
                 <View style={styles.copy}>
@@ -604,6 +801,7 @@ export default function ReportsScreen() {
                     {ACTIVITY_MODULE_LABELS[record.module]}
                   </Text>
                   <Text style={styles.title}>{record.title}</Text>
+                  <Text style={styles.detailLine}>Name: {record.name}</Text>
                   <Text style={styles.subtitle}>{record.description}</Text>
                 </View>
 
@@ -630,10 +828,75 @@ export default function ReportsScreen() {
           ))
         ) : (
           <EmptyState
-            title="No backend activity records found"
-            description="Try another search term or change the selected activity and module filters."
+            title="No audit trail records found"
+            description="Try another search term or change the selected entry and module filters."
           />
         )}
+
+        {filteredActivity.length ? (
+          <View style={styles.paginationWrap}>
+            <View style={styles.paginationSummary}>
+              <Text style={styles.paginationTitle}>Pagination</Text>
+              <Text style={styles.paginationText}>
+                {activityPaginationRangeLabel} - {ITEMS_PER_PAGE} items per page
+              </Text>
+            </View>
+
+            <View style={styles.paginationControls}>
+              <TouchableOpacity
+                style={[
+                  styles.paginationButton,
+                  activityPage === 1 ? styles.paginationButtonDisabled : null,
+                ]}
+                activeOpacity={0.88}
+                disabled={activityPage === 1}
+                onPress={() => setActivityPage((page) => Math.max(1, page - 1))}
+              >
+                <Ionicons
+                  name="chevron-back-outline"
+                  size={16}
+                  color={
+                    activityPage === 1
+                      ? theme.colors.textSubtle
+                      : theme.colors.text
+                  }
+                />
+              </TouchableOpacity>
+
+              <View style={styles.paginationIndicator}>
+                <Text style={styles.paginationIndicatorText}>
+                  Page {activityPage} of {activityTotalPages}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.paginationButton,
+                  activityPage === activityTotalPages
+                    ? styles.paginationButtonDisabled
+                    : styles.paginationButtonPrimary,
+                ]}
+                activeOpacity={0.88}
+                disabled={activityPage === activityTotalPages}
+                onPress={() =>
+                  setActivityPage((page) =>
+                    Math.min(activityTotalPages, page + 1)
+                  )
+                }
+              >
+                <Ionicons
+                  name="chevron-forward-outline"
+                  size={16}
+                  color={
+                    activityPage === activityTotalPages
+                      ? theme.colors.textSubtle
+                      : theme.colors.white
+                  }
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
       </View>
     </>
   );
@@ -681,7 +944,7 @@ export default function ReportsScreen() {
 
       <View style={styles.list}>
         {filteredReleaseHistory.length ? (
-          filteredReleaseHistory.map((release) => (
+          paginatedReleaseHistory.map((release) => (
             <Card
               key={release.id}
               style={styles.releaseCard}
@@ -748,12 +1011,77 @@ export default function ReportsScreen() {
             description="Try another search term or change the selected unit and release date filters."
           />
         )}
+
+        {filteredReleaseHistory.length ? (
+          <View style={styles.paginationWrap}>
+            <View style={styles.paginationSummary}>
+              <Text style={styles.paginationTitle}>Pagination</Text>
+              <Text style={styles.paginationText}>
+                {releasePaginationRangeLabel} - {ITEMS_PER_PAGE} items per page
+              </Text>
+            </View>
+
+            <View style={styles.paginationControls}>
+              <TouchableOpacity
+                style={[
+                  styles.paginationButton,
+                  releasePage === 1 ? styles.paginationButtonDisabled : null,
+                ]}
+                activeOpacity={0.88}
+                disabled={releasePage === 1}
+                onPress={() => setReleasePage((page) => Math.max(1, page - 1))}
+              >
+                <Ionicons
+                  name="chevron-back-outline"
+                  size={16}
+                  color={
+                    releasePage === 1
+                      ? theme.colors.textSubtle
+                      : theme.colors.text
+                  }
+                />
+              </TouchableOpacity>
+
+              <View style={styles.paginationIndicator}>
+                <Text style={styles.paginationIndicatorText}>
+                  Page {releasePage} of {releaseTotalPages}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.paginationButton,
+                  releasePage === releaseTotalPages
+                    ? styles.paginationButtonDisabled
+                    : styles.paginationButtonPrimary,
+                ]}
+                activeOpacity={0.88}
+                disabled={releasePage === releaseTotalPages}
+                onPress={() =>
+                  setReleasePage((page) =>
+                    Math.min(releaseTotalPages, page + 1)
+                  )
+                }
+              >
+                <Ionicons
+                  name="chevron-forward-outline"
+                  size={16}
+                  color={
+                    releasePage === releaseTotalPages
+                      ? theme.colors.textSubtle
+                      : theme.colors.white
+                  }
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
       </View>
     </>
   );
 
   const tabLabels: Record<ReportTab, string> = {
-    audit: 'Activity',
+    audit: 'Audit Trail',
     release: 'Release History',
   };
 
@@ -762,6 +1090,8 @@ export default function ReportsScreen() {
       eyebrow={getRoleLabel(role)}
       title={tabLabels[activeTab]}
       subtitle={REPORT_SUBTITLES[activeTab]}
+      refreshing={refreshing}
+      onRefresh={handleRefresh}
       toolbar={
         <View style={styles.toolbarStack}>
           {availableTabs.length > 1 ? (
@@ -780,7 +1110,7 @@ export default function ReportsScreen() {
             <SearchFiltersBar
               searchValue={activitySearchValue}
               onSearchChange={setActivitySearchValue}
-              searchPlaceholder="Search module, title, timestamp, or description"
+              searchPlaceholder="Search module, name, entry, timestamp, or description"
               filters={ACTIVITY_KIND_FILTERS.map((item) => ({
                 label: item.label,
                 value: item.value,
@@ -808,7 +1138,7 @@ export default function ReportsScreen() {
                       {
                         key: 'export-activity',
                         iconName: 'download-outline',
-                        accessibilityLabel: 'Export backend activity',
+                        accessibilityLabel: 'Export audit trail',
                         onPress: handleExportActivity,
                       },
                     ]
@@ -905,6 +1235,13 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontFamily: theme.fonts.family.sans,
   },
+  detailLine: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.colors.text,
+    marginBottom: 4,
+    fontFamily: theme.fonts.family.sans,
+  },
   metaRow: {
     marginTop: theme.spacing.base,
   },
@@ -932,5 +1269,72 @@ const styles = StyleSheet.create({
   releaseActions: {
     marginTop: theme.spacing.base,
     alignItems: 'flex-start',
+  },
+  paginationWrap: {
+    marginTop: theme.spacing.sm,
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    padding: theme.spacing.base,
+    gap: theme.spacing.base,
+    ...theme.shadows.sm,
+  },
+  paginationSummary: {
+    gap: 4,
+  },
+  paginationTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
+  },
+  paginationText: {
+    fontSize: 12,
+    color: theme.colors.textMuted,
+    fontFamily: theme.fonts.family.sans,
+  },
+  paginationControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  paginationButton: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.backgroundAlt,
+  },
+  paginationButtonPrimary: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primaryDark,
+  },
+  paginationButtonDisabled: {
+    backgroundColor: theme.colors.surfaceMuted,
+    borderColor: theme.colors.border,
+  },
+  paginationIndicator: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primarySurface,
+    borderWidth: 1,
+    borderColor: theme.colors.primarySurfaceStrong,
+    paddingHorizontal: theme.spacing.sm,
+  },
+  paginationIndicatorText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.primaryDark,
+    fontFamily: theme.fonts.family.sans,
+    textAlign: 'center',
   },
 });

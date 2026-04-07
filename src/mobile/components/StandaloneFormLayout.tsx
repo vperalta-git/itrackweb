@@ -17,6 +17,8 @@ interface StandaloneFormLayoutProps {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   contentContainerStyle?: StyleProp<ViewStyle>;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }
 
 export function StandaloneFormLayout({
@@ -26,11 +28,18 @@ export function StandaloneFormLayout({
   children,
   style,
   contentContainerStyle,
+  refreshing,
+  onRefresh,
 }: StandaloneFormLayoutProps) {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   return (
-    <AppScreen style={style} contentContainerStyle={contentContainerStyle}>
+    <AppScreen
+      style={style}
+      contentContainerStyle={contentContainerStyle}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
       <PageHeader
         leading={
           <TouchableOpacity

@@ -23,6 +23,7 @@ import {
   getDriverAllocationRoute,
   getDriverAllocationRouteDistanceKm,
 } from '@/src/mobile/data/driver-allocation';
+import { useDriverRealtimeLocation } from '@/src/mobile/hooks';
 import { AllocationStatus } from '@/src/mobile/types';
 
 export default function TripDetailScreen() {
@@ -39,9 +40,17 @@ export default function TripDetailScreen() {
     () => findDriverAllocationLocation(trip?.destinationId ?? null),
     [trip?.destinationId]
   );
+  const {
+    currentLocation: trackedDriverLocation,
+    trackingStatus,
+    lastUpdatedAt,
+  } = useDriverRealtimeLocation(trip);
   const driverLocation = useMemo(
-    () => (trip ? getDriverAllocationLiveLocation(trip) : null),
-    [trip]
+    () =>
+      trip
+        ? trackedDriverLocation ?? getDriverAllocationLiveLocation(trip)
+        : null,
+    [trackedDriverLocation, trip]
   );
   const markers = useMemo(() => {
     if (!trip || !pickupLocation || !destinationLocation) {
@@ -204,10 +213,26 @@ export default function TripDetailScreen() {
               value:
                 formatDriverAllocationRemainingDistance(trip) ?? 'Not available',
             },
+            {
+              label: 'Live GPS',
+              value:
+                trackingStatus === 'tracking' && lastUpdatedAt
+                  ? `Active - ${lastUpdatedAt.toLocaleTimeString('en-US', {
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}`
+                  : trackingStatus === 'permission_denied'
+                    ? 'Permission needed'
+                    : trackingStatus === 'disabled'
+                      ? 'Location services off'
+                      : trip.status === AllocationStatus.IN_TRANSIT
+                        ? 'Waiting for update'
+                        : 'Standby',
+            },
           ].map((item, index) => (
             <View
               key={item.label}
-              style={[styles.row, index < 3 ? styles.rowDivider : null]}
+              style={[styles.row, index < 4 ? styles.rowDivider : null]}
             >
               <Text style={styles.rowLabel}>{item.label}</Text>
               <Text style={styles.rowValue}>{item.value}</Text>

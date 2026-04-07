@@ -96,18 +96,18 @@ export default function DispatcherDashboard() {
             color: theme.colors.info,
           },
           {
-            label: 'Completed',
-            value: `${summary.completed}`,
-            icon: 'checkmark-done-outline',
-            tint: theme.colors.successLight,
-            color: theme.colors.success,
-          },
-          {
             label: 'Ready for Release',
             value: `${summary.readyForRelease}`,
             icon: 'shield-checkmark-outline',
             tint: theme.colors.primarySurface,
             color: theme.colors.primary,
+          },
+          {
+            label: 'Completed',
+            value: `${summary.completed}`,
+            icon: 'checkmark-done-outline',
+            tint: theme.colors.successLight,
+            color: theme.colors.success,
           },
         ].map((stat) => (
           <Card key={stat.label} style={styles.statCard}>

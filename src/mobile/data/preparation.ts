@@ -164,6 +164,11 @@ export const PREPARATION_SERVICE_OPTIONS = [
 export const PREPARATION_VEHICLE_OPTIONS: PreparationVehicleOption[] = [];
 
 let preparationRecords: PreparationRecord[] = [];
+const lockedPreparationStatuses = new Set<PreparationStatus>([
+  PreparationStatus.IN_DISPATCH,
+  PreparationStatus.COMPLETED,
+  PreparationStatus.READY_FOR_RELEASE,
+]);
 
 const formatDisplayDate = (value = new Date()) =>
   format(value, DATE_DISPLAY_FORMAT);
@@ -192,7 +197,7 @@ const toApiDateString = (value?: Date | string | null, fallback = new Date()) =>
 
 const setVehicleOptions = () => {
   const vehicles = getVehicleStocks()
-    .filter((vehicle) => vehicle.status !== VehicleStatus.COMPLETED)
+    .filter((vehicle) => vehicle.status === VehicleStatus.AVAILABLE)
     .map((vehicle) => ({
       id: vehicle.id,
       unitName: vehicle.unitName,
@@ -334,9 +339,9 @@ const getStatusRank = (status: PreparationStatus) => {
       return 0;
     case PreparationStatus.IN_DISPATCH:
       return 1;
-    case PreparationStatus.COMPLETED:
-      return 2;
     case PreparationStatus.READY_FOR_RELEASE:
+      return 2;
+    case PreparationStatus.COMPLETED:
       return 3;
     case PreparationStatus.REJECTED:
       return 4;
@@ -458,6 +463,9 @@ export const isPreparationCustomerContactInUse = (
 export const canAutoApprovePreparationForRole = (role: UserRole) =>
   role === UserRole.ADMIN || role === UserRole.SUPERVISOR;
 
+export const isPreparationEditable = (status: PreparationStatus) =>
+  !lockedPreparationStatuses.has(status);
+
 const resolvePreparationStatus = (
   approvalStatus: PreparationApprovalStatus,
   existingStatus?: PreparationStatus,
@@ -541,6 +549,23 @@ export const savePreparationRecord = async ({
             existingRecord?.progress ?? 0,
             checklistProgress === 100 ? 95 : checklistProgress
           );
+  const nextCompletedAt =
+    nextStatus === PreparationStatus.COMPLETED
+      ? toApiDateString(completedAt ?? existingRecord?.completedAt ?? new Date())
+      : null;
+  const nextReadyForReleaseAt =
+    nextStatus === PreparationStatus.READY_FOR_RELEASE
+      ? toApiDateString(
+          readyForReleaseAt ?? existingRecord?.readyForReleaseAt ?? new Date()
+        )
+      : nextStatus === PreparationStatus.COMPLETED
+        ? toApiDateString(
+            readyForReleaseAt ??
+              existingRecord?.readyForReleaseAt ??
+              existingRecord?.completedAt ??
+              new Date()
+          )
+        : null;
 
   const payload = {
     vehicleId,
@@ -571,19 +596,8 @@ export const savePreparationRecord = async ({
         : null,
     dispatcherId: resolvedApprovalStatus === 'approved' ? dispatcherId ?? null : null,
     dispatcherChecklist,
-    completedAt:
-      nextStatus === PreparationStatus.COMPLETED ||
-      nextStatus === PreparationStatus.READY_FOR_RELEASE
-        ? toApiDateString(
-            completedAt ?? existingRecord?.completedAt ?? new Date()
-          )
-        : null,
-    readyForReleaseAt:
-      nextStatus === PreparationStatus.READY_FOR_RELEASE
-        ? toApiDateString(
-            readyForReleaseAt ?? existingRecord?.readyForReleaseAt ?? new Date()
-          )
-        : null,
+    completedAt: nextCompletedAt,
+    readyForReleaseAt: nextReadyForReleaseAt,
   };
 
   try {
@@ -689,15 +703,15 @@ export const toggleDispatcherChecklistStep = async (
     approvedAt: existingRecord.approvedAt,
     status:
       checklistProgress === 100
-        ? PreparationStatus.COMPLETED
+        ? PreparationStatus.READY_FOR_RELEASE
         : PreparationStatus.IN_DISPATCH,
     progress:
       checklistProgress === 100
         ? 100
         : Math.max(existingRecord.progress, checklistProgress),
     dispatcherChecklist,
-    completedAt: checklistProgress === 100 ? new Date() : undefined,
-    readyForReleaseAt: undefined,
+    completedAt: undefined,
+    readyForReleaseAt: checklistProgress === 100 ? new Date() : undefined,
   }).then((savedRecord) => {
     const patchedRecord = {
       ...savedRecord,
@@ -708,11 +722,11 @@ export const toggleDispatcherChecklistStep = async (
           : Math.max(savedRecord.progress, checklistProgress),
       status:
         checklistProgress === 100
-          ? PreparationStatus.COMPLETED
+          ? PreparationStatus.READY_FOR_RELEASE
           : PreparationStatus.IN_DISPATCH,
-      completedAt:
+      completedAt: undefined,
+      readyForReleaseAt:
         checklistProgress === 100 ? formatDisplayDate() : undefined,
-      readyForReleaseAt: undefined,
     };
 
     upsertPreparationRecord(patchedRecord);
@@ -750,18 +764,18 @@ export const completeDispatcherChecklist = async (
     approvedByRole: existingRecord.approvedByRole,
     approvedByName: existingRecord.approvedByName,
     approvedAt: existingRecord.approvedAt,
-    status: PreparationStatus.COMPLETED,
+    status: PreparationStatus.READY_FOR_RELEASE,
     progress: 100,
     dispatcherChecklist,
-    completedAt: new Date(),
-    readyForReleaseAt: undefined,
+    completedAt: undefined,
+    readyForReleaseAt: new Date(),
   });
 
   const patchedRecord = {
     ...savedRecord,
     dispatcherChecklist,
-    completedAt: formatDisplayDate(),
-    readyForReleaseAt: undefined,
+    completedAt: undefined,
+    readyForReleaseAt: formatDisplayDate(),
   };
 
   upsertPreparationRecord(patchedRecord);
@@ -847,7 +861,7 @@ export const rejectPreparationRequest = async (
   });
 };
 
-export const markPreparationReadyForRelease = async (
+export const markPreparationCompleted = async (
   preparationId: string
 ): Promise<PreparationRecord> => {
   const existingRecord = findPreparationRecordById(preparationId);
@@ -872,8 +886,11 @@ export const markPreparationReadyForRelease = async (
     approvedByRole: existingRecord.approvedByRole,
     approvedByName: existingRecord.approvedByName,
     approvedAt: existingRecord.approvedAt,
-    status: PreparationStatus.READY_FOR_RELEASE,
+    status: PreparationStatus.COMPLETED,
     progress: 100,
+    completedAt: new Date(),
+    readyForReleaseAt:
+      parsePreparationDate(existingRecord.readyForReleaseAt) ?? new Date(),
   });
 };
 
@@ -917,12 +934,14 @@ export const getPreparationApprovalLabel = (record: PreparationRecord) => {
 
 export const getPreparationRecordCompletionLabel = (record: PreparationRecord) =>
   record.status === PreparationStatus.READY_FOR_RELEASE
-    ? record.readyForReleaseAt
-      ? `Ready for release ${record.readyForReleaseAt}`
+    ? record.readyForReleaseAt ?? record.completedAt
+      ? `Ready for release ${record.readyForReleaseAt ?? record.completedAt}`
       : 'Ready for release'
     : record.completedAt
       ? `Completed ${record.completedAt}`
-      : 'Pending dispatcher completion';
+      : record.readyForReleaseAt
+        ? `Completed ${record.readyForReleaseAt}`
+        : 'Pending dispatcher completion';
 
 export const getPreparationStatusLabel = (status: PreparationStatus) => {
   switch (status) {

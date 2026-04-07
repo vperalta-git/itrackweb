@@ -11,6 +11,12 @@ export interface DriverAllocationLocation {
   longitude: number;
 }
 
+export interface DriverAllocationLiveLocation
+  extends DriverAllocationLocation {
+  accuracy?: number | null;
+  updatedAt?: Date | null;
+}
+
 export interface DriverAllocationUnitOption {
   label: string;
   value: string;
@@ -56,6 +62,7 @@ export interface DriverAllocationRecord {
   destinationLabel: string;
   eta: string;
   routeProgress?: number;
+  currentLocation?: DriverAllocationLiveLocation | null;
   actualDuration?: number | null;
   status: AllocationStatus;
   startTime?: Date | null;
@@ -80,6 +87,12 @@ type DriverAllocationApiRecord = {
   startTime?: string | null;
   endTime?: string | null;
   createdAt: string;
+  currentLocation?: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number | null;
+    updatedAt?: string | null;
+  } | null;
   managerId?: {
     id: string;
     firstName: string;
@@ -133,6 +146,27 @@ let driverAllocationRecords: DriverAllocationRecord[] = [];
 let driverAllocationUnitOptions: DriverAllocationUnitOption[] = [];
 
 const toRadians = (value: number) => (value * Math.PI) / 180;
+
+const getDistanceBetweenLocationsKm = (
+  origin: DriverAllocationLocation,
+  destination: DriverAllocationLocation
+) => {
+  const latitudeDelta = toRadians(destination.latitude - origin.latitude);
+  const longitudeDelta = toRadians(destination.longitude - origin.longitude);
+  const originLatitude = toRadians(origin.latitude);
+  const destinationLatitude = toRadians(destination.latitude);
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(originLatitude) *
+      Math.cos(destinationLatitude) *
+      Math.sin(longitudeDelta / 2) ** 2;
+
+  return (
+    2 *
+    EARTH_RADIUS_KM *
+    Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+  );
+};
 
 const setArrayContents = <T>(target: T[], items: T[]) => {
   target.splice(0, target.length, ...items);
@@ -243,6 +277,16 @@ const mapDriverAllocationRecord = (
         ? 'Completed'
         : `${record.estimatedDuration ?? 25} mins`,
     routeProgress: record.routeProgress ?? undefined,
+    currentLocation: record.currentLocation
+      ? {
+          latitude: record.currentLocation.latitude,
+          longitude: record.currentLocation.longitude,
+          accuracy: record.currentLocation.accuracy ?? null,
+          updatedAt: record.currentLocation.updatedAt
+            ? toDate(record.currentLocation.updatedAt)
+            : null,
+        }
+      : null,
     actualDuration: record.actualDuration ?? null,
     status: record.status,
     startTime: record.startTime ? toDate(record.startTime) : null,
@@ -358,6 +402,23 @@ const getDriverAllocationTravelProgress = (
     case AllocationStatus.DELIVERED:
       return 1;
     case AllocationStatus.IN_TRANSIT:
+      if (allocation.currentLocation) {
+        const totalDistanceKm = getDriverAllocationRouteDistanceKm(allocation);
+        const destination = findDriverAllocationLocation(allocation.destinationId);
+
+        if (totalDistanceKm && destination) {
+          const remainingDistanceKm = getDistanceBetweenLocationsKm(
+            allocation.currentLocation,
+            destination.location
+          );
+
+          return Math.min(
+            Math.max(1 - remainingDistanceKm / totalDistanceKm, 0),
+            1
+          );
+        }
+      }
+
       return Math.min(
         Math.max(allocation.routeProgress ?? DEFAULT_IN_TRANSIT_PROGRESS, 0),
         1
@@ -378,6 +439,15 @@ export const getDriverAllocationRemainingDistanceKm = (
 
   if (totalDistanceKm === null) {
     return null;
+  }
+
+  const destination = findDriverAllocationLocation(allocation.destinationId);
+
+  if (allocation.currentLocation && destination) {
+    return Math.max(
+      getDistanceBetweenLocationsKm(allocation.currentLocation, destination.location),
+      0
+    );
   }
 
   return Math.max(
@@ -401,6 +471,23 @@ export const formatDriverAllocationRemainingDistance = (
 export const getDriverAllocationLiveLocation = (
   allocation: DriverAllocationRecord
 ) => {
+  if (allocation.status === AllocationStatus.COMPLETED) {
+    return findDriverAllocationLocation(allocation.destinationId)?.location ?? null;
+  }
+
+  if (allocation.status === AllocationStatus.DELIVERED) {
+    return findDriverAllocationLocation(allocation.destinationId)?.location ?? null;
+  }
+
+  if (allocation.currentLocation) {
+    return {
+      latitude: allocation.currentLocation.latitude,
+      longitude: allocation.currentLocation.longitude,
+      accuracy: allocation.currentLocation.accuracy ?? undefined,
+      timestamp: allocation.currentLocation.updatedAt?.getTime(),
+    };
+  }
+
   const pickup = findDriverAllocationLocation(allocation.pickupId);
   const destination = findDriverAllocationLocation(allocation.destinationId);
 
@@ -527,6 +614,26 @@ export const completeDriverAllocationTrip = async (allocationId: string) =>
     status: AllocationStatus.COMPLETED,
     routeProgress: 1,
   });
+
+export const updateDriverAllocationLiveLocation = async (
+  allocationId: string,
+  currentLocation: DriverAllocationLiveLocation
+) => {
+  const response = await api.patch(
+    `/driver-allocations/${allocationId}/live-location`,
+    {
+      latitude: currentLocation.latitude,
+      longitude: currentLocation.longitude,
+      accuracy: currentLocation.accuracy ?? null,
+    }
+  );
+  const savedRecord = mapDriverAllocationRecord(
+    getResponseData<DriverAllocationApiRecord>(response)
+  );
+
+  saveMappedAllocation(savedRecord);
+  return savedRecord;
+};
 
 export const deleteDriverAllocation = async (allocationId: string) => {
   await api.delete(`/driver-allocations/${allocationId}`);

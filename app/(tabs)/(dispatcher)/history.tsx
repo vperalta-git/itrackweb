@@ -47,7 +47,7 @@ export default function HistoryScreen() {
       <PageHeader
         eyebrow="Dispatcher"
         title="Dispatch History"
-        subtitle="Review dispatcher checklist records that were completed or already marked ready for release."
+        subtitle="Review dispatcher checklist records that are already marked ready for release or fully completed."
       />
 
       <View style={styles.list}>

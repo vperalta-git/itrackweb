@@ -433,16 +433,6 @@ export const MapViewComponent = ({
       initialRegion.longitudeDelta,
     ]
   );
-  const markersKey = useMemo(
-    () =>
-      markers
-        .map(
-          (marker) =>
-            `${marker.id}:${serializeLocation(marker.location)}:${marker.type}:${marker.status ?? ''}`
-        )
-        .join('|'),
-    [markers]
-  );
   const routeRequestKey = useMemo(
     () => routes.map(getRouteRefreshKey).join('||'),
     [routes]
@@ -498,8 +488,18 @@ export const MapViewComponent = ({
   }, [directionsApiKey, routeRequestKey]);
 
   useEffect(() => {
-    setNativeMapReady((current) => (current ? false : current));
-  }, [initialRegionKey, markersKey, routeRequestKey]);
+    if (nativeMapReady) {
+      return undefined;
+    }
+
+    const fallbackTimer = setTimeout(() => {
+      setNativeMapReady(true);
+    }, 1500);
+
+    return () => {
+      clearTimeout(fallbackTimer);
+    };
+  }, [initialRegionKey, nativeMapReady]);
 
   const fitToMarkers = () => {
     if (!mapRef.current || !mapPoints.length) {
@@ -590,6 +590,7 @@ export const MapViewComponent = ({
   return (
     <View style={[styles.container, style]}>
       <MapView
+        key={initialRegionKey}
         ref={mapRef}
         style={[
           StyleSheet.absoluteFillObject,
@@ -737,7 +738,7 @@ export const MapViewComponent = ({
               color={theme.colors.textMuted}
             />
             <Text style={styles.mockHintText}>
-              Showing a preview while Expo Go loads the native map.
+              Showing a preview while the native map initializes.
             </Text>
           </View>
         </View>

@@ -23,6 +23,7 @@ import {
   PREPARATION_VEHICLE_OPTIONS,
   getPreparationRecordById,
   getPreparationStatusLabel,
+  isPreparationEditable,
   isPreparationCustomerContactInUse,
   loadPreparationRecords,
   savePreparationRecord,
@@ -79,6 +80,8 @@ export default function PreparationFormScreen() {
     : preparationId;
   const isEditMode = resolvedMode === 'edit';
   const allowImmediateDismissRef = useRef(false);
+  const lockedEditAlertShownRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [editableRecord, setEditableRecord] = useState(() =>
     isEditMode && resolvedPreparationId
       ? getPreparationRecordById(resolvedPreparationId)
@@ -139,6 +142,35 @@ export default function PreparationFormScreen() {
     };
   }, [isEditMode, navigation, resolvedPreparationId]);
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+
+    try {
+      await loadPreparationRecords();
+      setEditableRecord(
+        isEditMode && resolvedPreparationId
+          ? getPreparationRecordById(resolvedPreparationId)
+          : null
+      );
+      setOptionsVersion((current) => current + 1);
+    } catch (error) {
+      setEditableRecord(
+        isEditMode && resolvedPreparationId
+          ? getPreparationRecordById(resolvedPreparationId)
+          : null
+      );
+      setOptionsVersion((current) => current + 1);
+      Alert.alert(
+        'Unable to refresh preparation form',
+        error instanceof Error
+          ? error.message
+          : 'The latest preparation details could not be loaded right now.'
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   useEffect(() => {
     setVehicleId(initialFormValues.vehicleId);
     setRequestedServices(initialFormValues.requestedServices);
@@ -152,6 +184,17 @@ export default function PreparationFormScreen() {
   const selectedVehicle = useMemo(
     () => PREPARATION_VEHICLE_OPTIONS.find((vehicle) => vehicle.id === vehicleId),
     [optionsVersion, vehicleId]
+  );
+  const selectedVehiclePreview = useMemo(
+    () =>
+      selectedVehicle ??
+      (editableRecord && String(editableRecord.vehicleId) === String(vehicleId)
+        ? {
+            conductionNumber: editableRecord.conductionNumber,
+            bodyColor: editableRecord.bodyColor,
+          }
+        : null),
+    [editableRecord, selectedVehicle, vehicleId]
   );
   const hasCustomRequestService = requestedServices.includes(
     ServiceType.CUSTOM_REQUEST
@@ -179,6 +222,31 @@ export default function PreparationFormScreen() {
     allowImmediateDismissRef.current = true;
     router.dismiss();
   };
+
+  useEffect(() => {
+    if (
+      !isEditMode ||
+      !editableRecord ||
+      isPreparationEditable(editableRecord.status) ||
+      lockedEditAlertShownRef.current
+    ) {
+      return;
+    }
+
+    lockedEditAlertShownRef.current = true;
+    Alert.alert(
+      'Editing unavailable',
+      `${getPreparationStatusLabel(
+        editableRecord.status
+      )} preparation records can no longer be edited.`,
+      [
+        {
+          text: 'OK',
+          onPress: dismissWithoutConfirmation,
+        },
+      ]
+    );
+  }, [editableRecord, isEditMode]);
 
   const confirmDiscardChanges = (onConfirm: () => void) => {
     Alert.alert(
@@ -327,6 +395,16 @@ export default function PreparationFormScreen() {
       return;
     }
 
+    if (isEditMode && editableRecord && !isPreparationEditable(editableRecord.status)) {
+      Alert.alert(
+        'Editing unavailable',
+        `${getPreparationStatusLabel(
+          editableRecord.status
+        )} preparation records can no longer be edited.`
+      );
+      return;
+    }
+
     if (!validate()) {
       return;
     }
@@ -383,62 +461,67 @@ export default function PreparationFormScreen() {
 
   return (
     <StandaloneFormLayout
-        title={isEditMode ? 'Edit Preparation' : 'Add Preparation'}
-        subtitle={
-          isEditMode
-            ? 'Update the preparation request details'
-            : 'Create a new vehicle preparation request'
-        }
-        onBackPress={handleBackPress}
-        contentContainerStyle={styles.content}
-      >
-        <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>Basic Information</Text>
-          <Text style={styles.sectionSubtitle}>
-            Select the vehicle and review the linked stock details before creating the request.
-          </Text>
+      title={isEditMode ? 'Edit Preparation' : 'Add Preparation'}
+      subtitle={
+        isEditMode
+          ? 'Update the preparation request details'
+          : 'Create a new vehicle preparation request'
+      }
+      onBackPress={handleBackPress}
+      contentContainerStyle={styles.content}
+      refreshing={refreshing}
+      onRefresh={handleRefresh}
+    >
+      <Card style={styles.card}>
+        <Text style={styles.sectionTitle}>Basic Information</Text>
+        <Text style={styles.sectionSubtitle}>
+          Select the vehicle and review the linked stock details before creating the request.
+        </Text>
 
-          <Select
-            label="Select Vehicle"
-            placeholder="Choose available vehicle"
-            value={vehicleId}
-            options={PREPARATION_VEHICLE_OPTIONS.map((vehicle) => ({
-              label: `${vehicle.unitName} - ${vehicle.variation}`,
-              value: vehicle.id,
-            }))}
-            onValueChange={(value) => {
-              setVehicleId(value);
-              setErrors((current) => ({
-                ...current,
-                vehicleId: undefined,
-              }));
-            }}
-            searchPlaceholder="Search available vehicle"
-            error={errors.vehicleId}
-          />
+        <Select
+          label="Select Vehicle"
+          placeholder="Choose available vehicle"
+          value={vehicleId}
+          options={PREPARATION_VEHICLE_OPTIONS.map((vehicle) => ({
+            label: `${vehicle.unitName} - ${vehicle.variation}`,
+            value: vehicle.id,
+          }))}
+          onValueChange={(value) => {
+            setVehicleId(value);
+            setErrors((current) => ({
+              ...current,
+              vehicleId: undefined,
+            }));
+          }}
+          searchPlaceholder="Search available vehicle"
+          error={errors.vehicleId}
+        />
+        <Text style={styles.helperText}>
+          Only vehicles currently marked `Available` in Vehicle Stocks are listed here.
+        </Text>
 
-          <Input
-            label="Conduction Number"
-            placeholder="Select vehicle first"
-            value={selectedVehicle?.conductionNumber ?? ''}
-            onChangeText={() => {}}
-            editable={false}
-          />
+        <Input
+          label="Conduction Number"
+          placeholder="Select vehicle first"
+          value={selectedVehiclePreview?.conductionNumber ?? ''}
+          onChangeText={() => {}}
+          editable={false}
+        />
 
-          <Input
-            label="Body Color"
-            placeholder="Select vehicle first"
-            value={selectedVehicle?.bodyColor ?? ''}
-            onChangeText={() => {}}
-            editable={false}
-          />
-        </Card>
+        <Input
+          label="Body Color"
+          placeholder="Select vehicle first"
+          value={selectedVehiclePreview?.bodyColor ?? ''}
+          onChangeText={() => {}}
+          editable={false}
+        />
+      </Card>
 
-        <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>Preparation Settings</Text>
-          <Text style={styles.sectionSubtitle}>
-            Select requested services and capture the customer details for SMS completion updates.
-          </Text>
+      <Card style={styles.card}>
+        <Text style={styles.sectionTitle}>Preparation Settings</Text>
+        <Text style={styles.sectionSubtitle}>
+          Select requested services and capture the customer details for SMS completion updates.
+        </Text>
 
           <Text style={styles.fieldLabel}>Requested Services</Text>
           <View style={styles.serviceChecklist}>
@@ -515,13 +598,13 @@ export default function PreparationFormScreen() {
               ) : null}
             </View>
           ) : null}
-        </Card>
+      </Card>
 
-        <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>Customer Details</Text>
-          <Text style={styles.sectionSubtitle}>
-            Capture the customer contact so the app can send an SMS after preparation is completed.
-          </Text>
+      <Card style={styles.card}>
+        <Text style={styles.sectionTitle}>Customer Details</Text>
+        <Text style={styles.sectionSubtitle}>
+          Capture the customer contact so the app can send an SMS after preparation is completed.
+        </Text>
 
           <Input
             label="Customer Name"
@@ -568,25 +651,25 @@ export default function PreparationFormScreen() {
             multiline
             numberOfLines={4}
           />
-        </Card>
+      </Card>
 
-        <View style={styles.actions}>
-          <Button
-            title={isEditMode ? 'Save Changes' : 'Add Prep'}
-            onPress={handleSubmit}
-            fullWidth
-            icon={
-              !isEditMode ? (
-                <Ionicons
-                  name="add-outline"
-                  size={18}
-                  color={theme.colors.white}
-                />
-              ) : undefined
-            }
-            style={isEditMode ? styles.editSubmitButton : undefined}
-          />
-        </View>
+      <View style={styles.actions}>
+        <Button
+          title={isEditMode ? 'Save Changes' : 'Add Prep'}
+          onPress={handleSubmit}
+          fullWidth
+          icon={
+            !isEditMode ? (
+              <Ionicons
+                name="add-outline"
+                size={18}
+                color={theme.colors.white}
+              />
+            ) : undefined
+          }
+          style={isEditMode ? styles.editSubmitButton : undefined}
+        />
+      </View>
     </StandaloneFormLayout>
   );
 }

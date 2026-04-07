@@ -17,7 +17,8 @@ import {
   loadVehicleStocks,
   normalizeVehicleStockConductionNumber,
   saveVehicleStock,
-  VEHICLE_STATUS_OPTIONS,
+  VEHICLE_STOCK_FORM_STATUS_OPTIONS,
+  isVehicleStockFormStatusAllowed,
 } from '@/src/mobile/data/vehicle-stocks';
 
 type FormErrors = {
@@ -46,6 +47,178 @@ const DEFAULT_FORM_VALUES: StockFormValues = {
   notes: '',
 };
 
+const STOCK_FORM_UNIT_PRESETS = [
+  {
+    unitName: 'Isuzu D-Max',
+    variations: [
+      'Cab and Chassis',
+      'CC Utility Van Dual AC',
+      '4x2 LT MT',
+      '4x4 LT MT',
+      '4x2 LS-A MT',
+      '4x2 LS-A MT Plus',
+      '4x2 LS-A AT',
+      '4x2 LS-A AT Plus',
+      '4x4 LS-A MT',
+      '4x4 LS-A MT Plus',
+      '4x2 LS-E AT',
+      '4x4 LS-E AT',
+      '4x4 Single Cab MT',
+    ],
+    bodyColors: [
+      'Valencia Orange',
+      'Red Spinel',
+      'Mercury Silver',
+      'Galena Gray',
+      'Onyx Black',
+      'Splash White',
+    ],
+  },
+  {
+    unitName: 'Isuzu MU-X',
+    variations: [
+      '1.9L MU-X 4x2 LS AT',
+      '3.0L MU-X 4x2 LS-A AT',
+      '3.0L MU-X 4x2 LS-E AT',
+      '3.0L MU-X 4x4 LS-E AT',
+    ],
+    bodyColors: [
+      'Onyx Black',
+      'Satin White Pearl',
+      'Splash White',
+      'Mercury Silver',
+      'Eiger Grey',
+    ],
+  },
+  {
+    unitName: 'Isuzu Traviz',
+    variations: [
+      'SWB 2.5L 4W 9FT Cab & Chassis',
+      'SWB 2.5L 4W 9FT Utility Van Dual AC',
+      'LWB 2.5L 4W 10FT Cab & Chassis',
+      'LWB 2.5L 4W 10FT Utility Van Dual AC',
+      'LWB 2.5L 4W 10FT Aluminum Van',
+      'LWB 2.5L 4W 10FT Aluminum Van w/ Single AC',
+      'LWB 2.5L 4W 10FT Dropside Body',
+      'LWB 2.5L 4W 10FT Dropside Body w/ Single AC',
+    ],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu QLR Series',
+    variations: [
+      'QLR77 E Tilt 3.0L 4W 10ft 60A Cab & Chassis',
+      'QLR77 E Tilt Utility Van w/o AC',
+      'QLR77 E Non-Tilt 3.0L 4W 10ft 60A Cab & Chassis',
+      'QLR77 E Non-Tilt Utility Van w/o AC',
+      'QLR77 E Non-Tilt Utility Van Dual AC',
+    ],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu NLR Series',
+    variations: [
+      'NLR77 H Tilt 3.0L 4W 14ft 60A',
+      'NLR77 H Jeepney Chassis (135A)',
+      'NLR85 Tilt 3.0L 4W 10ft 90A',
+      'NLR85E Smoother',
+    ],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu NMR Series',
+    variations: [
+      'NMR85H Smoother',
+      'NMR85 H Tilt 3.0L 6W 14ft 80A Non-AC',
+    ],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu NPR Series',
+    variations: ['NPR85 Tilt 3.0L 6W 16ft 90A', 'NPR85 Cabless for Armored'],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu NPS Series',
+    variations: ['NPS75 H 3.0L 6W 16ft 90A'],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu NQR Series',
+    variations: ['NQR75L Smoother', 'NQR75 Tilt 5.2L 6W 18ft 90A'],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu FRR Series',
+    variations: ['FRR90M 6W 20ft 5.2L', 'FRR90M Smoother'],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu FTR Series',
+    variations: ['FTR90M 6W 19ft 5.2L'],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu FVR Series',
+    variations: ['FVR34Q Smoother', 'FVR 34Q 6W 24ft 7.8L w/ ABS'],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu FTS Series',
+    variations: ['FTS34 J', 'FTS34L'],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu FVM Series',
+    variations: [
+      'FVM34T 10W 26ft 7.8L w/ ABS',
+      'FVM34W 10W 32ft 7.8L w/ ABS',
+    ],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu FXM Series',
+    variations: ['FXM60W'],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu GXZ Series',
+    variations: ['GXZ60N'],
+    bodyColors: ['White'],
+  },
+  {
+    unitName: 'Isuzu EXR Series',
+    variations: ['EXR77H 380PS 6W Tractor Head'],
+    bodyColors: ['White'],
+  },
+] as const;
+
+const toSelectOptions = (values: readonly string[]) =>
+  values.map((value) => ({
+    label: value,
+    value,
+  }));
+
+const appendOptionIfMissing = (
+  options: Array<{ label: string; value: string }>,
+  value: string
+) => {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return options;
+  }
+
+  return options.some((option) => option.value === trimmedValue)
+    ? options
+    : [...options, { label: trimmedValue, value: trimmedValue }];
+};
+
+const findStockUnitPreset = (unitName: string) =>
+  STOCK_FORM_UNIT_PRESETS.find(
+    (preset) => preset.unitName.toLowerCase() === unitName.trim().toLowerCase()
+  ) ?? null;
+
 export default function AddStockScreen() {
   const navigation = useNavigation();
   const { mode, vehicleId } = useLocalSearchParams<{
@@ -56,6 +229,7 @@ export default function AddStockScreen() {
   const resolvedVehicleId = Array.isArray(vehicleId) ? vehicleId[0] : vehicleId;
   const isEditMode = resolvedMode === 'edit';
   const allowImmediateDismissRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [editableStockRecord, setEditableStockRecord] = useState(() =>
     isEditMode && resolvedVehicleId
       ? findVehicleStockById(resolvedVehicleId)
@@ -82,6 +256,34 @@ export default function AddStockScreen() {
   const [status, setStatus] = useState<VehicleStatus>(VehicleStatus.AVAILABLE);
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
+  const selectedUnitPreset = useMemo(
+    () => findStockUnitPreset(unitName),
+    [unitName]
+  );
+  const unitNameOptions = useMemo(
+    () =>
+      appendOptionIfMissing(
+        toSelectOptions(STOCK_FORM_UNIT_PRESETS.map((preset) => preset.unitName)),
+        unitName
+      ),
+    [unitName]
+  );
+  const variationOptions = useMemo(
+    () =>
+      appendOptionIfMissing(
+        toSelectOptions(selectedUnitPreset?.variations ?? []),
+        variation
+      ),
+    [selectedUnitPreset, variation]
+  );
+  const bodyColorOptions = useMemo(
+    () =>
+      appendOptionIfMissing(
+        toSelectOptions(selectedUnitPreset?.bodyColors ?? []),
+        bodyColor
+      ),
+    [bodyColor, selectedUnitPreset]
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -117,6 +319,33 @@ export default function AddStockScreen() {
       unsubscribe();
     };
   }, [isEditMode, navigation, resolvedVehicleId]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+
+    try {
+      await loadVehicleStocks();
+      setEditableStockRecord(
+        isEditMode && resolvedVehicleId
+          ? findVehicleStockById(resolvedVehicleId)
+          : null
+      );
+    } catch (error) {
+      setEditableStockRecord(
+        isEditMode && resolvedVehicleId
+          ? findVehicleStockById(resolvedVehicleId)
+          : null
+      );
+      Alert.alert(
+        'Unable to refresh stock form',
+        error instanceof Error
+          ? error.message
+          : 'The latest stock details could not be loaded right now.'
+      );
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     setUnitName(initialFormValues.unitName);
@@ -226,8 +455,8 @@ export default function AddStockScreen() {
       nextErrors.bodyColor = 'Enter the body color.';
     }
 
-    if (!status) {
-      nextErrors.status = 'Select the vehicle status.';
+    if (!status || !isVehicleStockFormStatusAllowed(status)) {
+      nextErrors.status = 'Status must be Available or In Stockyard.';
     }
 
     setErrors(nextErrors);
@@ -293,6 +522,8 @@ export default function AddStockScreen() {
       }
       onBackPress={handleBackPress}
       contentContainerStyle={styles.content}
+      refreshing={refreshing}
+      onRefresh={handleRefresh}
     >
       <Card style={styles.card}>
         <Text style={styles.sectionTitle}>Basic Information</Text>
@@ -300,31 +531,49 @@ export default function AddStockScreen() {
           Enter the unit details exactly as they should be saved in inventory.
         </Text>
 
-        <Input
+        <Select
           label="Unit Name"
-          placeholder="Enter unit name"
+          placeholder="Select unit name"
           value={unitName}
-          onChangeText={(value) => {
-            setUnitName(value);
+          options={unitNameOptions}
+          onValueChange={(value) => {
+            const nextUnitName = String(value);
+            const nextUnitPreset = findStockUnitPreset(nextUnitName);
+            const nextVariationOptions: readonly string[] =
+              nextUnitPreset?.variations ?? [];
+            const nextBodyColorOptions: readonly string[] =
+              nextUnitPreset?.bodyColors ?? [];
+
+            setUnitName(nextUnitName);
+            setVariation((current) =>
+              nextVariationOptions.includes(current) ? current : ''
+            );
+            setBodyColor((current) =>
+              nextBodyColorOptions.includes(current) ? current : ''
+            );
             setErrors((current) => ({
               ...current,
               unitName: undefined,
             }));
           }}
+          searchPlaceholder="Search unit name"
           error={errors.unitName}
         />
 
-        <Input
+        <Select
           label="Variation"
-          placeholder="Enter variation"
+          placeholder="Select variation"
           value={variation}
-          onChangeText={(value) => {
-            setVariation(value);
+          options={variationOptions}
+          onValueChange={(value) => {
+            setVariation(String(value));
             setErrors((current) => ({
               ...current,
               variation: undefined,
             }));
           }}
+          disabled={!unitName}
+          searchPlaceholder="Search variation"
           error={errors.variation}
         />
 
@@ -343,17 +592,19 @@ export default function AddStockScreen() {
           error={errors.conductionNumber}
         />
 
-        <Input
+        <Select
           label="Body Color"
-          placeholder="Enter body color"
+          placeholder="Select body color"
           value={bodyColor}
-          onChangeText={(value) => {
-            setBodyColor(value);
+          options={bodyColorOptions}
+          onValueChange={(value) => {
+            setBodyColor(String(value));
             setErrors((current) => ({
               ...current,
               bodyColor: undefined,
             }));
           }}
+          searchPlaceholder="Search body color"
           error={errors.bodyColor}
         />
       </Card>
@@ -368,7 +619,7 @@ export default function AddStockScreen() {
           label="Status"
           placeholder="Select status"
           value={status}
-          options={[...VEHICLE_STATUS_OPTIONS]}
+          options={[...VEHICLE_STOCK_FORM_STATUS_OPTIONS]}
           onValueChange={(value) => {
             setStatus(value as VehicleStatus);
             setErrors((current) => ({
@@ -379,6 +630,9 @@ export default function AddStockScreen() {
           searchPlaceholder="Search status"
           error={errors.status}
         />
+        <Text style={styles.helperText}>
+          Only `Available` and `In Stockyard` can be selected from this form.
+        </Text>
 
         <Input
           label="Notes"
@@ -432,6 +686,13 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: theme.colors.textMuted,
     marginBottom: theme.spacing.base,
+    fontFamily: theme.fonts.family.sans,
+  },
+  helperText: {
+    marginTop: -4,
+    marginBottom: theme.spacing.base,
+    fontSize: 12,
+    color: theme.colors.textMuted,
     fontFamily: theme.fonts.family.sans,
   },
   actions: {

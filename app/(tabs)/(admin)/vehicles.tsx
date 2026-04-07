@@ -269,8 +269,18 @@ export default function VehiclesScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            await deleteVehicleStock(vehicleId);
-            setVehicles(getVehicleStocks());
+            try {
+              await deleteVehicleStock(vehicleId);
+              setVehicles(getVehicleStocks());
+              Alert.alert('Deleted', `${unitName} has been deleted from stock.`);
+            } catch (error) {
+              Alert.alert(
+                'Unable to delete vehicle',
+                error instanceof Error
+                  ? error.message
+                  : 'The stock record could not be deleted right now.'
+              );
+            }
           },
         },
       ]

@@ -29,8 +29,9 @@ import {
   getPreparationBadgeStatus,
   getPreparationRecords,
   getPreparationStatusLabel,
+  isPreparationEditable,
   loadPreparationRecords,
-  markPreparationReadyForRelease,
+  markPreparationCompleted,
   PreparationRecord,
   rejectPreparationRequest,
 } from '@/src/mobile/data/preparation';
@@ -67,9 +68,9 @@ const getPreparationFooterHint = (status: PreparationStatus) => {
       return 'Waiting for admin or supervisor approval';
     case PreparationStatus.IN_DISPATCH:
       return 'Queued for dispatcher checklist processing';
-    case PreparationStatus.COMPLETED:
-      return 'Dispatcher checklist completed';
     case PreparationStatus.READY_FOR_RELEASE:
+      return 'Dispatcher checklist completed';
+    case PreparationStatus.COMPLETED:
       return 'Unit cleared and ready for release';
     case PreparationStatus.REJECTED:
       return 'Preparation request was rejected';
@@ -289,8 +290,21 @@ export default function PreparationScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            await deletePreparationRecord(preparationId);
-            setPreparations(getPreparationRecords());
+            try {
+              await deletePreparationRecord(preparationId);
+              setPreparations(getPreparationRecords());
+              Alert.alert(
+                'Deleted',
+                `${vehicleName} preparation request has been deleted.`
+              );
+            } catch (error) {
+              Alert.alert(
+                'Unable to delete preparation',
+                error instanceof Error
+                  ? error.message
+                  : 'The preparation request could not be deleted right now.'
+              );
+            }
           },
         },
       ]
@@ -356,7 +370,7 @@ export default function PreparationScreen() {
     );
   };
 
-  const handleReadyForRelease = (
+  const handleCompletePreparation = (
     preparationId: string,
     vehicleName: string
   ) => {
@@ -365,17 +379,17 @@ export default function PreparationScreen() {
     }
 
     Alert.alert(
-      'Mark ready for release?',
-      `${vehicleName} will be marked as Ready for Release.`,
+      'Mark preparation as completed?',
+      `${vehicleName} is already ready for release and will now be marked as Completed.`,
       [
         {
           text: 'Cancel',
           style: 'cancel',
         },
         {
-          text: 'Ready for Release',
+          text: 'Mark Completed',
           onPress: async () => {
-            await markPreparationReadyForRelease(preparationId);
+            await markPreparationCompleted(preparationId);
             setPreparations(getPreparationRecords());
           },
         },
@@ -415,11 +429,11 @@ export default function PreparationScreen() {
             { label: 'All', value: 'all' },
             { label: 'Pending', value: PreparationStatus.PENDING },
             { label: 'In Dispatch', value: PreparationStatus.IN_DISPATCH },
-            { label: 'Completed', value: PreparationStatus.COMPLETED },
             {
               label: 'Ready for Release',
               value: PreparationStatus.READY_FOR_RELEASE,
             },
+            { label: 'Completed', value: PreparationStatus.COMPLETED },
             { label: 'Rejected', value: PreparationStatus.REJECTED },
           ]}
           activeFilter={statusFilter}
@@ -482,18 +496,18 @@ export default function PreparationScreen() {
 
             if (
               canReviewPreparation &&
-              item.status === PreparationStatus.COMPLETED
+              item.status === PreparationStatus.READY_FOR_RELEASE
             ) {
               menuItems.push({
-                key: `release-${item.id}`,
-                label: 'Ready for Release',
-                iconName: 'shield-checkmark-outline',
+                key: `complete-${item.id}`,
+                label: 'Mark Completed',
+                iconName: 'checkmark-done-outline',
                 tone: 'positive',
-                onPress: () => handleReadyForRelease(item.id, item.unitName),
+                onPress: () => handleCompletePreparation(item.id, item.unitName),
               });
             }
 
-            if (access.canEdit) {
+            if (access.canEdit && isPreparationEditable(item.status)) {
               menuItems.push({
                 key: `edit-${item.id}`,
                 label: 'Edit Prep',
@@ -598,10 +612,10 @@ export default function PreparationScreen() {
                           ? 'time-outline'
                           : item.status === PreparationStatus.IN_DISPATCH
                           ? 'swap-horizontal-outline'
-                          : item.status === PreparationStatus.COMPLETED
-                          ? 'checkmark-done-outline'
                           : item.status === PreparationStatus.READY_FOR_RELEASE
                           ? 'shield-checkmark-outline'
+                          : item.status === PreparationStatus.COMPLETED
+                          ? 'checkmark-done-outline'
                           : 'close-circle-outline'
                       }
                       size={15}

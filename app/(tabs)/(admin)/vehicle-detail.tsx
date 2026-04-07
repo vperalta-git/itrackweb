@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -42,6 +43,7 @@ export default function VehicleDetailScreen() {
   const role = user?.role ?? UserRole.ADMIN;
   const access = getModuleAccess(role, 'vehicleStocks');
   const resolvedVehicleId = Array.isArray(vehicleId) ? vehicleId[0] : vehicleId;
+  const [refreshing, setRefreshing] = useState(false);
   const [vehicle, setVehicle] = useState<Vehicle | null>(() =>
     resolvedVehicleId ? findVehicleStockById(resolvedVehicleId) : null
   );
@@ -112,12 +114,49 @@ export default function VehicleDetailScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            await deleteVehicleStock(vehicle.id);
-            router.dismiss();
+            try {
+              await deleteVehicleStock(vehicle.id);
+              Alert.alert(
+                'Deleted',
+                `${vehicle.unitName} has been deleted from stock.`,
+                [
+                  {
+                    text: 'OK',
+                    onPress: () => router.dismiss(),
+                  },
+                ]
+              );
+            } catch (error) {
+              Alert.alert(
+                'Unable to delete vehicle',
+                error instanceof Error
+                  ? error.message
+                  : 'The stock record could not be deleted right now.'
+              );
+            }
           },
         },
       ]
     );
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+
+    try {
+      await loadVehicleStocks();
+      setVehicle(resolvedVehicleId ? findVehicleStockById(resolvedVehicleId) : null);
+    } catch (error) {
+      setVehicle(resolvedVehicleId ? findVehicleStockById(resolvedVehicleId) : null);
+      Alert.alert(
+        'Unable to refresh vehicle details',
+        error instanceof Error
+          ? error.message
+          : 'The latest stock details could not be loaded right now.'
+      );
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleExportVehicle = async () => {
@@ -177,7 +216,18 @@ export default function VehicleDetailScreen() {
         onRightPress={access.canExportPdf ? handleExportVehicle : undefined}
       />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+            progressBackgroundColor={theme.colors.surface}
+          />
+        }
+      >
         <AccessScopeNotice
           title={access.scopeLabel}
           message={access.scopeNote}

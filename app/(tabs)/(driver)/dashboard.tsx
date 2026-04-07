@@ -25,6 +25,7 @@ import {
   getDriverAllocationRoute,
   startDriverAllocationTrip,
 } from '@/src/mobile/data/driver-allocation';
+import { useDriverRealtimeLocation } from '@/src/mobile/hooks';
 import { AllocationStatus } from '@/src/mobile/types';
 
 type DriverTripStage =
@@ -131,12 +132,18 @@ export default function DriverDashboard() {
         : null,
     [activeAllocation]
   );
+  const {
+    currentLocation: trackedDriverLocation,
+    trackingStatus,
+    statusMessage: trackingStatusMessage,
+    lastUpdatedAt,
+  } = useDriverRealtimeLocation(activeAllocation);
   const driverLocation = useMemo(
     () =>
       activeAllocation?.status === AllocationStatus.IN_TRANSIT
-        ? getDriverAllocationLiveLocation(activeAllocation)
+        ? trackedDriverLocation ?? getDriverAllocationLiveLocation(activeAllocation)
         : null,
-    [activeAllocation]
+    [activeAllocation, trackedDriverLocation]
   );
   const pickupMarker = useMemo<MarkerData | null>(
     () =>
@@ -222,12 +229,28 @@ export default function DriverDashboard() {
   );
 
   const stageMessage = getStageMessage(tripStage);
+  const isWaitingForBooking = tripStage === 'waiting_for_booking';
   const compactMeta =
-    tripStage === 'waiting_for_booking'
+    isWaitingForBooking
       ? 'Available'
       : tripStage === 'pending_acceptance'
         ? 'Pending'
         : activeAllocation?.eta ?? 'On Route';
+  const trackingMetaLabel =
+    trackingStatus === 'tracking' && lastUpdatedAt
+      ? `Updated ${lastUpdatedAt.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+        })}`
+      : trackingStatus === 'tracking'
+        ? 'Live GPS Active'
+        : trackingStatus === 'permission_denied'
+          ? 'Location Access Needed'
+          : trackingStatus === 'disabled'
+            ? 'Location Services Off'
+            : trackingStatus === 'error'
+              ? 'Live GPS Delayed'
+              : 'Live GPS Standby';
 
   const refreshActiveAllocation = () => {
     setRefreshKey((current) => current + 1);
@@ -301,13 +324,65 @@ export default function DriverDashboard() {
 
   return (
     <View style={styles.container}>
-      <MapViewComponent
-        markers={markers}
-        routes={routes}
-        initialRegion={initialRegion}
-        mapChipLabel={getMapChipLabel(tripStage)}
-        style={styles.map}
-      />
+      {isWaitingForBooking ? (
+        <View style={styles.standbyMapSurface}>
+          <View style={styles.standbyGlowPrimary} />
+          <View style={styles.standbyGlowSecondary} />
+          <View style={styles.standbyRingLarge} />
+          <View style={styles.standbyRingSmall} />
+
+          <View style={styles.standbyMapChip}>
+            <Ionicons
+              name="sparkles-outline"
+              size={14}
+              color={theme.colors.primaryDark}
+            />
+            <Text style={styles.standbyMapChipText}>Standby Coverage</Text>
+          </View>
+
+          <View style={styles.standbyHeroCard}>
+            <View style={styles.standbyHeroBadge}>
+              <Ionicons
+                name="locate-outline"
+                size={16}
+                color={theme.colors.primary}
+              />
+              <Text style={styles.standbyHeroBadgeText}>
+                Ready for the next dispatch
+              </Text>
+            </View>
+
+            <Text style={styles.standbyHeroTitle}>
+              Live route tracking appears once a booking is assigned.
+            </Text>
+
+            <Text style={styles.standbyHeroSubtitle}>
+              Keep this driver online and notifications enabled so pickup and
+              destination details can open here right away.
+            </Text>
+
+            <View style={styles.standbyHeroStats}>
+              <View style={styles.standbyHeroStat}>
+                <Text style={styles.standbyHeroStatLabel}>Status</Text>
+                <Text style={styles.standbyHeroStatValue}>Standby</Text>
+              </View>
+
+              <View style={styles.standbyHeroStat}>
+                <Text style={styles.standbyHeroStatLabel}>Tracking</Text>
+                <Text style={styles.standbyHeroStatValue}>Waiting for trip</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      ) : (
+        <MapViewComponent
+          markers={markers}
+          routes={routes}
+          initialRegion={initialRegion}
+          mapChipLabel={getMapChipLabel(tripStage)}
+          style={styles.map}
+        />
+      )}
 
       <SafeAreaView pointerEvents="box-none" style={styles.overlay}>
         <View style={styles.topOverlay}>
@@ -432,6 +507,50 @@ export default function DriverDashboard() {
                 </View>
               </View>
 
+              <View style={styles.trackingCard}>
+                <View style={styles.trackingCardTop}>
+                  <View style={styles.trackingIconWrap}>
+                    <Ionicons
+                      name={
+                        trackingStatus === 'tracking'
+                          ? 'locate'
+                          : trackingStatus === 'permission_denied'
+                            ? 'alert-circle-outline'
+                            : 'location-outline'
+                      }
+                      size={16}
+                      color={
+                        trackingStatus === 'tracking'
+                          ? theme.colors.success
+                          : trackingStatus === 'permission_denied'
+                            ? theme.colors.error
+                            : theme.colors.primary
+                      }
+                    />
+                  </View>
+
+                  <View style={styles.trackingCopy}>
+                    <Text style={styles.trackingTitle}>Realtime Location</Text>
+                    <Text style={styles.trackingSubtitle}>
+                      {trackingStatusMessage}
+                    </Text>
+                  </View>
+
+                  <StatusBadge
+                    status={
+                      trackingStatus === 'tracking'
+                        ? 'verified'
+                        : trackingStatus === 'permission_denied' ||
+                            trackingStatus === 'error'
+                          ? 'cancelled'
+                          : 'inactive'
+                    }
+                    label={trackingMetaLabel}
+                    size="small"
+                  />
+                </View>
+              </View>
+
               <View style={styles.actionStack}>
                 {tripStage === 'pending_acceptance' ? (
                   <Button
@@ -501,6 +620,144 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     borderWidth: 0,
     backgroundColor: theme.colors.gray100,
+  },
+  standbyMapSurface: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: '#F5EFE4',
+    overflow: 'hidden',
+  },
+  standbyGlowPrimary: {
+    position: 'absolute',
+    top: -120,
+    right: -80,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: 'rgba(204, 53, 53, 0.12)',
+  },
+  standbyGlowSecondary: {
+    position: 'absolute',
+    top: 120,
+    left: -90,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(209, 167, 101, 0.16)',
+  },
+  standbyRingLarge: {
+    position: 'absolute',
+    top: 110,
+    right: 28,
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    borderWidth: 1,
+    borderColor: 'rgba(128, 110, 75, 0.16)',
+  },
+  standbyRingSmall: {
+    position: 'absolute',
+    top: 210,
+    left: 32,
+    width: 98,
+    height: 98,
+    borderRadius: 49,
+    borderWidth: 1,
+    borderColor: 'rgba(128, 110, 75, 0.14)',
+  },
+  standbyMapChip: {
+    position: 'absolute',
+    top: 22,
+    left: theme.spacing.base,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    borderRadius: theme.radius.full,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.65)',
+  },
+  standbyMapChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.primaryDark,
+    fontFamily: theme.fonts.family.sans,
+  },
+  standbyHeroCard: {
+    position: 'absolute',
+    left: theme.spacing.base,
+    right: theme.spacing.base,
+    top: 92,
+    borderRadius: 28,
+    padding: theme.spacing.base,
+    backgroundColor: 'rgba(255, 252, 248, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.7)',
+    ...theme.shadows.lg,
+  },
+  standbyHeroBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    borderRadius: theme.radius.full,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    backgroundColor: theme.colors.primarySurface,
+    borderWidth: 1,
+    borderColor: theme.colors.primarySurfaceStrong,
+    marginBottom: theme.spacing.base,
+  },
+  standbyHeroBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.colors.primaryDark,
+    fontFamily: theme.fonts.family.sans,
+  },
+  standbyHeroTitle: {
+    fontSize: 23,
+    lineHeight: 29,
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: theme.spacing.sm,
+    fontFamily: theme.fonts.family.sans,
+  },
+  standbyHeroSubtitle: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: theme.colors.textMuted,
+    marginBottom: theme.spacing.base,
+    fontFamily: theme.fonts.family.sans,
+  },
+  standbyHeroStats: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+  },
+  standbyHeroStat: {
+    flex: 1,
+    borderRadius: 18,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+  },
+  standbyHeroStatLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    color: theme.colors.textSubtle,
+    marginBottom: 4,
+    fontFamily: theme.fonts.family.sans,
+  },
+  standbyHeroStatValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
@@ -612,6 +869,46 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: theme.colors.primaryDark,
+    fontFamily: theme.fonts.family.sans,
+  },
+  trackingCard: {
+    marginBottom: theme.spacing.sm,
+    borderRadius: 20,
+    paddingHorizontal: theme.spacing.base,
+    paddingVertical: theme.spacing.sm,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+  },
+  trackingCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  trackingIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primarySurface,
+    borderWidth: 1,
+    borderColor: theme.colors.primarySurfaceStrong,
+  },
+  trackingCopy: {
+    flex: 1,
+  },
+  trackingTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: 2,
+    fontFamily: theme.fonts.family.sans,
+  },
+  trackingSubtitle: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: theme.colors.textMuted,
     fontFamily: theme.fonts.family.sans,
   },
   actionStack: {

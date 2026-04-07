@@ -148,7 +148,7 @@ export default function ChecklistScreen() {
         stepId
       );
 
-      if (updatedPreparation.status === PreparationStatus.COMPLETED) {
+      if (updatedPreparation.status === PreparationStatus.READY_FOR_RELEASE) {
         const remainingPreparations = getPendingDispatcherPreparations(user?.id);
 
         setPreparations(remainingPreparations);
@@ -156,7 +156,7 @@ export default function ChecklistScreen() {
 
         Alert.alert(
           'Dispatcher Checklist Completed',
-          `${selectedPreparation.unitName} has been marked as Completed and removed from the in-dispatch queue.`
+          `${selectedPreparation.unitName} is now marked Ready for Release and removed from the in-dispatch queue.`
         );
         return;
       }

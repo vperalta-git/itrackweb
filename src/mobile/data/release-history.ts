@@ -4,7 +4,7 @@ import { PreparationStatus } from '@/src/mobile/types';
 import { getPreparationRecords } from './preparation';
 import { findUnitAgentAllocationByUnitId } from './unit-agent-allocation';
 import { findVehicleStockById } from './vehicle-stocks';
-import { toDate } from './shared';
+import { getFirstValidDate, isDateValueValid } from './shared';
 
 export type ReleaseHistoryPreparationItem = {
   id: string;
@@ -37,6 +37,13 @@ export type ReleaseHistoryRecord = {
   timeline: ReleaseHistoryTimelineItem[];
 };
 
+const getSortableTime = (value: Date) =>
+  Number.isFinite(value.getTime()) ? value.getTime() : 0;
+
+const resolveReleaseHistoryDate = (
+  ...values: Array<Date | string | number | null | undefined>
+) => getFirstValidDate(values);
+
 export const getReleaseHistoryRecords = (): ReleaseHistoryRecord[] =>
   getPreparationRecords()
     .filter(
@@ -48,15 +55,28 @@ export const getReleaseHistoryRecords = (): ReleaseHistoryRecord[] =>
     .map((record) => {
       const unitAllocation = findUnitAgentAllocationByUnitId(record.vehicleId);
       const vehicle = findVehicleStockById(record.vehicleId);
-      const createdAt = toDate(record.createdAt);
-      const approvedAt = toDate(record.approvedAt ?? record.createdAt);
-      const completedAt = toDate(
-        record.completedAt ?? record.readyForReleaseAt ?? record.createdAt
+      const createdAt = resolveReleaseHistoryDate(record.createdAt);
+      const approvedAt = resolveReleaseHistoryDate(
+        record.approvedAt,
+        record.createdAt
       );
-      const releasedAt = toDate(
-        record.readyForReleaseAt ?? record.completedAt ?? record.createdAt
+      const completedAt = resolveReleaseHistoryDate(
+        record.readyForReleaseAt,
+        record.completedAt,
+        record.approvedAt,
+        record.createdAt
       );
-      const assignedDate = unitAllocation?.createdAt ?? createdAt;
+      const releasedAt = resolveReleaseHistoryDate(
+        record.completedAt,
+        record.readyForReleaseAt,
+        record.approvedAt,
+        record.createdAt
+      );
+      const assignedDate = resolveReleaseHistoryDate(
+        unitAllocation?.createdAt,
+        record.approvedAt,
+        record.createdAt
+      );
       const assignedAgent =
         unitAllocation?.salesAgentName || record.requestedByName;
       const completedChecklistItems = record.dispatcherChecklist.filter(
@@ -96,7 +116,7 @@ export const getReleaseHistoryRecords = (): ReleaseHistoryRecord[] =>
         },
       ];
 
-      if (record.status === PreparationStatus.READY_FOR_RELEASE) {
+      if (record.status === PreparationStatus.COMPLETED) {
         timeline.push({
           id: `${record.id}-timeline-5`,
           timestamp: releasedAt,
@@ -109,7 +129,7 @@ export const getReleaseHistoryRecords = (): ReleaseHistoryRecord[] =>
         id: `release-${record.id}`,
         conductionNumber: record.conductionNumber,
         statusLabel:
-          record.status === PreparationStatus.READY_FOR_RELEASE
+          record.status === PreparationStatus.COMPLETED
             ? 'Released'
             : 'Prepared',
         unitName: record.unitName,
@@ -126,13 +146,16 @@ export const getReleaseHistoryRecords = (): ReleaseHistoryRecord[] =>
         timeline,
       };
     })
-    .sort((left, right) => right.releasedAt.getTime() - left.releasedAt.getTime());
+    .sort(
+      (left, right) =>
+        getSortableTime(right.releasedAt) - getSortableTime(left.releasedAt)
+    );
 
 export const getReleaseHistoryRecordById = (releaseId: string) =>
   getReleaseHistoryRecords().find((record) => record.id === releaseId);
 
-export const formatReleaseDateTime = (value: Date) =>
-  format(value, 'yyyy-MM-dd HH:mm');
+export const formatReleaseDateTime = (value?: Date | string | null) =>
+  isDateValueValid(value) ? format(getFirstValidDate([value]), 'yyyy-MM-dd HH:mm') : 'Unavailable';
 
 export const getReleaseHistoryExportFileName = (
   record: ReleaseHistoryRecord

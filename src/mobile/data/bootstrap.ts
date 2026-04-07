@@ -1,14 +1,24 @@
+import { loadAuthEventRecords } from './auth-events';
 import { loadDriverAllocations } from './driver-allocation';
 import { loadPreparationRecords } from './preparation';
 import { loadTestDriveBookings } from './test-drive';
 import { loadUnitAgentAllocations } from './unit-agent-allocation';
+import { loadUserAuditEventRecords } from './user-audit-events';
 import { loadUserManagementRecords } from './users';
 import { loadVehicleStocks } from './vehicle-stocks';
 
 const PRELOAD_TASKS = [
   {
+    label: 'auth-events',
+    load: loadAuthEventRecords,
+  },
+  {
     label: 'users',
     load: loadUserManagementRecords,
+  },
+  {
+    label: 'user-audit-events',
+    load: loadUserAuditEventRecords,
   },
   {
     label: 'vehicles',
