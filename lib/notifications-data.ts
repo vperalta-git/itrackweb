@@ -52,13 +52,13 @@ export async function markAllNotificationsRead(userId: string) {
 export async function deleteNotificationRecord(id: string, userId: string) {
   await apiRequest(`/notifications/${id}`, {
     method: 'DELETE',
-    query: { userId },
+    body: { userId },
   })
 }
 
 export async function clearNotifications(userId: string) {
   await apiRequest('/notifications', {
     method: 'DELETE',
-    query: { userId },
+    body: { userId },
   })
 }

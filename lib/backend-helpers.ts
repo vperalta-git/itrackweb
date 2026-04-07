@@ -160,16 +160,16 @@ const uiAllocationStatusMap: Record<string, string> = {
 const preparationStatusMap: Record<string, string> = {
   pending: 'pending',
   in_dispatch: 'in-dispatch',
-  completed: 'completed',
-  ready_for_release: 'ready-for-release',
+  completed: 'ready-for-release',
+  ready_for_release: 'completed',
   rejected: 'rejected',
 }
 
 const uiPreparationStatusMap: Record<string, string> = {
   pending: 'pending',
   'in-dispatch': 'in_dispatch',
-  completed: 'completed',
-  'ready-for-release': 'ready_for_release',
+  completed: 'ready_for_release',
+  'ready-for-release': 'completed',
   rejected: 'rejected',
 }
 

@@ -1,4 +1,5 @@
 import { loadSession } from '@/lib/session'
+import { API_BASE_URL } from '@/lib/api-base-url'
 
 type ApiEnvelope<T> = {
   success: boolean
@@ -13,11 +14,6 @@ type RequestOptions = {
   headers?: HeadersInit
   query?: Record<string, string | number | boolean | null | undefined>
 }
-
-const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api').replace(
-  /\/+$/,
-  ''
-)
 
 export class ApiError extends Error {
   status: number

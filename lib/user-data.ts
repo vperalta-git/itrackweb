@@ -14,6 +14,7 @@ import {
   MOBILE_PHONE_VALIDATION_MESSAGE,
   normalizeMobilePhoneNumber,
 } from '@/lib/phone'
+import { requestWebNotificationRefresh } from '@/lib/notification-preferences'
 import { mapBackendRoleToUserRole, mapUserRoleToBackendRole, type UserRole } from '@/lib/session'
 
 export interface SystemUser {
@@ -99,8 +100,10 @@ export async function createUserRecord(input: {
   email: string
   phone: string
   role: UserRole
-  password: string
+  password?: string
   bio?: string
+  managerId?: string | null
+  sendCredentialsEmail?: boolean
 }) {
   const phone = normalizeMobilePhoneNumber(input.phone)
 
@@ -116,14 +119,17 @@ export async function createUserRecord(input: {
       email: input.email.trim().toLowerCase(),
       phone,
       role: mapUserRoleToBackendRole(input.role),
-      password: input.password,
       bio: input.bio?.trim() ?? '',
+      managerId: input.role === 'sales-agent' ? input.managerId ?? null : null,
+      ...(input.password ? { password: input.password } : {}),
+      ...(input.sendCredentialsEmail ? { sendCredentialsEmail: true } : {}),
     },
   })
 
   const nextUser = mapBackendUserToSystemUser(createdUser)
   const currentUsers = loadUsers().filter((user) => user.id !== nextUser.id)
   persistUsers(sortUsers([nextUser, ...currentUsers]))
+  requestWebNotificationRefresh()
   return nextUser
 }
 
@@ -161,6 +167,7 @@ export async function updateUserRecord(
   const nextUser = mapBackendUserToSystemUser(updatedUser)
   const currentUsers = loadUsers().filter((user) => user.id !== nextUser.id)
   persistUsers(sortUsers([nextUser, ...currentUsers]))
+  requestWebNotificationRefresh()
   return nextUser
 }
 
@@ -170,4 +177,5 @@ export async function deleteUserRecord(id: string) {
   })
 
   persistUsers(loadUsers().filter((user) => user.id !== id))
+  requestWebNotificationRefresh()
 }

@@ -23,25 +23,54 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import {
+  AUDIT_LOG_UPDATED_EVENT,
+  STORAGE_KEY as AUDIT_LOG_STORAGE_KEY,
+  getStoredAuditLogs,
+  type AuditLogEntry,
+} from '@/lib/audit-log'
 import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
 import { deriveActivityRecords, fetchReportSnapshot, type DerivedActivityRecord } from '@/lib/report-data'
 
-const getActionColor = (action: DerivedActivityRecord['action']) => {
+type AuditTableRecord = {
+  id: string
+  user: string
+  action: AuditLogEntry['action'] | DerivedActivityRecord['action']
+  module: string
+  description: string
+  timestamp: string
+  timestampIso: string
+}
+
+const getActionColor = (action: AuditTableRecord['action']) => {
   switch (action) {
     case 'CREATE':
       return 'bg-green-100 text-green-700'
     case 'UPDATE':
       return 'bg-blue-100 text-blue-700'
+    case 'DELETE':
+      return 'bg-red-100 text-red-700'
+    case 'LOGIN':
+      return 'bg-emerald-100 text-emerald-700'
+    case 'LOGOUT':
+      return 'bg-amber-100 text-amber-700'
+    case 'EXPORT':
+      return 'bg-violet-100 text-violet-700'
     default:
       return ''
   }
 }
 
+const toAuditTableRecord = (log: AuditLogEntry): AuditTableRecord => ({
+  ...log,
+  timestampIso: new Date(log.timestamp.replace(' ', 'T')).toISOString(),
+})
+
 export default function AuditTrailPage() {
   const router = useRouter()
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
-  const [logs, setLogs] = React.useState<DerivedActivityRecord[]>([])
+  const [logs, setLogs] = React.useState<AuditTableRecord[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [searchQuery, setSearchQuery] = React.useState('')
   const [actionFilter, setActionFilter] = React.useState('all')
@@ -55,18 +84,37 @@ export default function AuditTrailPage() {
 
   React.useEffect(() => {
     let isMounted = true
+    let backendLogsCache: AuditTableRecord[] = []
+
+    const mergeLogs = (localLogs: AuditTableRecord[]) => {
+      if (!isMounted) return
+
+      setLogs(
+        [...localLogs, ...backendLogsCache].sort(
+          (left, right) =>
+            new Date(right.timestampIso).getTime() - new Date(left.timestampIso).getTime()
+        )
+      )
+    }
+
+    const refreshLocalLogs = () => {
+      mergeLogs(getStoredAuditLogs().map(toAuditTableRecord))
+    }
 
     const loadAuditData = async () => {
       setIsLoading(true)
+      refreshLocalLogs()
 
       try {
         const snapshot = await fetchReportSnapshot()
         if (!isMounted) return
 
-        setLogs(deriveActivityRecords(snapshot))
+        backendLogsCache = deriveActivityRecords(snapshot)
+        refreshLocalLogs()
       } catch {
         if (!isMounted) return
-        setLogs([])
+        backendLogsCache = []
+        refreshLocalLogs()
       } finally {
         if (isMounted) {
           setIsLoading(false)
@@ -76,8 +124,31 @@ export default function AuditTrailPage() {
 
     void loadAuditData()
 
+    const handleFocus = () => {
+      refreshLocalLogs()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshLocalLogs()
+      }
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === AUDIT_LOG_STORAGE_KEY) {
+        refreshLocalLogs()
+      }
+    }
+
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('storage', handleStorage)
+
     return () => {
       isMounted = false
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('storage', handleStorage)
     }
   }, [])
 
@@ -103,7 +174,29 @@ export default function AuditTrailPage() {
     })
   }, [actionFilter, logs, moduleFilter, searchQuery])
 
-  const columns: ColumnDef<DerivedActivityRecord>[] = [
+  React.useEffect(() => {
+    const handleAuditLogUpdated = () => {
+      setLogs((currentLogs) => {
+        const backendLogs = currentLogs.filter(
+          (log) => !String(log.id).startsWith('AUD-')
+        )
+        const localLogs = getStoredAuditLogs().map(toAuditTableRecord)
+
+        return [...localLogs, ...backendLogs].sort(
+          (left, right) =>
+            new Date(right.timestampIso).getTime() - new Date(left.timestampIso).getTime()
+        )
+      })
+    }
+
+    window.addEventListener(AUDIT_LOG_UPDATED_EVENT, handleAuditLogUpdated)
+
+    return () => {
+      window.removeEventListener(AUDIT_LOG_UPDATED_EVENT, handleAuditLogUpdated)
+    }
+  }, [])
+
+  const columns: ColumnDef<AuditTableRecord>[] = [
     {
       accessorKey: 'timestamp',
       header: 'Timestamp',
@@ -181,6 +274,10 @@ export default function AuditTrailPage() {
                 <SelectItem value="all">All Actions</SelectItem>
                 <SelectItem value="CREATE">Create</SelectItem>
                 <SelectItem value="UPDATE">Update</SelectItem>
+                <SelectItem value="DELETE">Delete</SelectItem>
+                <SelectItem value="LOGIN">Login</SelectItem>
+                <SelectItem value="LOGOUT">Logout</SelectItem>
+                <SelectItem value="EXPORT">Export</SelectItem>
               </SelectContent>
             </Select>
             <Select value={moduleFilter} onValueChange={setModuleFilter}>

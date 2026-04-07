@@ -7,6 +7,7 @@ import {
   getFullName,
 } from '@/lib/backend-helpers'
 import { syncInventoryVehiclesFromBackend } from '@/lib/inventory-data'
+import { requestWebNotificationRefresh } from '@/lib/notification-preferences'
 
 export interface UnitAllocationRecord {
   id: string
@@ -89,7 +90,9 @@ export async function createUnitAllocationRecord(input: {
   })
 
   await syncInventoryVehiclesFromBackend()
-  return syncUnitAllocationsFromBackend()
+  const nextAllocations = await syncUnitAllocationsFromBackend()
+  requestWebNotificationRefresh()
+  return nextAllocations
 }
 
 export async function updateUnitAllocationRecord(
@@ -112,7 +115,9 @@ export async function updateUnitAllocationRecord(
   })
 
   await syncInventoryVehiclesFromBackend()
-  return syncUnitAllocationsFromBackend()
+  const nextAllocations = await syncUnitAllocationsFromBackend()
+  requestWebNotificationRefresh()
+  return nextAllocations
 }
 
 export async function deleteUnitAllocationRecord(id: string) {
@@ -121,5 +126,7 @@ export async function deleteUnitAllocationRecord(id: string) {
   })
 
   await syncInventoryVehiclesFromBackend()
-  return syncUnitAllocationsFromBackend()
+  const nextAllocations = await syncUnitAllocationsFromBackend()
+  requestWebNotificationRefresh()
+  return nextAllocations
 }

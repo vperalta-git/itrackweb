@@ -232,8 +232,8 @@ const formatPreparationSteps = (
     }))
 
 const resolveReleaseStatus = (status?: string): ReleaseHistoryStatus => {
-  if (status === 'ready_for_release') return 'released'
   if (status === 'completed') return 'ready-for-pickup'
+  if (status === 'ready_for_release') return 'released'
   return 'in-preparation'
 }
 

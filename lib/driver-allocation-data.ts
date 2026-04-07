@@ -13,6 +13,7 @@ import {
   mapUiAllocationStatusToBackend,
 } from '@/lib/backend-helpers'
 import { syncInventoryVehiclesFromBackend } from '@/lib/inventory-data'
+import { requestWebNotificationRefresh } from '@/lib/notification-preferences'
 
 export interface DriverAllocationRecord {
   id: string
@@ -156,7 +157,9 @@ export async function createDriverAllocationRecord(input: {
   })
 
   await syncInventoryVehiclesFromBackend()
-  return syncDriverAllocationsFromBackend()
+  const nextAllocations = await syncDriverAllocationsFromBackend()
+  requestWebNotificationRefresh()
+  return nextAllocations
 }
 
 export async function updateDriverAllocationRecord(
@@ -185,7 +188,9 @@ export async function updateDriverAllocationRecord(
   })
 
   await syncInventoryVehiclesFromBackend()
-  return syncDriverAllocationsFromBackend()
+  const nextAllocations = await syncDriverAllocationsFromBackend()
+  requestWebNotificationRefresh()
+  return nextAllocations
 }
 
 export async function deleteDriverAllocationRecord(id: string) {
@@ -194,7 +199,9 @@ export async function deleteDriverAllocationRecord(id: string) {
   })
 
   await syncInventoryVehiclesFromBackend()
-  return syncDriverAllocationsFromBackend()
+  const nextAllocations = await syncDriverAllocationsFromBackend()
+  requestWebNotificationRefresh()
+  return nextAllocations
 }
 
 export function getDriverAllocationProgress(allocation: DriverAllocationRecord) {

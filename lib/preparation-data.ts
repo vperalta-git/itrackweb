@@ -17,6 +17,7 @@ import {
   MOBILE_PHONE_VALIDATION_MESSAGE,
   normalizeMobilePhoneNumber,
 } from '@/lib/phone'
+import { requestWebNotificationRefresh } from '@/lib/notification-preferences'
 import { mapUserRoleToBackendRole, type SessionUser } from '@/lib/session'
 
 export interface PreparationRequestRecord {
@@ -39,6 +40,8 @@ export interface PreparationRequestRecord {
   approvalStatus: string
   requestedByName: string
   requestedByRole: string
+  completedAt?: string
+  readyForReleaseAt?: string
   dispatcherChecklist: Array<{
     id: string
     label: string
@@ -108,6 +111,8 @@ const mapPreparation = (
     approvalStatus: preparation.approvalStatus ?? 'awaiting_approval',
     requestedByName: preparation.requestedByName ?? '',
     requestedByRole: preparation.requestedByRole ?? '',
+    completedAt: preparation.completedAt ?? undefined,
+    readyForReleaseAt: preparation.readyForReleaseAt ?? undefined,
     dispatcherChecklist: preparation.dispatcherChecklist ?? [],
   }
 }
@@ -176,7 +181,9 @@ export async function createPreparationRecord(input: {
     },
   })
 
-  return syncPreparationRecordsFromBackend()
+  const nextRecords = await syncPreparationRecordsFromBackend()
+  requestWebNotificationRefresh()
+  return nextRecords
 }
 
 export async function updatePreparationRecord(
@@ -214,7 +221,9 @@ export async function updatePreparationRecord(
     },
   })
 
-  return syncPreparationRecordsFromBackend()
+  const nextRecords = await syncPreparationRecordsFromBackend()
+  requestWebNotificationRefresh()
+  return nextRecords
 }
 
 export async function updatePreparationStatusRecord(
@@ -226,6 +235,7 @@ export async function updatePreparationStatusRecord(
     approvedByRole?: string | null
     approvedByName?: string | null
     approvedAt?: string | null
+    completedAt?: string | null
     readyForReleaseAt?: string | null
   }
 ) {
@@ -238,11 +248,14 @@ export async function updatePreparationStatusRecord(
       approvedByRole: input.approvedByRole,
       approvedByName: input.approvedByName,
       approvedAt: input.approvedAt,
+      completedAt: input.completedAt,
       readyForReleaseAt: input.readyForReleaseAt,
     },
   })
 
-  return syncPreparationRecordsFromBackend()
+  const nextRecords = await syncPreparationRecordsFromBackend()
+  requestWebNotificationRefresh()
+  return nextRecords
 }
 
 export async function deletePreparationRecord(id: string) {
@@ -250,5 +263,7 @@ export async function deletePreparationRecord(id: string) {
     method: 'DELETE',
   })
 
-  return syncPreparationRecordsFromBackend()
+  const nextRecords = await syncPreparationRecordsFromBackend()
+  requestWebNotificationRefresh()
+  return nextRecords
 }

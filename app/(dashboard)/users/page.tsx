@@ -57,6 +57,10 @@ import {
   syncUsersFromBackend,
   updateUserRecord,
 } from '@/lib/user-data'
+import {
+  isValidMobilePhoneNumber,
+  MOBILE_PHONE_VALIDATION_MESSAGE,
+} from '@/lib/phone'
 import { toast } from 'sonner'
 
 // Types
@@ -87,10 +91,7 @@ const getFullName = (user: Pick<User, 'firstName' | 'lastName'>) =>
 const getInitials = (user: Pick<User, 'firstName' | 'lastName'>) =>
   `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
 
-const isValidPhoneNumber = (phone: string) => {
-  const normalizedPhone = phone.replace(/[^\d+]/g, '')
-  return /^(?:\+639\d{9}|09\d{9})$/.test(normalizedPhone)
-}
+const isValidEmailAddress = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 
 export default function UsersPage() {
   const pathname = usePathname()
@@ -111,7 +112,7 @@ export default function UsersPage() {
     email: '',
     phone: '',
     role: 'sales-agent' as User['role'],
-    temporaryPassword: '',
+    managerId: '',
   })
   const [editForm, setEditForm] = React.useState({
     firstName: '',
@@ -143,6 +144,11 @@ export default function UsersPage() {
       isMounted = false
     }
   }, [])
+
+  const managerUsers = React.useMemo(
+    () => users.filter((user) => user.role === 'manager' && user.status === 'active'),
+    [users]
+  )
 
   const openViewDetails = (user: User) => {
     setSelectedUser(user)
@@ -184,6 +190,11 @@ export default function UsersPage() {
 
     if (!firstName || !lastName || !email || !phone) return
 
+    if (!isValidEmailAddress(email)) {
+      toast.error('Enter a valid email address.')
+      return
+    }
+
     const duplicateEmail = users.some(
       (user) => user.id !== selectedUser.id && user.email.toLowerCase() === email
     )
@@ -193,8 +204,8 @@ export default function UsersPage() {
       return
     }
 
-    if (!isValidPhoneNumber(phone)) {
-      toast.error('Enter a valid phone number like +63 917 123 4567 or 09171234567.')
+    if (!isValidMobilePhoneNumber(phone)) {
+      toast.error(MOBILE_PHONE_VALIDATION_MESSAGE)
       return
     }
 
@@ -225,9 +236,14 @@ export default function UsersPage() {
 
     const email = addForm.email.trim().toLowerCase()
     const phone = addForm.phone.trim()
-    const temporaryPassword = addForm.temporaryPassword.trim()
+    const managerId = addForm.role === 'sales-agent' ? addForm.managerId : ''
 
-    if (!firstName || !lastName || !email || !phone || !temporaryPassword) return
+    if (!firstName || !lastName || !email || !phone) return
+
+    if (!isValidEmailAddress(email)) {
+      toast.error('Enter a valid email address.')
+      return
+    }
 
     const duplicateEmail = users.some((user) => user.email.toLowerCase() === email)
 
@@ -236,8 +252,13 @@ export default function UsersPage() {
       return
     }
 
-    if (!isValidPhoneNumber(phone)) {
-      toast.error('Enter a valid phone number like +63 917 123 4567 or 09171234567.')
+    if (!isValidMobilePhoneNumber(phone)) {
+      toast.error(MOBILE_PHONE_VALIDATION_MESSAGE)
+      return
+    }
+
+    if (addForm.role === 'sales-agent' && !managerId) {
+      toast.error('Select an assigned manager for the sales agent.')
       return
     }
 
@@ -247,7 +268,8 @@ export default function UsersPage() {
       email,
       phone,
       role: addForm.role,
-      password: temporaryPassword,
+      managerId: managerId || null,
+      sendCredentialsEmail: true,
     })
 
     setUsers((currentUsers) => [nextUser, ...currentUsers.filter((user) => user.id !== nextUser.id)])
@@ -257,7 +279,7 @@ export default function UsersPage() {
       email: '',
       phone: '',
       role: 'sales-agent',
-      temporaryPassword: '',
+      managerId: '',
     })
     setIsAddUserOpen(false)
     logAuditEvent({
@@ -507,6 +529,9 @@ export default function UsersPage() {
                     setAddForm((current) => ({ ...current, email: event.target.value }))
                   }
                 />
+                <p className="text-xs text-muted-foreground">
+                  Enter a complete email like `name@example.com`.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label>Phone Number</Label>
@@ -517,13 +542,18 @@ export default function UsersPage() {
                     setAddForm((current) => ({ ...current, phone: event.target.value }))
                   }
                 />
+                <p className="text-xs text-muted-foreground">{MOBILE_PHONE_VALIDATION_MESSAGE}</p>
               </div>
               <div className="space-y-2">
                 <Label>Role</Label>
                 <Select
                   value={addForm.role}
                   onValueChange={(value: User['role']) =>
-                    setAddForm((current) => ({ ...current, role: value }))
+                    setAddForm((current) => ({
+                      ...current,
+                      role: value,
+                      managerId: value === 'sales-agent' ? current.managerId : '',
+                    }))
                   }
                 >
                   <SelectTrigger>
@@ -539,22 +569,33 @@ export default function UsersPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Temporary Password</Label>
-                <Input
-                  type="password"
-                  placeholder="Enter temporary password"
-                  value={addForm.temporaryPassword}
-                  onChange={(event) =>
-                    setAddForm((current) => ({
-                      ...current,
-                      temporaryPassword: event.target.value,
-                    }))
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  User will be required to change password on first login.
-                </p>
+              {addForm.role === 'sales-agent' && (
+                <div className="space-y-2">
+                  <Label>Assigned Manager</Label>
+                  <Select
+                    value={addForm.managerId}
+                    onValueChange={(value) =>
+                      setAddForm((current) => ({ ...current, managerId: value }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select assigned manager" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {managerUsers.map((manager) => (
+                        <SelectItem key={manager.id} value={manager.id}>
+                          {getFullName(manager)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    This field only applies to sales agents.
+                  </p>
+                </div>
+              )}
+              <div className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+                Login credentials are generated on the server and emailed automatically after account creation.
               </div>
             </div>
             <DialogFooter>
@@ -568,7 +609,7 @@ export default function UsersPage() {
                   !addForm.lastName.trim() ||
                   !addForm.email.trim() ||
                   !addForm.phone.trim() ||
-                  !addForm.temporaryPassword.trim()
+                  (addForm.role === 'sales-agent' && !addForm.managerId)
                 }
               >
                 Create User
@@ -783,6 +824,9 @@ export default function UsersPage() {
                   setEditForm((current) => ({ ...current, email: event.target.value }))
                 }
               />
+              <p className="text-xs text-muted-foreground">
+                Enter a complete email like `name@example.com`.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Phone Number</Label>
@@ -792,6 +836,7 @@ export default function UsersPage() {
                   setEditForm((current) => ({ ...current, phone: event.target.value }))
                 }
               />
+              <p className="text-xs text-muted-foreground">{MOBILE_PHONE_VALIDATION_MESSAGE}</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

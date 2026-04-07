@@ -63,18 +63,148 @@ import {
 } from '@/lib/role-scope'
 import { toast } from 'sonner'
 
-const unitVariationOptions = {
-  'mu-X': ['LS-E 4x2 AT', 'RZ4E 4x2 AT', 'LS-A 4x4 AT'],
-  'D-Max': ['LT 4x2 AT', 'LS 4x4 MT', 'LS 4x2 AT'],
-  Traviz: ['L Utility Van', 'S Cab & Chassis'],
-  Crosswind: ['XT', 'XUV'],
-  NLR: ['4-Wheeler Aluminum Van', '4-Wheeler Dropside'],
-  NMR: ['4-Wheeler Dropside', '4-Wheeler Cab & Chassis'],
-  NPR: ['6-Wheeler', '6-Wheeler Aluminum Van'],
-  NQR: ['Dropside', 'Van Body'],
+const vehicleData = {
+  'Isuzu D-Max': {
+    bodyColors: [
+      'Valencia Orange',
+      'Red Spinel',
+      'Mercury Silver',
+      'Galena Gray',
+      'Onyx Black',
+      'Splash White',
+    ],
+    unitVariations: [
+      'Cab and Chassis',
+      'CC Utility Van Dual AC',
+      '4x2 LT MT',
+      '4x4 LT MT',
+      '4x2 LS-A MT',
+      '4x2 LS-A MT Plus',
+      '4x2 LS-A AT',
+      '4x2 LS-A AT Plus',
+      '4x4 LS-A MT',
+      '4x4 LS-A MT Plus',
+      '4x2 LS-E AT',
+      '4x4 LS-E AT',
+      '4x4 Single Cab MT',
+    ],
+  },
+  'Isuzu MU-X': {
+    bodyColors: [
+      'Onyx Black',
+      'Satin White Pearl',
+      'Splash White',
+      'Mercury Silver',
+      'Eiger Grey',
+    ],
+    unitVariations: [
+      '1.9L MU-X 4x2 LS AT',
+      '3.0L MU-X 4x2 LS-A AT',
+      '3.0L MU-X 4x2 LS-E AT',
+      '3.0L MU-X 4x4 LS-E AT',
+    ],
+  },
+  'Isuzu Traviz': {
+    bodyColors: ['White'],
+    unitVariations: [
+      'SWB 2.5L 4W 9FT Cab & Chassis',
+      'SWB 2.5L 4W 9FT Utility Van Dual AC',
+      'LWB 2.5L 4W 10FT Cab & Chassis',
+      'LWB 2.5L 4W 10FT Utility Van Dual AC',
+      'LWB 2.5L 4W 10FT Aluminum Van',
+      'LWB 2.5L 4W 10FT Aluminum Van w/ Single AC',
+      'LWB 2.5L 4W 10FT Dropside Body',
+      'LWB 2.5L 4W 10FT Dropside Body w/ Single AC',
+    ],
+  },
+  'Isuzu QLR Series': {
+    bodyColors: ['White'],
+    unitVariations: [
+      'QLR77 E Tilt 3.0L 4W 10ft 60A Cab & Chassis',
+      'QLR77 E Tilt Utility Van w/o AC',
+      'QLR77 E Non-Tilt 3.0L 4W 10ft 60A Cab & Chassis',
+      'QLR77 E Non-Tilt Utility Van w/o AC',
+      'QLR77 E Non-Tilt Utility Van Dual AC',
+    ],
+  },
+  'Isuzu NLR Series': {
+    bodyColors: ['White'],
+    unitVariations: [
+      'NLR77 H Tilt 3.0L 4W 14ft 60A',
+      'NLR77 H Jeepney Chassis (135A)',
+      'NLR85 Tilt 3.0L 4W 10ft 90A',
+      'NLR85E Smoother',
+    ],
+  },
+  'Isuzu NMR Series': {
+    bodyColors: ['White'],
+    unitVariations: [
+      'NMR85H Smoother',
+      'NMR85 H Tilt 3.0L 6W 14ft 80A Non-AC',
+    ],
+  },
+  'Isuzu NPR Series': {
+    bodyColors: ['White'],
+    unitVariations: [
+      'NPR85 Tilt 3.0L 6W 16ft 90A',
+      'NPR85 Cabless for Armored',
+    ],
+  },
+  'Isuzu NPS Series': {
+    bodyColors: ['White'],
+    unitVariations: ['NPS75 H 3.0L 6W 16ft 90A'],
+  },
+  'Isuzu NQR Series': {
+    bodyColors: ['White'],
+    unitVariations: [
+      'NQR75L Smoother',
+      'NQR75 Tilt 5.2L 6W 18ft 90A',
+    ],
+  },
+  'Isuzu FRR Series': {
+    bodyColors: ['White'],
+    unitVariations: [
+      'FRR90M 6W 20ft 5.2L',
+      'FRR90M Smoother',
+    ],
+  },
+  'Isuzu FTR Series': {
+    bodyColors: ['White'],
+    unitVariations: ['FTR90M 6W 19ft 5.2L'],
+  },
+  'Isuzu FVR Series': {
+    bodyColors: ['White'],
+    unitVariations: [
+      'FVR34Q Smoother',
+      'FVR 34Q 6W 24ft 7.8L w/ ABS',
+    ],
+  },
+  'Isuzu FTS Series': {
+    bodyColors: ['White'],
+    unitVariations: ['FTS34 J', 'FTS34L'],
+  },
+  'Isuzu FVM Series': {
+    bodyColors: ['White'],
+    unitVariations: [
+      'FVM34T 10W 26ft 7.8L w/ ABS',
+      'FVM34W 10W 32ft 7.8L w/ ABS',
+    ],
+  },
+  'Isuzu FXM Series': {
+    bodyColors: ['White'],
+    unitVariations: ['FXM60W'],
+  },
+  'Isuzu GXZ Series': {
+    bodyColors: ['White'],
+    unitVariations: ['GXZ60N'],
+  },
+  'Isuzu EXR Series': {
+    bodyColors: ['White'],
+    unitVariations: ['EXR77H 380PS 6W Tractor Head'],
+  },
 } as const
 
-type UnitName = keyof typeof unitVariationOptions
+type UnitName = keyof typeof vehicleData
 
 const initialAddVehicleForm = {
   unitName: '' as UnitName | '',
@@ -109,7 +239,11 @@ export default function InventoryPage() {
   const [editVehicleForm, setEditVehicleForm] = React.useState(emptyEditVehicleForm)
 
   const variationOptions = addVehicleForm.unitName
-    ? unitVariationOptions[addVehicleForm.unitName]
+    ? vehicleData[addVehicleForm.unitName].unitVariations
+    : []
+
+  const bodyColorOptions = addVehicleForm.unitName
+    ? vehicleData[addVehicleForm.unitName].bodyColors
     : []
 
   const handleConductionNumberChange = (value: string) => {
@@ -166,7 +300,11 @@ export default function InventoryPage() {
   }
 
   const editVariationOptions = editVehicleForm.unitName
-    ? unitVariationOptions[editVehicleForm.unitName]
+    ? vehicleData[editVehicleForm.unitName].unitVariations
+    : []
+
+  const editBodyColorOptions = editVehicleForm.unitName
+    ? vehicleData[editVehicleForm.unitName].bodyColors
     : []
 
   const handleEditDialogChange = (open: boolean) => {
@@ -391,6 +529,7 @@ export default function InventoryPage() {
 
     const scopedVehicles = vehicles.filter(
       (vehicle) =>
+        vehicle.status !== 'released' &&
         matchesScopedAgent(role, vehicle.assignedAgent) &&
         matchesScopedManager(role, vehicle.manager)
     )
@@ -495,7 +634,7 @@ export default function InventoryPage() {
                 Add Vehicle
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="w-[96vw] max-w-7xl">
               <DialogHeader>
                 <DialogTitle>Add New Vehicle</DialogTitle>
                 <DialogDescription>
@@ -513,6 +652,7 @@ export default function InventoryPage() {
                           ...prev,
                           unitName: value as UnitName,
                           variation: '',
+                          bodyColor: '',
                         }))
                       }
                     >
@@ -520,7 +660,7 @@ export default function InventoryPage() {
                         <SelectValue placeholder="Select unit name" />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.keys(unitVariationOptions).map((unitName) => (
+                        {Object.keys(vehicleData).map((unitName) => (
                           <SelectItem key={unitName} value={unitName}>
                             {unitName}
                           </SelectItem>
@@ -574,17 +714,33 @@ export default function InventoryPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="body-color">Body Color</Label>
-                    <Input
-                      id="body-color"
-                      placeholder="Enter body color"
+                    <Select
                       value={addVehicleForm.bodyColor}
-                      onChange={(e) =>
+                      onValueChange={(value) =>
                         setAddVehicleForm((prev) => ({
                           ...prev,
-                          bodyColor: e.target.value,
+                          bodyColor: value,
                         }))
                       }
-                    />
+                      disabled={!addVehicleForm.unitName}
+                    >
+                      <SelectTrigger id="body-color">
+                        <SelectValue
+                          placeholder={
+                            addVehicleForm.unitName
+                              ? 'Select body color'
+                              : 'Select unit name first'
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {bodyColorOptions.map((bodyColor) => (
+                          <SelectItem key={bodyColor} value={bodyColor}>
+                            {bodyColor}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 
@@ -668,7 +824,6 @@ export default function InventoryPage() {
                     <SelectItem value="in-transit">In Transit</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="in-dispatch">In Dispatch</SelectItem>
-                    <SelectItem value="released">Released</SelectItem>
                   </>
                 )}
               </SelectContent>
@@ -777,6 +932,7 @@ export default function InventoryPage() {
                       ...prev,
                       unitName: value as UnitName,
                       variation: '',
+                      bodyColor: '',
                     }))
                   }
                 >
@@ -784,7 +940,7 @@ export default function InventoryPage() {
                     <SelectValue placeholder="Select unit name" />
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.keys(unitVariationOptions).map((unitName) => (
+                    {Object.keys(vehicleData).map((unitName) => (
                       <SelectItem key={unitName} value={unitName}>
                         {unitName}
                       </SelectItem>
@@ -829,12 +985,30 @@ export default function InventoryPage() {
               </div>
               <div className="space-y-2">
                 <Label>Body Color</Label>
-                <Input
+                <Select
                   value={editVehicleForm.bodyColor}
-                  onChange={(e) =>
-                    setEditVehicleForm((prev) => ({ ...prev, bodyColor: e.target.value }))
+                  onValueChange={(value) =>
+                    setEditVehicleForm((prev) => ({ ...prev, bodyColor: value }))
                   }
-                />
+                  disabled={!editVehicleForm.unitName}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        editVehicleForm.unitName
+                          ? 'Select body color'
+                          : 'Select unit name first'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {editBodyColorOptions.map((bodyColor) => (
+                      <SelectItem key={bodyColor} value={bodyColor}>
+                        {bodyColor}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -858,7 +1032,6 @@ export default function InventoryPage() {
                     <SelectItem value="in-transit">In Transit</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="in-dispatch">In Dispatch</SelectItem>
-                    <SelectItem value="released">Released</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -17,6 +17,7 @@ import {
   MOBILE_PHONE_VALIDATION_MESSAGE,
   normalizeMobilePhoneNumber,
 } from '@/lib/phone'
+import { requestWebNotificationRefresh } from '@/lib/notification-preferences'
 import { type Role } from '@/lib/rbac'
 import { type SessionUser } from '@/lib/session'
 
@@ -176,7 +177,9 @@ export async function createTestDriveRecord(input: {
     },
   })
 
-  return syncTestDriveRecordsFromBackend()
+  const nextRecords = await syncTestDriveRecordsFromBackend()
+  requestWebNotificationRefresh()
+  return nextRecords
 }
 
 export async function updateTestDriveRecord(
@@ -208,7 +211,9 @@ export async function updateTestDriveRecord(
     },
   })
 
-  return syncTestDriveRecordsFromBackend()
+  const nextRecords = await syncTestDriveRecordsFromBackend()
+  requestWebNotificationRefresh()
+  return nextRecords
 }
 
 export async function updateTestDriveStatusRecord(
@@ -220,7 +225,9 @@ export async function updateTestDriveStatusRecord(
     body: { status },
   })
 
-  return syncTestDriveRecordsFromBackend()
+  const nextRecords = await syncTestDriveRecordsFromBackend()
+  requestWebNotificationRefresh()
+  return nextRecords
 }
 
 export async function deleteTestDriveRecord(id: string) {
@@ -228,5 +235,7 @@ export async function deleteTestDriveRecord(id: string) {
     method: 'DELETE',
   })
 
-  return syncTestDriveRecordsFromBackend()
+  const nextRecords = await syncTestDriveRecordsFromBackend()
+  requestWebNotificationRefresh()
+  return nextRecords
 }

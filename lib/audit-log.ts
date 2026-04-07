@@ -13,7 +13,8 @@ export interface AuditLogEntry {
   timestamp: string
 }
 
-const STORAGE_KEY = 'itrack.audit.logs'
+export const STORAGE_KEY = 'itrack.audit.logs'
+export const AUDIT_LOG_UPDATED_EVENT = 'audit-log-updated'
 
 const roleDisplayNames: Record<Role, string> = {
   admin: 'Administrator',
@@ -50,5 +51,5 @@ export function logAuditEvent(input: Omit<AuditLogEntry, 'id' | 'timestamp'>) {
 
   const currentLogs = getStoredAuditLogs()
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify([nextEntry, ...currentLogs]))
-  window.dispatchEvent(new Event('audit-log-updated'))
+  window.dispatchEvent(new Event(AUDIT_LOG_UPDATED_EVENT))
 }

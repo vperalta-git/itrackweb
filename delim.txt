@@ -1,0 +1,21 @@
+System Delimitations
+
+- Covers internal dealership operations only: users, inventory, allocations, preparation, test drives, reports, profile, settings.
+- Focuses on Isuzu vehicle stock monitoring and movement inside the organization.
+- Supports role-based access for admin, supervisor, manager, sales agent, dispatch, and driver.
+- Handles unit allocation to agents and driver assignment/tracking for delivery flow.
+- Manages vehicle preparation requests up to ready-for-release and release history.
+- Handles test drive scheduling, approval, completion, cancellation, and no-show monitoring.
+- Includes in-app operational notifications, with planned support for email/SMS/push.
+- Generates reports for vehicles, allocations, audit trail, and release history.
+
+Out of Scope / Boundaries
+- No direct payment, billing, accounting, or invoicing module.
+- No customer self-service portal; actions are mainly staff-operated.
+- No full ERP, CRM, or supplier management coverage.
+- No external government registration, insurance, or financing processing shown.
+- No real production backend/API integration is confirmed yet; many flows use local/mock data.
+- No guaranteed real-time GPS/maps integration yet; tracking UI appears partial/mock.
+- No confirmed production email/SMS gateway implementation yet.
+- No warehouse, spare parts, or service workshop management module.
+- No advanced analytics/forecasting/BI beyond listed reports.

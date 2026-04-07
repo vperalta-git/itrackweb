@@ -1,0 +1,67 @@
+Notification Summary
+
+Global validations
+- Action succeeded, source record exists, recipient exists and is active, recipient has access, notification is enabled, channel is configured, payload fields are complete, dedupe/cooldown is checked, timestamp is saved, failures are logged safely.
+- Channel checks: In-App = valid user and saved payload; Email = valid email, opted in, SMTP ready; SMS = valid `09XXXXXXXXX` or `+639XXXXXXXXX`, provider ready; Push = valid active device token.
+
+1. User Management
+- Triggers: user created, profile updated, role changed, deactivated, reactivated, password reset/temp password, first login.
+- Validations: required fields present, email unique, phone valid, user exists, role/status valid, actual changes detected, actor has permission, protected-account rules checked.
+
+2. Inventory
+- Triggers: vehicle added, updated, deleted, status changed, aging threshold reached, exported.
+- Validations: vehicle exists, required vehicle fields complete, conduction number unique, valid status transition, threshold crossed once, actor has permission.
+
+3. Agent Allocation
+- Triggers: allocation created, reassigned, revoked, duplicate allocation attempt.
+- Validations: unit exists, unit not already allocated, manager/agent valid, agent belongs to manager, new assignment differs, allocation active, actor has permission.
+
+4. Driver Allocation
+- Triggers: assignment created, updated, cancelled, accepted, rejected, in-transit, completed, live tracking available.
+- Validations: unit eligible, driver exists and is available, pickup/destination present, no duplicate active allocation, status transition valid, driver is correct assignee, phone exists for SMS, completion/tracking data saved.
+
+5. Vehicle Preparation
+- Triggers: request created, auto-sent to dispatch, pending approval, updated, approved, rejected, progress updated, completed, ready for release, released, deleted.
+- Validations: vehicle selected, services not empty, customer/contact present, PH mobile valid, request exists, creator/approver role allowed, status transition valid, progress valid, release/history write successful.
+
+6. Test Drive
+- Triggers: request created, updated, auto-approved, pending approval, approved, rejected/cancelled, reminders, completed, no-show, follow-up needed, deleted.
+- Validations: customer and vehicle exist, phone valid if SMS, schedule exists and is future-dated, no booking conflict, requester/approver has permission, request exists, status transition valid, reminder not already sent, completion/no-show time valid.
+
+7. Settings, Profile, Security
+- Triggers: notification settings changed, profile updated, password changed, failed password update, login, logout, multiple failed logins, account locked, 2FA enabled/disabled.
+- Validations: save/auth event succeeded, actual changes detected, current password verified, password policy passed, threshold/cooldown applied, lock/2FA state updated correctly.
+
+8. Reports and Audit
+- Triggers: PDF/export generated, sensitive report accessed, audit log reviewed for sensitive actions.
+- Validations: action completed, report/access event captured, actor/viewer has permission.
+
+9. System Notifications
+- Triggers: delivery failure, SMTP/SMS misconfiguration, scheduled job failure, daily digest, unread notification aging.
+- Validations: retry exhausted or health check failed, digest enabled, recipient has relevant events, duplicate send prevented, escalation not already sent.
+
+Recommended channels
+- In-App: most operational updates.
+- Email: approvals, summaries, security, customer confirmations.
+- SMS: release notices, reminders, urgent customer or driver alerts.
+- Push: driver actions, reminders, urgent live events.
+- Audit-only: exports, sensitive access, logout, admin/security traces.
+
+Minimum notification payload
+- notificationId, eventType, module, entityId, entityLabel, triggeredBy, recipients, channel, title, message, actionUrl, priority, createdAt, dedupeKey, deliveryStatus.
+
+Priority
+- Low: profile/settings/exports/digests.
+- Medium: new requests, approvals, reminders.
+- High: rejections, cancellations, release-ready, delivery issues.
+- Critical: account lock, repeated failed login, system delivery failure.
+
+Suggested first set
+- User create/role/status changes.
+- Vehicle added.
+- Preparation create/approve/reject/complete/release.
+- Release SMS to customer.
+- Agent allocation create/reassign/revoke.
+- Driver assignment create/cancel/accept.
+- Test drive create/approve/reject/reminder/complete/no-show.
+- Password change and failed-login alerts.

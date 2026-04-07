@@ -400,8 +400,9 @@ export default function PreparationPage() {
     if (!requestToReadyForRelease) return
 
     const nextRequests = await updatePreparationStatusRecord(requestToReadyForRelease.id, {
-      status: 'ready-for-release',
+      status: 'completed',
       progress: 100,
+      completedAt: requestToReadyForRelease.readyForReleaseAt ?? new Date().toISOString(),
       readyForReleaseAt: new Date().toISOString(),
     })
 
@@ -412,10 +413,10 @@ export default function PreparationPage() {
       user: getAuditActor(role),
       action: 'UPDATE',
       module: 'Preparation',
-      description: `Released vehicle ${requestToReadyForRelease.conductionNumber} from preparation.`,
+      description: `Marked vehicle ${requestToReadyForRelease.conductionNumber} as completed for release.`,
     })
     toast.success(
-      `Vehicle released. SMS notification sent to ${requestToReadyForRelease.customerName} at ${requestToReadyForRelease.contactNumber}.`
+      `Vehicle marked as completed. SMS notification sent to ${requestToReadyForRelease.customerName} at ${requestToReadyForRelease.contactNumber}.`
     )
     setRequestToReadyForRelease(null)
   }
@@ -543,7 +544,7 @@ export default function PreparationPage() {
                   </DropdownMenuItem>
                 </>
               )}
-              {request.status === 'completed' && (
+              {request.status === 'ready-for-release' && (
                 <DropdownMenuItem onClick={() => setRequestToReadyForRelease(request)}>
                   <Clock className="mr-2 size-4" />
                   Ready for Release
@@ -1009,7 +1010,7 @@ export default function PreparationPage() {
 
               <div className="border-t border-border bg-background px-6 py-4">
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                  {selectedRequest.status === 'completed' && (
+                  {selectedRequest.status === 'ready-for-release' && (
                     <Button
                       onClick={() => setRequestToReadyForRelease(selectedRequest)}
                     >
@@ -1032,7 +1033,7 @@ export default function PreparationPage() {
         title="Confirm Ready for Release"
         description={
           requestToReadyForRelease
-            ? `Confirm that ${requestToReadyForRelease.conductionNumber} is ready for release? This will notify ${requestToReadyForRelease.customerName} via SMS at ${requestToReadyForRelease.contactNumber}.`
+            ? `Confirm that ${requestToReadyForRelease.conductionNumber} is ready for release? This will mark the preparation as completed and notify ${requestToReadyForRelease.customerName} via SMS at ${requestToReadyForRelease.contactNumber}.`
             : ''
         }
         confirmLabel="Confirm"

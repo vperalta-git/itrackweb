@@ -11,6 +11,7 @@ import {
   ExternalLink,
   RefreshCw,
   Truck,
+  LocateFixed,
 } from 'lucide-react'
 
 import { PageHeader } from '@/components/page-header'
@@ -30,6 +31,7 @@ import {
 } from '@/components/ui/select'
 import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
 import { matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
+import { hasDirectionsApiKey, resolveRoutePolyline, type MapPoint } from '@/lib/map-routes'
 import {
   DRIVER_ALLOCATIONS_UPDATED_EVENT,
   DriverAllocationRecord,
@@ -60,9 +62,6 @@ type TrackingDriver = {
   destinationCoordinates: { lat: number; lng: number } | null
 }
 
-const FALLBACK_ORIGIN = { x: 25, y: 60 }
-const FALLBACK_DRIVER = { x: 45, y: 48 }
-const FALLBACK_DESTINATION = { x: 75, y: 30 }
 const DEFAULT_MAP_BOUNDS = {
   minLatitude: 14.49,
   maxLatitude: 14.66,
@@ -116,44 +115,6 @@ function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord): Trac
   }
 }
 
-function getMapPointPositions(driver: TrackingDriver | null) {
-  if (!driver?.originCoordinates || !driver.destinationCoordinates) {
-    return {
-      origin: FALLBACK_ORIGIN,
-      driver: FALLBACK_DRIVER,
-      destination: FALLBACK_DESTINATION,
-    }
-  }
-
-  const bounds = getDriverMapBounds(driver)
-  const minLatitude = bounds.minLatitude
-  const maxLatitude = bounds.maxLatitude
-  const minLongitude = bounds.minLongitude
-  const maxLongitude = bounds.maxLongitude
-
-  const normalize = (latitude: number, longitude: number) => {
-    const xRatio =
-      maxLongitude === minLongitude
-        ? 0.5
-        : (longitude - minLongitude) / (maxLongitude - minLongitude)
-    const yRatio =
-      maxLatitude === minLatitude
-        ? 0.5
-        : 1 - (latitude - minLatitude) / (maxLatitude - minLatitude)
-
-    return {
-      x: 12 + xRatio * 76,
-      y: 12 + yRatio * 76,
-    }
-  }
-
-  return {
-    origin: normalize(driver.originCoordinates.lat, driver.originCoordinates.lng),
-    driver: normalize(driver.coordinates.lat, driver.coordinates.lng),
-    destination: normalize(driver.destinationCoordinates.lat, driver.destinationCoordinates.lng),
-  }
-}
-
 function getDriverMapBounds(driver: TrackingDriver | null) {
   if (!driver) {
     return DEFAULT_MAP_BOUNDS
@@ -186,18 +147,20 @@ function getDriverMapBounds(driver: TrackingDriver | null) {
   }
 }
 
-function getOpenStreetMapEmbedUrl(driver: TrackingDriver | null) {
-  const bounds = getDriverMapBounds(driver)
-  const bbox = [
-    bounds.minLongitude,
-    bounds.minLatitude,
-    bounds.maxLongitude,
-    bounds.maxLatitude,
-  ]
-    .map((value) => value.toFixed(6))
-    .join('%2C')
+function projectPoint(
+  point: { lat: number; lng: number },
+  bounds: ReturnType<typeof getDriverMapBounds>
+) {
+  const latitudeRange = Math.max(bounds.maxLatitude - bounds.minLatitude, 0.0001)
+  const longitudeRange = Math.max(bounds.maxLongitude - bounds.minLongitude, 0.0001)
 
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik`
+  const x = ((point.lng - bounds.minLongitude) / longitudeRange) * 100
+  const y = (1 - (point.lat - bounds.minLatitude) / latitudeRange) * 100
+
+  return {
+    x: Math.min(Math.max(x, 8), 92),
+    y: Math.min(Math.max(y, 8), 92),
+  }
 }
 
 function getGoogleMapsDirectionsUrl(driver: TrackingDriver | null) {
@@ -222,8 +185,10 @@ export default function LiveTrackingPage() {
     loadDriverAllocations()
   )
   const [searchTerm, setSearchTerm] = React.useState('')
-  const [statusFilter, setStatusFilter] = React.useState('all')
   const [managerFilter, setManagerFilter] = React.useState('all')
+  const [routePolyline, setRoutePolyline] = React.useState<MapPoint[]>([])
+  const [isRefreshing, setIsRefreshing] = React.useState(false)
+  const [lastUpdatedAt, setLastUpdatedAt] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     const syncAllocations = () => {
@@ -234,14 +199,29 @@ export default function LiveTrackingPage() {
     void syncDriverAllocationsFromBackend()
       .then((nextAllocations) => {
         setDriverAllocations(nextAllocations)
+        setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
       })
       .catch(() => {
         return null
       })
 
+    const pollingInterval = window.setInterval(() => {
+      void syncDriverAllocationsFromBackend()
+        .then((nextAllocations) => {
+          setDriverAllocations(nextAllocations)
+          setLastUpdatedAt(
+            new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+          )
+        })
+        .catch(() => {
+          return null
+        })
+    }, 15000)
+
     window.addEventListener(DRIVER_ALLOCATIONS_UPDATED_EVENT, syncAllocations)
 
     return () => {
+      window.clearInterval(pollingInterval)
       window.removeEventListener(DRIVER_ALLOCATIONS_UPDATED_EVENT, syncAllocations)
     }
   }, [])
@@ -249,9 +229,7 @@ export default function LiveTrackingPage() {
   const activeDrivers = React.useMemo(
     () =>
       driverAllocations
-        .filter((allocation) =>
-          ['pending', 'assigned', 'in-transit', 'available'].includes(allocation.status)
-        )
+        .filter((allocation) => allocation.status === 'in-transit')
         .map(mapAllocationToTrackingDriver),
     [driverAllocations]
   )
@@ -280,9 +258,8 @@ export default function LiveTrackingPage() {
         .includes(searchTerm.trim().toLowerCase())
     )
 
-    if (statusFilter === 'all') return searchScopedDrivers
-    return searchScopedDrivers.filter((driver) => driver.status === statusFilter)
-  }, [activeDrivers, managerFilter, role, searchTerm, statusFilter])
+    return searchScopedDrivers
+  }, [activeDrivers, managerFilter, role, searchTerm])
 
   const [selectedDriver, setSelectedDriver] = React.useState<TrackingDriver | null>(null)
 
@@ -299,32 +276,79 @@ export default function LiveTrackingPage() {
     setSelectedDriver(null)
   }, [scopedDrivers])
 
-  const markerPositions = React.useMemo(
-    () => getMapPointPositions(selectedDriver),
-    [selectedDriver]
-  )
-  const openStreetMapUrl = React.useMemo(
-    () => getOpenStreetMapEmbedUrl(selectedDriver),
-    [selectedDriver]
-  )
+  React.useEffect(() => {
+    let isActive = true
+
+    const resolveRoute = async () => {
+      if (!selectedDriver?.destinationCoordinates) {
+        if (isActive) {
+          setRoutePolyline([])
+        }
+        return
+      }
+
+      const routePoints = [selectedDriver.coordinates, selectedDriver.destinationCoordinates]
+      const resolvedRoute = await resolveRoutePolyline(routePoints)
+
+      if (!isActive) {
+        return
+      }
+
+      setRoutePolyline(resolvedRoute && resolvedRoute.length >= 2 ? resolvedRoute : routePoints)
+    }
+
+    void resolveRoute()
+
+    return () => {
+      isActive = false
+    }
+  }, [selectedDriver])
+
   const googleMapsUrl = React.useMemo(
     () => getGoogleMapsDirectionsUrl(selectedDriver),
     [selectedDriver]
   )
 
   const handleRefresh = async () => {
+    setIsRefreshing(true)
     const nextAllocations = await syncDriverAllocationsFromBackend().catch(() => null)
-    if (nextAllocations) {
+    if (nextAllocations && nextAllocations.length >= 0) {
       setDriverAllocations(nextAllocations)
+      setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
     }
+    setIsRefreshing(false)
   }
 
-  const routeControlPoint = React.useMemo(
-    () => ({
-      x: (markerPositions.origin.x + markerPositions.destination.x) / 2,
-      y: Math.max(Math.min(markerPositions.origin.y, markerPositions.destination.y) - 12, 8),
-    }),
-    [markerPositions]
+  const mapBounds = React.useMemo(() => getDriverMapBounds(selectedDriver), [selectedDriver])
+  const originPosition = React.useMemo(
+    () =>
+      selectedDriver?.originCoordinates
+        ? projectPoint(selectedDriver.originCoordinates, mapBounds)
+        : null,
+    [mapBounds, selectedDriver]
+  )
+  const driverPosition = React.useMemo(
+    () => (selectedDriver ? projectPoint(selectedDriver.coordinates, mapBounds) : null),
+    [mapBounds, selectedDriver]
+  )
+  const destinationPosition = React.useMemo(
+    () =>
+      selectedDriver?.destinationCoordinates
+        ? projectPoint(selectedDriver.destinationCoordinates, mapBounds)
+        : null,
+    [mapBounds, selectedDriver]
+  )
+  const routePath = React.useMemo(
+    () =>
+      routePolyline.length >= 2
+        ? routePolyline
+            .map((point) => {
+              const position = projectPoint(point, mapBounds)
+              return `${position.x},${position.y}`
+            })
+            .join(' ')
+        : '',
+    [mapBounds, routePolyline]
   )
 
   return (
@@ -353,7 +377,7 @@ export default function LiveTrackingPage() {
           </Link>
         </Button>
         <Button variant="outline" size="sm" onClick={() => void handleRefresh()}>
-          <RefreshCw className="mr-2 size-4" />
+          <RefreshCw className={`mr-2 size-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
       </PageHeader>
@@ -368,18 +392,6 @@ export default function LiveTrackingPage() {
         <div className="flex items-center gap-2">
           <Filter className="size-4 text-muted-foreground" />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="All Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="assigned">Assigned</SelectItem>
-            <SelectItem value="in-transit">In Transit</SelectItem>
-            <SelectItem value="available">Available</SelectItem>
-          </SelectContent>
-        </Select>
         <Select value={managerFilter} onValueChange={setManagerFilter}>
           <SelectTrigger className="w-48">
             <SelectValue placeholder="All Managers" />
@@ -401,7 +413,7 @@ export default function LiveTrackingPage() {
             <CardTitle className="flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <Truck className="size-5 text-primary" />
-                {role === 'admin' || role === 'supervisor' ? 'Active Drivers' : 'Tracked Units'}
+                {role === 'admin' || role === 'supervisor' ? 'Live Routes' : 'Tracked Units'}
               </span>
               <Badge variant="secondary">{scopedDrivers.length}</Badge>
             </CardTitle>
@@ -460,94 +472,117 @@ export default function LiveTrackingPage() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <MapPin className="size-5 text-primary" />
-              Location Map
+              <LocateFixed className="size-5 text-primary" />
+              Real-Time Route Map
             </CardTitle>
           </CardHeader>
           <CardContent>
             {scopedDrivers.length === 0 || !selectedDriver ? (
               <div className="flex h-[400px] items-center justify-center rounded-xl border border-dashed text-sm text-muted-foreground">
-                No active tracked units for your allocation scope.
+                No in-transit routes for your allocation scope.
               </div>
             ) : (
               <>
-                <div className="relative h-[400px] w-full overflow-hidden rounded-xl border bg-muted/50">
-                  <iframe
-                    title={`${selectedDriver.name} live trip map`}
-                    src={openStreetMapUrl}
-                    className="absolute inset-0 h-full w-full border-0"
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                  />
+                <div className="relative h-[400px] w-full overflow-hidden rounded-xl border bg-[radial-gradient(circle_at_top,rgba(239,68,68,0.08),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.98))]">
+                  <div className="absolute inset-0 opacity-60">
+                    <div className="absolute inset-x-0 top-[20%] h-px bg-border/80" />
+                    <div className="absolute inset-x-0 top-[40%] h-px bg-border/70" />
+                    <div className="absolute inset-x-0 top-[60%] h-px bg-border/70" />
+                    <div className="absolute inset-x-0 top-[80%] h-px bg-border/80" />
+                    <div className="absolute inset-y-0 left-[20%] w-px bg-border/70" />
+                    <div className="absolute inset-y-0 left-[40%] w-px bg-border/60" />
+                    <div className="absolute inset-y-0 left-[60%] w-px bg-border/60" />
+                    <div className="absolute inset-y-0 left-[80%] w-px bg-border/70" />
+                  </div>
 
-                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-background/10 via-transparent to-background/25" />
-
-                  <div className="pointer-events-none absolute inset-0">
-                    <svg
-                      className="absolute inset-0 h-full w-full pointer-events-none"
-                      viewBox="0 0 100 100"
-                      preserveAspectRatio="none"
-                    >
-                      <path
-                        d={`M ${markerPositions.origin.x} ${markerPositions.origin.y} Q ${routeControlPoint.x} ${routeControlPoint.y}, ${markerPositions.destination.x} ${markerPositions.destination.y}`}
+                  <svg
+                    className="absolute inset-0 h-full w-full"
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                  >
+                    {routePath ? (
+                      <polyline
+                        points={routePath}
                         fill="none"
-                        stroke="var(--chart-1)"
+                        stroke="var(--color-info)"
                         strokeWidth="1.8"
-                        strokeDasharray="4 3"
-                        opacity="0.7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        opacity="0.9"
                       />
-                    </svg>
+                    ) : null}
+                    {routePath ? (
+                      <polyline
+                        points={routePath}
+                        fill="none"
+                        stroke="var(--color-primary)"
+                        strokeWidth="0.7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeDasharray="2.5 2.5"
+                        opacity="0.95"
+                      />
+                    ) : null}
+                  </svg>
 
+                  {originPosition ? (
                     <div
                       className="absolute flex flex-col items-center"
                       style={{
-                        left: `${markerPositions.origin.x}%`,
-                        top: `${markerPositions.origin.y}%`,
+                        left: `${originPosition.x}%`,
+                        top: `${originPosition.y}%`,
                         transform: 'translate(-50%, -100%)',
                       }}
                     >
-                      <div className="rounded-full border-2 border-muted-foreground bg-muted p-2">
+                      <div className="rounded-full border-2 border-muted-foreground bg-background p-2 shadow-sm">
                         <MapPin className="size-4 text-muted-foreground" />
                       </div>
                       <span className="mt-1 rounded bg-background px-1.5 py-0.5 text-[10px] shadow-sm">
-                        Origin
+                        Pickup
                       </span>
                     </div>
+                  ) : null}
 
+                  {driverPosition ? (
                     <div
                       className="absolute flex flex-col items-center animate-pulse"
                       style={{
-                        left: `${markerPositions.driver.x}%`,
-                        top: `${markerPositions.driver.y}%`,
+                        left: `${driverPosition.x}%`,
+                        top: `${driverPosition.y}%`,
                         transform: 'translate(-50%, -100%)',
                       }}
                     >
-                      <div className="rounded-full bg-primary p-2 shadow-lg">
+                      <div className="rounded-full bg-primary p-2 shadow-lg ring-4 ring-primary/15">
                         <Truck className="size-5 text-primary-foreground" />
                       </div>
                       <span className="mt-1 rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground shadow-sm">
                         {selectedDriver.name.split(' ')[0]}
                       </span>
                     </div>
+                  ) : null}
 
+                  {destinationPosition ? (
                     <div
                       className="absolute flex flex-col items-center"
                       style={{
-                        left: `${markerPositions.destination.x}%`,
-                        top: `${markerPositions.destination.y}%`,
+                        left: `${destinationPosition.x}%`,
+                        top: `${destinationPosition.y}%`,
                         transform: 'translate(-50%, -100%)',
                       }}
                     >
-                      <div className="rounded-full border-2 border-success bg-success p-2">
+                      <div className="rounded-full border-2 border-success bg-success p-2 shadow-sm">
                         <Navigation className="size-4 text-success-foreground" />
                       </div>
                       <span className="mt-1 rounded bg-success px-1.5 py-0.5 text-[10px] text-success-foreground shadow-sm">
                         Destination
                       </span>
                     </div>
-                  </div>
+                  ) : null}
 
                   <div className="absolute right-4 top-4 flex flex-col gap-2">
+                    <Badge variant="secondary" className="justify-center bg-background/95">
+                      {hasDirectionsApiKey() ? 'Google Directions route' : 'OSRM fallback route'}
+                    </Badge>
                     <Button variant="outline" size="sm" className="bg-background/95" asChild>
                       <a
                         href={googleMapsUrl}
@@ -598,7 +633,7 @@ export default function LiveTrackingPage() {
                           {selectedDriver.coordinates.lng.toFixed(4)}
                         </span>
                         <span className="hidden sm:inline">
-                          Real map base via OpenStreetMap
+                          {lastUpdatedAt ? `Last synced ${lastUpdatedAt}` : 'Waiting for first sync'}
                         </span>
                       </div>
                     </div>

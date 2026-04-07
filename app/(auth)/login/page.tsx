@@ -10,16 +10,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { API_BASE_URL } from '@/lib/api-base-url'
 import { apiRequest, ApiError } from '@/lib/api-client'
 import { logAuditEvent } from '@/lib/audit-log'
 import { buildRolePath } from '@/lib/rbac'
 import { mapAuthUserFromBackend, saveSession } from '@/lib/session'
 import { syncUsersFromBackend } from '@/lib/user-data'
-
-const WEB_API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api').replace(
-  /\/+$/,
-  ''
-)
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = React.useState(false)
@@ -100,7 +96,7 @@ export default function LoginPage() {
         error instanceof ApiError
           ? error.message
           : error instanceof TypeError
-          ? `Cannot reach the backend at ${WEB_API_URL}. Make sure the backend server is running.`
+          ? `Cannot reach the backend at ${API_BASE_URL}. Make sure the backend server is running.`
           : 'Unable to sign in right now.'
       )
       setIsLoading(false)

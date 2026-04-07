@@ -2,6 +2,8 @@
 
 import { apiRequest } from '@/lib/api-client'
 import {
+  BackendDriverAllocation,
+  BackendPreparation,
   BackendUnitAgentAllocation,
   BackendVehicle,
   getDaysSince,
@@ -61,10 +63,33 @@ export function persistInventoryVehicles(vehicles: InventoryVehicle[]) {
 
 const mapVehicleRecord = (
   vehicle: BackendVehicle,
-  allocationByVehicleId: Map<string, BackendUnitAgentAllocation>
+  allocationByVehicleId: Map<string, BackendUnitAgentAllocation>,
+  latestDriverAllocationByVehicleId: Map<string, BackendDriverAllocation>,
+  latestPreparationByVehicleId: Map<string, BackendPreparation>
 ): InventoryVehicle => {
   const id = getEntityId(vehicle)
   const allocation = allocationByVehicleId.get(id)
+  const latestDriverAllocation = latestDriverAllocationByVehicleId.get(id)
+  const latestPreparation = latestPreparationByVehicleId.get(id)
+  const rawVehicleStatus = mapVehicleStatusToUi(vehicle.status) as InventoryVehicle['status']
+
+  let derivedStatus = rawVehicleStatus
+
+  if (latestPreparation?.status === 'ready_for_release') {
+    derivedStatus = 'released'
+  } else if (
+    latestPreparation?.status === 'in_dispatch' ||
+    latestPreparation?.status === 'completed'
+  ) {
+    derivedStatus = 'in-dispatch'
+  } else if (
+    latestDriverAllocation?.status === 'in_transit' ||
+    latestDriverAllocation?.status === 'assigned'
+  ) {
+    derivedStatus = 'in-transit'
+  } else if (latestDriverAllocation?.status === 'pending') {
+    derivedStatus = 'pending'
+  }
 
   return {
     id,
@@ -75,7 +100,7 @@ const mapVehicleRecord = (
     assignedAgent: getFullName(allocation?.salesAgentId) || 'Unassigned',
     manager: getFullName(allocation?.managerId) || 'Unassigned',
     ageInStorage: getDaysSince(vehicle.createdAt),
-    status: mapVehicleStatusToUi(vehicle.status) as InventoryVehicle['status'],
+    status: derivedStatus,
     dateAdded: getIsoDate(vehicle.createdAt),
     notes: vehicle.notes ?? '',
   }
@@ -85,17 +110,54 @@ const sortVehicles = (vehicles: InventoryVehicle[]) =>
   [...vehicles].sort((left, right) => right.dateAdded.localeCompare(left.dateAdded))
 
 export async function syncInventoryVehiclesFromBackend() {
-  const [vehicles, unitAgentAllocations] = await Promise.all([
+  const [vehicles, unitAgentAllocations, driverAllocations, preparations] = await Promise.all([
     apiRequest<BackendVehicle[]>('/vehicles'),
     apiRequest<BackendUnitAgentAllocation[]>('/unit-agent-allocations'),
+    apiRequest<BackendDriverAllocation[]>('/driver-allocations'),
+    apiRequest<BackendPreparation[]>('/preparations'),
   ])
 
   const allocationByVehicleId = new Map(
     unitAgentAllocations.map((allocation) => [getEntityId(allocation.vehicleId), allocation])
   )
+  const latestDriverAllocationByVehicleId = new Map<string, BackendDriverAllocation>()
+  const latestPreparationByVehicleId = new Map<string, BackendPreparation>()
+
+  driverAllocations.forEach((allocation) => {
+    const vehicleId = getEntityId(allocation.vehicleId)
+    if (!vehicleId) return
+
+    const current = latestDriverAllocationByVehicleId.get(vehicleId)
+    const currentTime = new Date(current?.updatedAt ?? current?.createdAt ?? 0).getTime()
+    const nextTime = new Date(allocation.updatedAt ?? allocation.createdAt ?? 0).getTime()
+
+    if (!current || nextTime >= currentTime) {
+      latestDriverAllocationByVehicleId.set(vehicleId, allocation)
+    }
+  })
+
+  preparations.forEach((preparation) => {
+    const vehicleId = getEntityId(preparation.vehicleId)
+    if (!vehicleId) return
+
+    const current = latestPreparationByVehicleId.get(vehicleId)
+    const currentTime = new Date(current?.updatedAt ?? current?.createdAt ?? 0).getTime()
+    const nextTime = new Date(preparation.updatedAt ?? preparation.createdAt ?? 0).getTime()
+
+    if (!current || nextTime >= currentTime) {
+      latestPreparationByVehicleId.set(vehicleId, preparation)
+    }
+  })
 
   const mappedVehicles = sortVehicles(
-    vehicles.map((vehicle) => mapVehicleRecord(vehicle, allocationByVehicleId))
+    vehicles.map((vehicle) =>
+      mapVehicleRecord(
+        vehicle,
+        allocationByVehicleId,
+        latestDriverAllocationByVehicleId,
+        latestPreparationByVehicleId
+      )
+    )
   )
 
   persistInventoryVehicles(mappedVehicles)
