@@ -25,6 +25,7 @@ import {
   deleteUserManagementRecord,
   formatUserCreatedDate,
   formatUserManagementReference,
+  getUserManagementManagerLabel,
   formatUserRoleLabel,
   formatUserManagementStatusLabel,
   getUserManagementRecords,
@@ -103,6 +104,7 @@ export default function UsersScreen() {
           record.lastName.toLowerCase().includes(query) ||
           record.email.toLowerCase().includes(query) ||
           record.phone.toLowerCase().includes(query) ||
+          getUserManagementManagerLabel(record).toLowerCase().includes(query) ||
           formatUserRoleLabel(record.role).toLowerCase().includes(query);
         const matchesRole =
           roleFilter === 'all' || record.role === roleFilter;
@@ -194,25 +196,46 @@ export default function UsersScreen() {
   };
 
   const handleExportUsers = async () => {
-    const message = [
-      'User Management Export',
-      `Scope: ${getRoleLabel(role)}`,
-      `Status Tab: ${statusTabLabel}`,
-      `Role Filter: ${roleFilterLabel}`,
-      `Search: ${searchValue || 'None'}`,
-      `Records: ${filteredUsers.length}`,
-      '',
-      ...(filteredUsers.length
-        ? filteredUsers.map(
-            (record) =>
-              `${formatUserManagementReference(record.id)} | ${record.firstName} ${record.lastName} | ${record.email} | ${record.phone} | ${formatUserRoleLabel(record.role)} | ${formatUserManagementStatusLabel(record.isActive)} | Added ${formatUserCreatedDate(record.createdAt)}`
-          )
-        : ['No matching user records.']),
-    ].join('\n');
-
     await shareExport({
-      title: 'User Management Export',
-      message,
+      title: 'User Management Report',
+      subtitle: `${statusTabLabel} with role-based filtering`,
+      metadata: [
+        { label: 'Scope', value: getRoleLabel(role) },
+        { label: 'Status Tab', value: statusTabLabel },
+        { label: 'Role Filter', value: roleFilterLabel },
+        { label: 'Search', value: searchValue || 'None' },
+        { label: 'Records', value: String(filteredUsers.length) },
+      ],
+      columns: [
+        {
+          header: 'Reference',
+          value: (record) => formatUserManagementReference(record.id),
+        },
+        {
+          header: 'Full Name',
+          value: (record) => `${record.firstName} ${record.lastName}`,
+        },
+        { header: 'Email', value: (record) => record.email },
+        { header: 'Phone', value: (record) => record.phone },
+        {
+          header: 'Role',
+          value: (record) => formatUserRoleLabel(record.role),
+        },
+        {
+          header: 'Manager',
+          value: (record) => getUserManagementManagerLabel(record),
+        },
+        {
+          header: 'Status',
+          value: (record) => formatUserManagementStatusLabel(record.isActive),
+        },
+        {
+          header: 'Date Added',
+          value: (record) => formatUserCreatedDate(record.createdAt),
+        },
+      ],
+      rows: filteredUsers,
+      emptyStateMessage: 'No matching user records.',
       errorMessage:
         'The user management records could not be exported right now.',
     });
@@ -506,6 +529,18 @@ export default function UsersScreen() {
                           {record.phone}
                         </Text>
                       </View>
+                      {record.role === UserRole.SALES_AGENT ? (
+                        <View style={styles.metaInline}>
+                          <Ionicons
+                            name="briefcase-outline"
+                            size={14}
+                            color={theme.colors.textSubtle}
+                          />
+                          <Text style={styles.metaInlineText} numberOfLines={1}>
+                            {getUserManagementManagerLabel(record)}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
                   </View>
 

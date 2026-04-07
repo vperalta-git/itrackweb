@@ -42,7 +42,7 @@ export function UserAvatar({
   const shouldRenderImage = Boolean(avatarUri && !hasImageError);
 
   useEffect(() => {
-    setHasImageError(false);
+    setHasImageError((current) => (current ? false : current));
   }, [avatarUri]);
 
   return (

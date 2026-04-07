@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import {
   AccessScopeNotice,
+  Button,
   Card,
   Header,
 } from '@/src/mobile/components';
@@ -23,8 +24,10 @@ import {
   formatAllocationReference,
   loadUnitAgentAllocations,
 } from '@/src/mobile/data/unit-agent-allocation';
+import { findVehicleStockById } from '@/src/mobile/data/vehicle-stocks';
 import { getModuleAccess } from '@/src/mobile/navigation/access';
 import { UserRole } from '@/src/mobile/types';
+import { shareExport } from '@/src/mobile/utils/shareExport';
 
 export default function AllocationDetailScreen() {
   const router = useRouter();
@@ -99,6 +102,43 @@ export default function AllocationDetailScreen() {
     );
   }
 
+  const linkedVehicle = findVehicleStockById(allocation.unitId);
+
+  const handleExportAllocation = async () => {
+    const conductionNumber = linkedVehicle?.conductionNumber ?? 'unassigned';
+
+    await shareExport({
+      title: `Agent Allocation ${conductionNumber.toUpperCase()}`,
+      subtitle: `${allocation.unitName} - ${allocation.salesAgentName}`,
+      filename: `agent-allocation-${conductionNumber.toLowerCase()}.pdf`,
+      metadata: [
+        { label: 'Reference', value: formatAllocationReference(allocation.id) },
+        { label: 'Manager', value: allocation.managerName },
+        { label: 'Sales Agent', value: allocation.salesAgentName },
+      ],
+      columns: [
+        { header: 'Unit Name', value: (record) => record.unitName },
+        {
+          header: 'Conduction Number',
+          value: () => linkedVehicle?.conductionNumber ?? '-',
+        },
+        {
+          header: 'Body Color',
+          value: () => linkedVehicle?.bodyColor ?? '-',
+        },
+        { header: 'Variation', value: (record) => record.unitVariation },
+        { header: 'Assigned To', value: (record) => record.salesAgentName },
+        { header: 'Manager', value: (record) => record.managerName },
+        {
+          header: 'Date Created',
+          value: (record) => formatAllocationCreatedDate(record.createdAt),
+        },
+      ],
+      rows: [allocation],
+      errorMessage: 'The agent allocation record could not be exported right now.',
+    });
+  };
+
   const handleDeleteAllocation = () => {
     Alert.alert(
       'Delete agent allocation?',
@@ -132,6 +172,18 @@ export default function AllocationDetailScreen() {
           />
         }
         onLeftPress={() => router.dismiss()}
+        rightIcon={
+          access.canExportPdf ? (
+            <Ionicons
+              name="download-outline"
+              size={18}
+              color={theme.colors.text}
+            />
+          ) : undefined
+        }
+        onRightPress={
+          access.canExportPdf ? handleExportAllocation : undefined
+        }
       />
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -162,6 +214,23 @@ export default function AllocationDetailScreen() {
               <Text style={styles.metricValue}>{allocation.salesAgentName}</Text>
             </View>
           </View>
+
+          {access.canExportPdf ? (
+            <Button
+              title="Export Allocation PDF"
+              size="small"
+              variant="outline"
+              icon={
+                <Ionicons
+                  name="download-outline"
+                  size={16}
+                  color={theme.colors.text}
+                />
+              }
+              onPress={handleExportAllocation}
+              style={styles.exportButton}
+            />
+          ) : null}
         </Card>
 
         <Card style={styles.card}>
@@ -335,6 +404,9 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.lg,
     backgroundColor: theme.colors.surfaceMuted,
     padding: theme.spacing.md,
+  },
+  exportButton: {
+    marginTop: theme.spacing.base,
   },
   metricLabel: {
     fontSize: 12,

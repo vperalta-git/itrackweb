@@ -64,6 +64,10 @@ const DEFAULT_PUSH_NOTIFICATIONS_STATE: PushNotificationsState = {
 const POPUP_AUTO_DISMISS_MS = 4500;
 const NOTIFICATIONS_POLL_INTERVAL_MS = 30000;
 
+const logNotificationsError = (context: string, error: unknown) => {
+  console.error(`[notifications] ${context}`, error);
+};
+
 const normalizeNotificationType = (value: unknown): NotificationType => {
   switch (String(value ?? '').trim().toLowerCase()) {
     case NotificationType.VEHICLE:
@@ -120,6 +124,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       setNotifications(nextNotifications);
 
       return nextNotifications;
+    } catch (error) {
+      logNotificationsError('Unable to refresh notifications.', error);
+      return [];
     } finally {
       setNotificationsLoading(false);
     }
@@ -184,14 +191,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
 
-    await deleteNotificationRecord({
-      notificationId: id,
-      userId: user.id,
-    });
+    try {
+      await deleteNotificationRecord({
+        notificationId: id,
+        userId: user.id,
+      });
 
-    setNotifications((current) =>
-      current.filter((notification) => notification.id !== id)
-    );
+      setNotifications((current) =>
+        current.filter((notification) => notification.id !== id)
+      );
+    } catch (error) {
+      logNotificationsError('Unable to delete a notification.', error);
+    }
   };
 
   const markAsRead = async (id: string) => {
@@ -199,16 +210,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
 
-    const updatedNotification = await markNotificationAsRead({
-      notificationId: id,
-      userId: user.id,
-    });
+    try {
+      const updatedNotification = await markNotificationAsRead({
+        notificationId: id,
+        userId: user.id,
+      });
 
-    setNotifications((current) =>
-      current.map((notification) =>
-        notification.id === id ? updatedNotification : notification
-      )
-    );
+      setNotifications((current) =>
+        current.map((notification) =>
+          notification.id === id ? updatedNotification : notification
+        )
+      );
+    } catch (error) {
+      logNotificationsError('Unable to mark a notification as read.', error);
+    }
   };
 
   const markAllAsRead = async () => {
@@ -216,9 +231,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
 
-    const updatedNotifications = await markAllNotificationsAsRead(user.id);
+    try {
+      const updatedNotifications = await markAllNotificationsAsRead(user.id);
 
-    setNotifications(updatedNotifications);
+      setNotifications(updatedNotifications);
+    } catch (error) {
+      logNotificationsError('Unable to mark all notifications as read.', error);
+    }
   };
 
   const clearAll = async () => {
@@ -226,8 +245,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
 
-    await clearNotificationRecords(user.id);
-    setNotifications([]);
+    try {
+      await clearNotificationRecords(user.id);
+      setNotifications([]);
+    } catch (error) {
+      logNotificationsError('Unable to clear notifications.', error);
+    }
   };
 
   const dismissPopupNotification = () => {
@@ -298,7 +321,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           return;
         }
 
-        void refreshNotifications();
+        void refreshNotifications().catch((error) => {
+          logNotificationsError(
+            'Unable to refresh notifications after receiving one.',
+            error
+          );
+        });
       });
     const responseSubscription =
       Notifications.addNotificationResponseReceivedListener((response) => {
@@ -310,9 +338,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           ?.notificationId;
 
         if (typeof notificationId === 'string' && notificationId.trim()) {
-          void markAsRead(notificationId);
+          void markAsRead(notificationId).catch((error) => {
+            logNotificationsError(
+              'Unable to mark tapped notification as read.',
+              error
+            );
+          });
         } else {
-          void refreshNotifications();
+          void refreshNotifications().catch((error) => {
+            logNotificationsError(
+              'Unable to refresh notifications after notification tap.',
+              error
+            );
+          });
         }
 
         router.push('/(tabs)/notifications');
@@ -352,8 +390,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
 
-    void refreshNotifications();
-    void registerForPushNotifications();
+    void refreshNotifications().catch((error) => {
+      logNotificationsError('Unable to refresh notifications after sign-in.', error);
+    });
+    void registerForPushNotifications().catch((error) => {
+      logNotificationsError(
+        'Unable to register this device for push notifications.',
+        error
+      );
+    });
   }, [user?.id]);
 
   useEffect(() => {

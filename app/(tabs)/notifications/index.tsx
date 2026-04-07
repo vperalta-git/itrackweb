@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   LayoutAnimation,
   Platform,
   StyleSheet,
@@ -14,17 +13,13 @@ import { formatDistanceToNowStrict } from 'date-fns';
 import { Swipeable } from 'react-native-gesture-handler';
 import {
   AppScreen,
-  Button,
   Card,
   EmptyState,
   PageHeader,
 } from '@/src/mobile/components';
 import { AppTheme, useTheme } from '@/src/mobile/constants/theme';
 import { useApp } from '@/src/mobile/context/AppContext';
-import { getApiErrorMessage } from '@/src/mobile/lib/api';
 import { NotificationType } from '@/src/mobile/types';
-import { useAuth } from '@/src/mobile/context/AuthContext';
-import { sendTestNotification as sendTestNotificationRequest } from '@/src/mobile/data/notifications';
 
 const getCategoryPresentation = (theme: AppTheme, type: NotificationType) => {
   switch (type) {
@@ -72,7 +67,6 @@ const formatNotificationTime = (date: Date) =>
 export default function NotificationsScreen() {
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
-  const { user } = useAuth();
   const {
     notifications,
     unreadCount,
@@ -83,7 +77,6 @@ export default function NotificationsScreen() {
     removeNotification,
   } = useApp();
   const [refreshing, setRefreshing] = useState(false);
-  const [isSendingTest, setIsSendingTest] = useState(false);
 
   useEffect(() => {
     if (
@@ -149,30 +142,6 @@ export default function NotificationsScreen() {
     await markAllAsRead();
   };
 
-  const handleSendTestNotification = async () => {
-    if (!user?.id || isSendingTest) {
-      return;
-    }
-
-    setIsSendingTest(true);
-
-    try {
-      const message = await sendTestNotificationRequest(user.id);
-      await refreshNotifications();
-      Alert.alert('Test Notification Sent', message);
-    } catch (error) {
-      Alert.alert(
-        'Unable to Send Test Notification',
-        getApiErrorMessage(
-          error,
-          'The backend could not send a test notification right now.'
-        )
-      );
-    } finally {
-      setIsSendingTest(false);
-    }
-  };
-
   const renderRightActions = () => (
     <View style={styles.deleteAction}>
       <Ionicons
@@ -213,19 +182,6 @@ export default function NotificationsScreen() {
       />
 
       <View style={styles.list}>
-        <View style={styles.toolsRow}>
-          <Button
-            title="Send Test Notification"
-            onPress={() => {
-              void handleSendTestNotification();
-            }}
-            loading={isSendingTest}
-            size="small"
-            variant="outline"
-            fullWidth
-          />
-        </View>
-
         {sortedNotifications.length ? (
           sortedNotifications.map((notification) => {
             const category = getCategoryPresentation(theme, notification.type);
@@ -381,9 +337,6 @@ const createStyles = (theme: AppTheme) =>
     },
     list: {
       gap: theme.spacing.sm,
-    },
-    toolsRow: {
-      marginBottom: theme.spacing.xs,
     },
     card: {
       marginBottom: theme.spacing.md,

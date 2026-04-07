@@ -5,9 +5,15 @@ import {
   getApiErrorMessage,
   getResponseData,
   getResponseMessage,
+  setApiAuthToken,
 } from '../lib/api';
 import { preloadMobileData } from '../data/bootstrap';
 import { syncUserManagementRecordProfile } from '../data/users';
+import {
+  clearPersistedAuthSession,
+  loadPersistedAuthSession,
+  persistAuthSession,
+} from '../lib/authStorage';
 
 interface AuthContextType {
   user: User | null;
@@ -73,15 +79,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     const bootstrap = async () => {
       try {
-        await preloadMobileData();
+        const persistedSession = await loadPersistedAuthSession();
+
+        if (!isMounted) {
+          return;
+        }
+
+        if (persistedSession) {
+          setApiAuthToken(persistedSession.token);
+          setUser(persistedSession.user);
+          setToken(persistedSession.token);
+          syncUserManagementRecordProfile(persistedSession.user);
+        } else {
+          setApiAuthToken(null);
+        }
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
+
+      void preloadMobileData().catch(() => undefined);
     };
 
-    bootstrap();
+    void bootstrap();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -98,8 +127,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }>(response);
       const nextUser = mapUserRecord(data.user);
 
+      setApiAuthToken(data.token);
       setUser(nextUser);
       setToken(data.token);
+      await persistAuthSession({
+        user: nextUser,
+        token: data.token,
+      }).catch(() => undefined);
       await preloadMobileData().catch(() => undefined);
       syncUserManagementRecordProfile(nextUser);
 
@@ -110,8 +144,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const logout = () => {
+    setApiAuthToken(null);
     setUser(null);
     setToken(null);
+    void clearPersistedAuthSession().catch(() => undefined);
   };
 
   const updateProfile = async ({
@@ -148,6 +184,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const updatedUser = mapUserRecord(getResponseData<UserApiRecord>(response));
 
       setUser(updatedUser);
+      if (token) {
+        void persistAuthSession({
+          user: updatedUser,
+          token,
+        }).catch(() => undefined);
+      }
       syncUserManagementRecordProfile(updatedUser);
 
       return updatedUser;

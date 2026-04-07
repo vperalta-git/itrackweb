@@ -25,3 +25,4 @@ export { TripDetailsOverlay } from './TripDetailsOverlay';
 export { StandaloneFormLayout } from './StandaloneFormLayout';
 export { StartupLoadingScreen } from './StartupLoadingScreen';
 export { UserAvatar } from './UserAvatar';
+export { AppSidebarShell } from './AppSidebarShell';

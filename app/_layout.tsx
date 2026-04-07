@@ -12,11 +12,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider, useAuth } from '@/src/mobile/context/AuthContext';
 import { AppProvider, useApp } from '@/src/mobile/context/AppContext';
+import { ErrorBoundary } from '@/src/mobile/components/ErrorBoundary';
 import { StartupLoadingScreen } from '@/src/mobile/components';
 import { NotificationType } from '@/src/mobile/types';
 import { useTheme } from '@/src/mobile/constants/theme';
 
-const MIN_STARTUP_SCREEN_MS = 5000;
+const MIN_STARTUP_SCREEN_MS = 1600;
 const STARTUP_EXIT_DURATION_MS = 520;
 const POPUP_EXIT_DURATION_MS = 180;
 
@@ -178,7 +179,7 @@ function ForegroundNotificationPopup() {
 }
 
 function RootNavigator() {
-  const { isLoading } = useAuth();
+  const { isLoading, user } = useAuth();
   const startupStartedAtRef = useRef(Date.now());
   const hasStartedExitRef = useRef(false);
   const [startupVisible, setStartupVisible] = useState(true);
@@ -247,12 +248,16 @@ function RootNavigator() {
         ]}
       >
         <Stack
+          key={user ? 'tabs-stack' : 'auth-stack'}
           screenOptions={{
             headerShown: false,
           }}
         >
-          <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          {user ? (
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          ) : (
+            <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+          )}
         </Stack>
       </Animated.View>
 
@@ -283,7 +288,9 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
         <AppProvider>
-          <RootNavigator />
+          <ErrorBoundary>
+            <RootNavigator />
+          </ErrorBoundary>
         </AppProvider>
       </AuthProvider>
     </GestureHandlerRootView>

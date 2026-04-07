@@ -17,7 +17,7 @@ import {
 import { theme } from '@/src/mobile/constants/theme';
 import {
   formatUserRoleLabel,
-  generateUserManagementPassword,
+  getAssignableManagerOptions,
   getUserManagementRecordById,
   isUserPhoneInUse,
   loadUserManagementRecords,
@@ -37,6 +37,7 @@ type FormErrors = {
   firstName?: string;
   lastName?: string;
   role?: string;
+  managerId?: string;
 };
 
 type UserFormValues = {
@@ -45,7 +46,7 @@ type UserFormValues = {
   firstName: string;
   lastName: string;
   role: UserRole;
-  password: string;
+  managerId: string | null;
 };
 
 const DEFAULT_FORM_VALUES: UserFormValues = {
@@ -54,11 +55,11 @@ const DEFAULT_FORM_VALUES: UserFormValues = {
   firstName: '',
   lastName: '',
   role: UserRole.SALES_AGENT,
-  password: '',
+  managerId: null,
 };
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MANAGED_PASSWORD_TEXT = 'Managed separately';
+const MANAGED_PASSWORD_TEXT = 'Credentials are emailed automatically';
 
 export default function UserFormScreen() {
   const navigation = useNavigation();
@@ -70,6 +71,7 @@ export default function UserFormScreen() {
   const resolvedUserId = Array.isArray(userId) ? userId[0] : userId;
   const isEditMode = resolvedMode === 'edit';
   const allowImmediateDismissRef = useRef(false);
+  const [managerOptionsVersion, setManagerOptionsVersion] = useState(0);
   const [editableRecord, setEditableRecord] = useState(() =>
     isEditMode && resolvedUserId
       ? getUserManagementRecordById(resolvedUserId)
@@ -82,9 +84,7 @@ export default function UserFormScreen() {
       firstName: editableRecord?.firstName ?? DEFAULT_FORM_VALUES.firstName,
       lastName: editableRecord?.lastName ?? DEFAULT_FORM_VALUES.lastName,
       role: editableRecord?.role ?? DEFAULT_FORM_VALUES.role,
-      password: isEditMode
-        ? MANAGED_PASSWORD_TEXT
-        : generateUserManagementPassword(),
+      managerId: editableRecord?.managerId ?? DEFAULT_FORM_VALUES.managerId,
     }),
     [editableRecord, isEditMode]
   );
@@ -94,8 +94,15 @@ export default function UserFormScreen() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [role, setRole] = useState<UserRole>(UserRole.SALES_AGENT);
-  const [password, setPassword] = useState('');
+  const [managerId, setManagerId] = useState<string | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
+  const managerOptions = useMemo(
+    () =>
+      getAssignableManagerOptions({
+        includeManagerId: managerId ?? initialFormValues.managerId,
+      }),
+    [initialFormValues.managerId, managerId, managerOptionsVersion]
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -112,6 +119,7 @@ export default function UserFormScreen() {
             ? getUserManagementRecordById(resolvedUserId)
             : null
         );
+        setManagerOptionsVersion((current) => current + 1);
       }
     };
 
@@ -133,7 +141,7 @@ export default function UserFormScreen() {
     setFirstName(initialFormValues.firstName);
     setLastName(initialFormValues.lastName);
     setRole(initialFormValues.role);
-    setPassword(initialFormValues.password);
+    setManagerId(initialFormValues.managerId);
     setErrors({});
   }, [initialFormValues]);
 
@@ -144,8 +152,8 @@ export default function UserFormScreen() {
       firstName !== initialFormValues.firstName ||
       lastName !== initialFormValues.lastName ||
       role !== initialFormValues.role ||
-      password !== initialFormValues.password,
-    [email, firstName, initialFormValues, lastName, password, phone, role]
+      managerId !== initialFormValues.managerId,
+    [email, firstName, initialFormValues, lastName, managerId, phone, role]
   );
 
   const dismissWithoutConfirmation = () => {
@@ -227,6 +235,14 @@ export default function UserFormScreen() {
       nextErrors.role = 'Select the user role.';
     }
 
+    if (role === UserRole.SALES_AGENT) {
+      if (!managerOptions.length) {
+        nextErrors.managerId = 'Add a manager account first.';
+      } else if (!managerId) {
+        nextErrors.managerId = 'Select the assigned manager.';
+      }
+    }
+
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
@@ -252,7 +268,8 @@ export default function UserFormScreen() {
         firstName,
         lastName,
         role,
-        password: isEditMode ? undefined : password,
+        managerId: role === UserRole.SALES_AGENT ? managerId : null,
+        sendCredentialsEmail: !isEditMode,
       });
       const fullName = `${savedRecord.firstName} ${savedRecord.lastName}`;
 
@@ -260,7 +277,7 @@ export default function UserFormScreen() {
         isEditMode ? 'User Updated' : 'User Added',
         isEditMode
           ? `${fullName} has been updated as ${formatUserRoleLabel(savedRecord.role)}.`
-          : `${fullName} has been added as ${formatUserRoleLabel(savedRecord.role)}. Generated password: ${savedRecord.password}.`,
+          : `${fullName} has been added as ${formatUserRoleLabel(savedRecord.role)}. Login credentials were sent to ${savedRecord.email}.`,
         [
           {
             text: 'OK',
@@ -360,8 +377,8 @@ export default function UserFormScreen() {
         <Card style={styles.card}>
           <Text style={styles.sectionTitle}>Role and Access</Text>
           <Text style={styles.sectionSubtitle}>
-            Assign the user role and keep password changes in the dedicated
-            password flow.
+            Assign the user role. For new accounts, a strong password will be
+            generated automatically and emailed to the user.
           </Text>
 
           <Select
@@ -373,22 +390,58 @@ export default function UserFormScreen() {
               value: option.value,
             }))}
             onValueChange={(value) => {
-              setRole(value as UserRole);
+              const nextRole = value as UserRole;
+
+              setRole(nextRole);
+              if (nextRole !== UserRole.SALES_AGENT) {
+                setManagerId(null);
+              }
               setErrors((current) => ({
                 ...current,
                 role: undefined,
+                managerId:
+                  nextRole === UserRole.SALES_AGENT
+                    ? current.managerId
+                    : undefined,
               }));
             }}
             searchPlaceholder="Search user role"
             error={errors.role}
           />
 
+          {role === UserRole.SALES_AGENT ? (
+            <>
+              <Select
+                label="Assigned Manager"
+                placeholder={
+                  managerOptions.length
+                    ? 'Select manager'
+                    : 'No managers available'
+                }
+                value={managerId}
+                options={managerOptions}
+                onValueChange={(value) => {
+                  setManagerId(String(value));
+                  setErrors((current) => ({
+                    ...current,
+                    managerId: undefined,
+                  }));
+                }}
+                searchPlaceholder="Search manager"
+                error={errors.managerId}
+                disabled={!managerOptions.length}
+              />
+
+              <Text style={styles.helperText}>
+                Sales agents must be assigned to a specific manager.
+              </Text>
+            </>
+          ) : null}
+
           <Input
-            label={isEditMode ? 'Password' : 'Password (Generated Only)'}
-            placeholder={
-              isEditMode ? MANAGED_PASSWORD_TEXT : 'Generated automatically'
-            }
-            value={password}
+            label={isEditMode ? 'Password' : 'Credential Delivery'}
+            placeholder={MANAGED_PASSWORD_TEXT}
+            value={isEditMode ? 'Managed separately' : MANAGED_PASSWORD_TEXT}
             onChangeText={() => {}}
             editable={false}
           />
@@ -396,7 +449,7 @@ export default function UserFormScreen() {
           <Text style={styles.helperText}>
             {isEditMode
               ? 'Existing passwords are managed separately and are not shown here.'
-              : 'The password is generated automatically and cannot be edited here.'}
+              : 'The password is generated on the server and sent directly to the user email.'}
           </Text>
         </Card>
 

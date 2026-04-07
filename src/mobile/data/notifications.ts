@@ -1,6 +1,5 @@
 import { Notification, NotificationType } from '../types';
 import { api, getResponseData } from '../lib/api';
-import { getResponseMessage } from '../lib/api';
 import { toDate } from './shared';
 
 type NotificationApiRecord = {
@@ -99,18 +98,6 @@ export const registerPushNotificationToken = async (
   payload: PushNotificationTokenRegistrationInput
 ) => {
   await api.post('/notifications/push-token', payload);
-};
-
-export const sendTestNotification = async (userId: string) => {
-  const response = await api.post('/notifications/test', {
-    userId,
-  });
-
-  return (
-    getResponseMessage(response) ||
-    getResponseData<NotificationApiRecord | null>(response)?.title ||
-    'Test notification sent.'
-  );
 };
 
 export const unregisterPushNotificationToken = async ({

@@ -51,8 +51,8 @@ export default function SignInScreen() {
     onSubmit: async (values) => {
       setSubmitError('');
       try {
-        const user = await login(values.email.trim(), values.password);
-        router.replace(getDefaultRouteForRole(user.role) as any);
+        const signedInUser = await login(values.email.trim(), values.password);
+        router.replace(getDefaultRouteForRole(signedInUser.role) as any);
       } catch (error) {
         void error;
         setSubmitError('Invalid email or password. Please try again.');

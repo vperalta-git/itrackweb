@@ -1,4 +1,4 @@
-import { format } from 'date-fns';
+import { format, isValid, parse } from 'date-fns';
 import {
   PreparationStatus,
   ServiceType,
@@ -77,12 +77,12 @@ type SavePreparationRecordInput = {
   approvalStatus?: PreparationApprovalStatus;
   approvedByRole?: UserRole;
   approvedByName?: string;
-  approvedAt?: string;
+  approvedAt?: Date | string;
   status?: PreparationStatus;
   progress?: number;
   dispatcherChecklist?: DispatcherChecklistStep[];
-  completedAt?: string;
-  readyForReleaseAt?: string;
+  completedAt?: Date | string;
+  readyForReleaseAt?: Date | string;
 };
 
 type PreparationApiRecord = {
@@ -121,29 +121,42 @@ type PreparationApiRecord = {
 
 const DATE_DISPLAY_FORMAT = 'MMMM d, yyyy';
 
+const PREPARATION_SERVICE_LABELS: Record<ServiceType, string> = {
+  [ServiceType.CARWASH]: 'Carwash',
+  [ServiceType.TINTING]: 'Tinting',
+  [ServiceType.CERAMIC_COATING]: 'Ceramic Coating',
+  [ServiceType.ACCESSORIES]: 'Accessories',
+  [ServiceType.RUST_PROOF]: 'Rust Proof',
+  [ServiceType.CUSTOM_REQUEST]: 'Custom Request',
+  [ServiceType.DETAILING]: 'Detailing',
+  [ServiceType.INSPECTION]: 'Inspection',
+  [ServiceType.MAINTENANCE]: 'Maintenance',
+  [ServiceType.PAINTING]: 'Painting',
+};
+
 export const PREPARATION_SERVICE_OPTIONS = [
   {
-    label: 'Detailing',
+    label: PREPARATION_SERVICE_LABELS[ServiceType.DETAILING],
     value: ServiceType.DETAILING,
   },
   {
-    label: 'Tinting',
+    label: PREPARATION_SERVICE_LABELS[ServiceType.TINTING],
     value: ServiceType.TINTING,
   },
   {
-    label: 'Ceramic Coating',
+    label: PREPARATION_SERVICE_LABELS[ServiceType.CERAMIC_COATING],
     value: ServiceType.CERAMIC_COATING,
   },
   {
-    label: 'Accessories',
+    label: PREPARATION_SERVICE_LABELS[ServiceType.ACCESSORIES],
     value: ServiceType.ACCESSORIES,
   },
   {
-    label: 'Rust Proof',
+    label: PREPARATION_SERVICE_LABELS[ServiceType.RUST_PROOF],
     value: ServiceType.RUST_PROOF,
   },
   {
-    label: 'Custom Request',
+    label: PREPARATION_SERVICE_LABELS[ServiceType.CUSTOM_REQUEST],
     value: ServiceType.CUSTOM_REQUEST,
   },
 ] as const;
@@ -154,6 +167,28 @@ let preparationRecords: PreparationRecord[] = [];
 
 const formatDisplayDate = (value = new Date()) =>
   format(value, DATE_DISPLAY_FORMAT);
+
+const parsePreparationDate = (value?: Date | string | null) => {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return value;
+  }
+
+  const parsedValue = new Date(value);
+
+  if (!Number.isNaN(parsedValue.getTime())) {
+    return parsedValue;
+  }
+
+  const displayDate = parse(value, DATE_DISPLAY_FORMAT, new Date());
+  return isValid(displayDate) ? displayDate : null;
+};
+
+const toApiDateString = (value?: Date | string | null, fallback = new Date()) =>
+  (parsePreparationDate(value) ?? fallback).toISOString();
 
 const setVehicleOptions = () => {
   const vehicles = getVehicleStocks()
@@ -176,61 +211,87 @@ const buildChecklistStepId = (label: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '') || 'dispatcher-step';
 
-const buildDispatcherChecklistLabels = (
+const getPreparationServiceLabel = (service: ServiceType) =>
+  PREPARATION_SERVICE_LABELS[service] ?? service;
+
+const getLegacyDispatcherChecklistLabel = (service: ServiceType) => {
+  switch (service) {
+    case ServiceType.DETAILING:
+      return 'Confirm detailing and interior cleanliness';
+    case ServiceType.TINTING:
+      return 'Inspect tint application and film quality';
+    case ServiceType.CERAMIC_COATING:
+      return 'Inspect ceramic coating finish';
+    case ServiceType.ACCESSORIES:
+      return 'Verify accessory installation and fitment';
+    case ServiceType.RUST_PROOF:
+      return 'Validate rust proof application';
+    case ServiceType.CARWASH:
+      return 'Confirm exterior and interior wash';
+    case ServiceType.INSPECTION:
+      return 'Complete dispatcher inspection';
+    case ServiceType.MAINTENANCE:
+      return 'Verify maintenance clearance';
+    case ServiceType.PAINTING:
+      return 'Check paint finish and panel condition';
+    case ServiceType.CUSTOM_REQUEST:
+      return 'Review custom request completion';
+    default:
+      return null;
+  }
+};
+
+type DispatcherChecklistTemplate = {
+  label: string;
+  aliases: string[];
+};
+
+const buildDispatcherChecklistTemplates = (
   services: ServiceType[],
   customRequests: string[]
 ) => {
-  const labels = ['Review approved vehicle prep endorsement'];
+  const templates: DispatcherChecklistTemplate[] = [];
 
   services.forEach((service) => {
-    switch (service) {
-      case ServiceType.DETAILING:
-        labels.push('Confirm detailing and interior cleanliness');
-        break;
-      case ServiceType.TINTING:
-        labels.push('Inspect tint application and film quality');
-        break;
-      case ServiceType.CERAMIC_COATING:
-        labels.push('Inspect ceramic coating finish');
-        break;
-      case ServiceType.ACCESSORIES:
-        labels.push('Verify accessory installation and fitment');
-        break;
-      case ServiceType.RUST_PROOF:
-        labels.push('Validate rust proof application');
-        break;
-      case ServiceType.CARWASH:
-        labels.push('Confirm exterior and interior wash');
-        break;
-      case ServiceType.INSPECTION:
-        labels.push('Complete dispatcher inspection');
-        break;
-      case ServiceType.MAINTENANCE:
-        labels.push('Verify maintenance clearance');
-        break;
-      case ServiceType.PAINTING:
-        labels.push('Check paint finish and panel condition');
-        break;
-      case ServiceType.CUSTOM_REQUEST:
-        if (!customRequests.length) {
-          labels.push('Review custom request completion');
-        }
-        break;
-      default:
-        break;
+    if (service === ServiceType.CUSTOM_REQUEST) {
+      const trimmedCustomRequests = customRequests
+        .map((request) => request.trim())
+        .filter(Boolean);
+
+      if (trimmedCustomRequests.length) {
+        trimmedCustomRequests.forEach((request) => {
+          templates.push({
+            label: request,
+            aliases: [`Validate custom request: ${request}`],
+          });
+        });
+
+        return;
+      }
     }
+
+    const legacyLabel = getLegacyDispatcherChecklistLabel(service);
+    templates.push({
+      label: getPreparationServiceLabel(service),
+      aliases: legacyLabel ? [legacyLabel] : [],
+    });
   });
 
-  customRequests.forEach((request) => {
-    if (request.trim()) {
-      labels.push(`Validate custom request: ${request.trim()}`);
-    }
-  });
+  const dedupedTemplates = templates.filter(
+    (template, index, collection) =>
+      collection.findIndex((entry) => entry.label === template.label) === index
+  );
 
-  labels.push('Confirm release documents and key handover');
-  labels.push('Dispatcher final readiness confirmation');
+  if (dedupedTemplates.length) {
+    return dedupedTemplates;
+  }
 
-  return [...new Set(labels)];
+  return [
+    {
+      label: 'Review approved vehicle prep endorsement',
+      aliases: [],
+    },
+  ];
 };
 
 const buildDispatcherChecklist = (
@@ -238,15 +299,19 @@ const buildDispatcherChecklist = (
   customRequests: string[],
   existingChecklist: DispatcherChecklistStep[] = []
 ) =>
-  buildDispatcherChecklistLabels(services, customRequests).map((label) => {
-    const existingStep = existingChecklist.find((step) => step.label === label);
+  buildDispatcherChecklistTemplates(services, customRequests).map(
+    ({ label, aliases }) => {
+      const existingStep =
+        existingChecklist.find((step) => step.label === label) ??
+        existingChecklist.find((step) => aliases.includes(step.label));
 
-    return {
-      id: existingStep?.id ?? buildChecklistStepId(label),
-      label,
-      completed: existingStep?.completed ?? false,
-    };
-  });
+      return {
+        id: existingStep?.id ?? buildChecklistStepId(label),
+        label,
+        completed: existingStep?.completed ?? false,
+      };
+    }
+  );
 
 const getChecklistProgressFromSteps = (
   checklist: DispatcherChecklistStep[]
@@ -323,7 +388,11 @@ const mapPreparationRecord = (record: PreparationApiRecord): PreparationRecord =
   approvedAt: record.approvedAt ? formatDisplayDate(toDate(record.approvedAt)) : undefined,
   dispatcherId: record.dispatcherId?.id ?? undefined,
   dispatcherName: record.dispatcherId ? getFullName(record.dispatcherId) : undefined,
-  dispatcherChecklist: record.dispatcherChecklist ?? [],
+  dispatcherChecklist: buildDispatcherChecklist(
+    record.requestedServices ?? [],
+    record.customRequests ?? [],
+    record.dispatcherChecklist ?? []
+  ),
   completedAt: record.completedAt
     ? formatDisplayDate(toDate(record.completedAt))
     : undefined,
@@ -498,20 +567,22 @@ export const savePreparationRecord = async ({
         : null,
     approvedAt:
       resolvedApprovalStatus === 'approved'
-        ? toDate(approvedAt ?? new Date()).toISOString()
+        ? toApiDateString(approvedAt ?? existingRecord?.approvedAt ?? new Date())
         : null,
     dispatcherId: resolvedApprovalStatus === 'approved' ? dispatcherId ?? null : null,
     dispatcherChecklist,
     completedAt:
       nextStatus === PreparationStatus.COMPLETED ||
       nextStatus === PreparationStatus.READY_FOR_RELEASE
-        ? toDate(completedAt ?? existingRecord?.completedAt ?? new Date()).toISOString()
+        ? toApiDateString(
+            completedAt ?? existingRecord?.completedAt ?? new Date()
+          )
         : null,
     readyForReleaseAt:
       nextStatus === PreparationStatus.READY_FOR_RELEASE
-        ? toDate(
+        ? toApiDateString(
             readyForReleaseAt ?? existingRecord?.readyForReleaseAt ?? new Date()
-          ).toISOString()
+          )
         : null,
   };
 
@@ -625,7 +696,7 @@ export const toggleDispatcherChecklistStep = async (
         ? 100
         : Math.max(existingRecord.progress, checklistProgress),
     dispatcherChecklist,
-    completedAt: checklistProgress === 100 ? formatDisplayDate() : undefined,
+    completedAt: checklistProgress === 100 ? new Date() : undefined,
     readyForReleaseAt: undefined,
   }).then((savedRecord) => {
     const patchedRecord = {
@@ -682,7 +753,7 @@ export const completeDispatcherChecklist = async (
     status: PreparationStatus.COMPLETED,
     progress: 100,
     dispatcherChecklist,
-    completedAt: formatDisplayDate(),
+    completedAt: new Date(),
     readyForReleaseAt: undefined,
   });
 
@@ -723,11 +794,33 @@ export const approvePreparationRequest = async (
     approvalStatus: 'approved',
     approvedByRole: approverRole,
     approvedByName: approverName.trim(),
-    approvedAt: formatDisplayDate(),
+    approvedAt: new Date(),
     status: PreparationStatus.IN_DISPATCH,
     progress: 0,
   });
 };
+
+export const getDispatcherChecklistCompletionText = (
+  record: Pick<PreparationRecord, 'dispatcherChecklist'>
+) => {
+  const checklistCount = record.dispatcherChecklist.length;
+
+  if (!checklistCount) {
+    return 'No checklist steps generated yet';
+  }
+
+  const completedCount = record.dispatcherChecklist.filter(
+    (step) => step.completed
+  ).length;
+
+  return `${completedCount}/${checklistCount} steps completed`;
+};
+
+export const getNextDispatcherChecklistLabel = (
+  record: Pick<PreparationRecord, 'dispatcherChecklist'>
+) =>
+  record.dispatcherChecklist.find((step) => !step.completed)?.label ??
+  'All checklist steps completed';
 
 export const rejectPreparationRequest = async (
   preparationId: string
@@ -867,9 +960,7 @@ export const formatRequestedServices = (
 ) =>
   services
     .map((service) => {
-      const label =
-        PREPARATION_SERVICE_OPTIONS.find((option) => option.value === service)
-          ?.label ?? service;
+      const label = getPreparationServiceLabel(service);
 
       if (service === ServiceType.CUSTOM_REQUEST && customRequests.length) {
         return `${label} (${customRequests.length})`;

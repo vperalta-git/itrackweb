@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import {
   AccessScopeNotice,
+  Button,
   Card,
   Header,
   StatusBadge,
@@ -32,6 +33,7 @@ import {
   getRoleRoute,
 } from '@/src/mobile/navigation/access';
 import { UserRole } from '@/src/mobile/types';
+import { shareExport } from '@/src/mobile/utils/shareExport';
 
 export default function TestDriveDetailScreen() {
   const router = useRouter();
@@ -100,6 +102,65 @@ export default function TestDriveDetailScreen() {
     );
   }
 
+  const handleExportBooking = async () => {
+    await shareExport({
+      title: `Test Drive Request ${formatTestDriveReference(booking.id)}`,
+      subtitle: `${booking.customerName} - ${booking.unitName}`,
+      filename: `${formatTestDriveReference(booking.id)
+        .toLowerCase()
+        .replaceAll(' ', '-')
+        .replaceAll('#', '')}.pdf`,
+      metadata: [
+        {
+          label: 'Reference',
+          value: formatTestDriveReference(booking.id),
+        },
+        {
+          label: 'Status',
+          value: formatTestDriveStatusLabel(booking.status),
+        },
+        {
+          label: 'Scheduled',
+          value: formatTestDriveSchedule(
+            booking.scheduledDate,
+            booking.scheduledTime
+          ),
+        },
+      ],
+      columns: [
+        {
+          header: 'Request No.',
+          value: (record) => formatTestDriveReference(record.id),
+        },
+        { header: 'Customer', value: (record) => record.customerName },
+        { header: 'Contact', value: (record) => record.customerPhone },
+        {
+          header: 'Vehicle',
+          value: (record) => `${record.unitName} ${record.variation}`,
+        },
+        {
+          header: 'Conduction Number',
+          value: (record) => record.conductionNumber,
+        },
+        {
+          header: 'Schedule',
+          value: (record) =>
+            formatTestDriveSchedule(
+              record.scheduledDate,
+              record.scheduledTime
+            ),
+        },
+        {
+          header: 'Status',
+          value: (record) => formatTestDriveStatusLabel(record.status),
+        },
+        { header: 'Notes', value: (record) => record.notes || '-' },
+      ],
+      rows: [booking],
+      errorMessage: 'The test drive booking could not be exported right now.',
+    });
+  };
+
   const handleDeleteBooking = () => {
     if (!access.canDelete) {
       return;
@@ -137,6 +198,16 @@ export default function TestDriveDetailScreen() {
           />
         }
         onLeftPress={() => router.dismiss()}
+        rightIcon={
+          access.canExportPdf ? (
+            <Ionicons
+              name="download-outline"
+              size={18}
+              color={theme.colors.text}
+            />
+          ) : undefined
+        }
+        onRightPress={access.canExportPdf ? handleExportBooking : undefined}
       />
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -171,6 +242,23 @@ export default function TestDriveDetailScreen() {
               <Text style={styles.metricValue}>{booking.customerPhone}</Text>
             </View>
           </View>
+
+          {access.canExportPdf ? (
+            <Button
+              title="Export Booking PDF"
+              size="small"
+              variant="outline"
+              icon={
+                <Ionicons
+                  name="download-outline"
+                  size={16}
+                  color={theme.colors.text}
+                />
+              }
+              onPress={handleExportBooking}
+              style={styles.exportButton}
+            />
+          ) : null}
         </Card>
 
         <Card style={styles.card}>
@@ -358,6 +446,9 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.lg,
     backgroundColor: theme.colors.surfaceMuted,
     padding: theme.spacing.md,
+  },
+  exportButton: {
+    marginTop: theme.spacing.base,
   },
   metricLabel: {
     fontSize: 12,

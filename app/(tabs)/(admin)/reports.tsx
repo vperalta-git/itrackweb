@@ -24,7 +24,6 @@ import {
   getPreparationStatusLabel,
 } from '@/src/mobile/data/preparation';
 import {
-  buildReleaseHistoryExportSummary,
   formatReleaseDateTime,
   getReleaseHistoryExportFileName,
   getReleaseHistoryRecords,
@@ -157,6 +156,26 @@ const formatReleasePeriodLabel = (value: string) => {
     year: 'numeric',
   });
 };
+
+const buildReleasePreparationSummary = (record: ReleaseHistoryRecord) =>
+  record.preparationDone.length
+    ? record.preparationDone
+        .map(
+          (item, index) =>
+            `${index + 1}. ${item.title} (${formatReleaseDateTime(
+              item.completedAt
+            )})`
+        )
+        .join('\n')
+    : 'No preparation items recorded.';
+
+const buildReleaseTimelineSummary = (record: ReleaseHistoryRecord) =>
+  record.timeline
+    .map(
+      (item) =>
+        `${formatReleaseDateTime(item.timestamp)}\n${item.title}\n${item.description}`
+    )
+    .join('\n\n');
 
 const buildActivityRecords = (): ActivityRecord[] => {
   const userRecords = getUserManagementRecords().map((record) => ({
@@ -355,63 +374,121 @@ export default function ReportsScreen() {
   );
 
   const handleExportActivity = async () => {
-    const message = [
-      'Activity Export',
-      `Scope: ${getRoleLabel(role)}`,
-      `Kind Filter: ${
-        activityKindFilter === 'all'
-          ? 'All Activity'
-          : ACTIVITY_KIND_LABELS[activityKindFilter]
-      }`,
-      `Module Filter: ${
-        activityModuleFilter === 'all_modules'
-          ? 'All Modules'
-          : ACTIVITY_MODULE_LABELS[activityModuleFilter]
-      }`,
-      `Search: ${activitySearchValue || 'None'}`,
-      `Records: ${filteredActivity.length}`,
-      '',
-      ...(filteredActivity.length
-        ? filteredActivity.map(
-            (record) =>
-              `${formatActivityTimestamp(record.timestamp)} | ${ACTIVITY_KIND_LABELS[record.kind]} | ${ACTIVITY_MODULE_LABELS[record.module]} | ${record.title} | ${record.description}`
-          )
-        : ['No matching backend activity records.']),
-    ].join('\n');
-
     await shareExport({
-      title: 'Activity Export',
-      message,
+      title: 'Activity Report',
+      subtitle: 'Derived backend activity from current operational records',
+      metadata: [
+        { label: 'Scope', value: getRoleLabel(role) },
+        {
+          label: 'Kind Filter',
+          value:
+            activityKindFilter === 'all'
+              ? 'All Activity'
+              : ACTIVITY_KIND_LABELS[activityKindFilter],
+        },
+        {
+          label: 'Module Filter',
+          value:
+            activityModuleFilter === 'all_modules'
+              ? 'All Modules'
+              : ACTIVITY_MODULE_LABELS[activityModuleFilter],
+        },
+        { label: 'Search', value: activitySearchValue || 'None' },
+        { label: 'Records', value: String(filteredActivity.length) },
+      ],
+      columns: [
+        {
+          header: 'Timestamp',
+          value: (record) => formatActivityTimestamp(record.timestamp),
+        },
+        {
+          header: 'Activity',
+          value: (record) => ACTIVITY_KIND_LABELS[record.kind],
+        },
+        {
+          header: 'Module',
+          value: (record) => ACTIVITY_MODULE_LABELS[record.module],
+        },
+        { header: 'Title', value: (record) => record.title },
+        { header: 'Description', value: (record) => record.description },
+      ],
+      rows: filteredActivity,
+      emptyStateMessage: 'No matching backend activity records.',
       errorMessage: 'The backend activity records could not be exported right now.',
     });
   };
 
   const handleExportReleaseHistory = async () => {
-    const message = [
-      'Release History Export',
-      `Scope: ${getRoleLabel(role)}`,
-      `Unit Filter: ${
-        releaseUnitFilter === ALL_RELEASE_UNITS ? 'All Units' : releaseUnitFilter
-      }`,
-      `Release Date Filter: ${
-        releasePeriodFilter === ALL_RELEASE_PERIODS
-          ? 'All Release Dates'
-          : formatReleasePeriodLabel(releasePeriodFilter)
-      }`,
-      `Search: ${releaseSearchValue || 'None'}`,
-      `Records: ${filteredReleaseHistory.length}`,
-      '',
-      ...(filteredReleaseHistory.length
-        ? filteredReleaseHistory.map(
-            (record) =>
-              `${record.unitName} | ${record.conductionNumber} | ${formatReleaseDateTime(record.releasedAt)} | Agent ${record.assignedAgent} | Customer ${record.customerName}`
-          )
-        : ['No matching release history records.']),
-    ].join('\n');
-
     await shareExport({
-      title: 'Release History Export',
-      message,
+      title: 'Release History Report',
+      subtitle:
+        'Complete unit history from backend preparation and release records',
+      metadata: [
+        { label: 'Scope', value: getRoleLabel(role) },
+        {
+          label: 'Unit Filter',
+          value:
+            releaseUnitFilter === ALL_RELEASE_UNITS
+              ? 'All Units'
+              : releaseUnitFilter,
+        },
+        {
+          label: 'Release Date Filter',
+          value:
+            releasePeriodFilter === ALL_RELEASE_PERIODS
+              ? 'All Release Dates'
+              : formatReleasePeriodLabel(releasePeriodFilter),
+        },
+        { label: 'Search', value: releaseSearchValue || 'None' },
+        { label: 'Records', value: String(filteredReleaseHistory.length) },
+      ],
+      layout: 'cards',
+      recordTitle: (record) => `${record.conductionNumber} - ${record.unitName}`,
+      recordSubtitle: (record) => `${record.variation} - ${record.bodyColor}`,
+      columns: [
+        {
+          header: 'Vehicle Added',
+          value: (record) => formatReleaseDateTime(record.addedAt),
+        },
+        {
+          header: 'Conduction Number',
+          value: (record) => record.conductionNumber,
+        },
+        {
+          header: 'Unit Details',
+          value: (record) =>
+            `${record.unitName}\n${record.variation}\n${record.bodyColor}`,
+        },
+        {
+          header: 'Delivery Pickup',
+          value: (record) => formatReleaseDateTime(record.pickupAt),
+        },
+        {
+          header: 'Preparation Done',
+          value: (record) => buildReleasePreparationSummary(record),
+        },
+        {
+          header: 'Agent Assigned',
+          value: (record) =>
+            `${record.assignedAgent}\n${formatReleaseDateTime(record.assignedDate)}`,
+        },
+        {
+          header: 'Customer',
+          value: (record) =>
+            `${record.customerName}\n${record.customerPhone}`,
+        },
+        {
+          header: 'Date Released',
+          value: (record) => formatReleaseDateTime(record.releasedAt),
+        },
+        {
+          header: 'History',
+          value: (record) => buildReleaseTimelineSummary(record),
+          spanFull: true,
+        },
+      ],
+      rows: filteredReleaseHistory,
+      emptyStateMessage: 'No matching release history records.',
       errorMessage:
         'The release history records could not be exported right now.',
     });
@@ -419,8 +496,62 @@ export default function ReportsScreen() {
 
   const handleExportRelease = async (release: ReleaseHistoryRecord) => {
     await shareExport({
-      title: getReleaseHistoryExportFileName(release),
-      message: buildReleaseHistoryExportSummary(release),
+      title: 'Release History Report',
+      subtitle:
+        'Complete unit history from backend preparation and release records',
+      filename: getReleaseHistoryExportFileName(release),
+      metadata: [
+        { label: 'Scope', value: getRoleLabel(role) },
+        { label: 'Record', value: release.conductionNumber },
+        { label: 'Status', value: release.statusLabel },
+        { label: 'Released', value: formatReleaseDateTime(release.releasedAt) },
+      ],
+      layout: 'cards',
+      recordTitle: (record) => `${record.conductionNumber} - ${record.unitName}`,
+      recordSubtitle: (record) => `${record.variation} - ${record.bodyColor}`,
+      columns: [
+        {
+          header: 'Vehicle Added',
+          value: (record) => formatReleaseDateTime(record.addedAt),
+        },
+        {
+          header: 'Conduction Number',
+          value: (record) => record.conductionNumber,
+        },
+        {
+          header: 'Unit Details',
+          value: (record) =>
+            `${record.unitName}\n${record.variation}\n${record.bodyColor}`,
+        },
+        {
+          header: 'Delivery Pickup',
+          value: (record) => formatReleaseDateTime(record.pickupAt),
+        },
+        {
+          header: 'Preparation Done',
+          value: (record) => buildReleasePreparationSummary(record),
+        },
+        {
+          header: 'Agent Assigned',
+          value: (record) =>
+            `${record.assignedAgent}\n${formatReleaseDateTime(record.assignedDate)}`,
+        },
+        {
+          header: 'Customer',
+          value: (record) =>
+            `${record.customerName}\n${record.customerPhone}`,
+        },
+        {
+          header: 'Date Released',
+          value: (record) => formatReleaseDateTime(record.releasedAt),
+        },
+        {
+          header: 'History',
+          value: (record) => buildReleaseTimelineSummary(record),
+          spanFull: true,
+        },
+      ],
+      rows: [release],
       errorMessage: 'The release history record could not be exported right now.',
     });
   };

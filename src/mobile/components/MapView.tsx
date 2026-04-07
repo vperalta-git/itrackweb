@@ -418,9 +418,11 @@ export const MapViewComponent = ({
   mapChipLabel = 'Live Map',
 }: MapViewProps) => {
   const mapRef = useRef<MapView>(null);
+  const routesRef = useRef(routes);
   const [nativeMapReady, setNativeMapReady] = useState(false);
   const [mockLayout, setMockLayout] = useState({ width: 0, height: 0 });
   const [resolvedRoutes, setResolvedRoutes] = useState<Location[][]>(routes);
+  routesRef.current = routes;
   const directionsApiKey = useMemo(() => getRuntimeDirectionsApiKey(), []);
   const initialRegionKey = useMemo(
     () => serializeRegion(initialRegion),
@@ -457,23 +459,37 @@ export const MapViewComponent = ({
 
   useEffect(() => {
     let isActive = true;
+    const requestedRoutes = routesRef.current;
 
-    setResolvedRoutes(routes);
+    setResolvedRoutes((current) => {
+      const currentKey = current.map(getRouteRefreshKey).join('||');
+      return currentKey === routeRequestKey ? current : requestedRoutes;
+    });
 
     void (async () => {
       const nextRoutes = await Promise.all(
-        routes.map((route) => resolveRoutePolyline(route, directionsApiKey))
+        requestedRoutes.map((route) =>
+          resolveRoutePolyline(route, directionsApiKey)
+        )
       );
 
       if (!isActive) {
         return;
       }
 
-      setResolvedRoutes(
-        nextRoutes.map((route, index) =>
-          route && route.length >= 2 ? route : routes[index]
-        )
+      const fallbackRoutes = nextRoutes.map((route, index) =>
+        route && route.length >= 2 ? route : requestedRoutes[index]
       );
+
+      setResolvedRoutes((current) => {
+        const nextResolvedRouteKey = fallbackRoutes
+          .map(getRouteRefreshKey)
+          .join('||');
+
+        return nextResolvedRouteKey === current.map(getRouteRefreshKey).join('||')
+          ? current
+          : fallbackRoutes;
+      });
     })();
 
     return () => {
@@ -482,7 +498,7 @@ export const MapViewComponent = ({
   }, [directionsApiKey, routeRequestKey]);
 
   useEffect(() => {
-    setNativeMapReady(false);
+    setNativeMapReady((current) => (current ? false : current));
   }, [initialRegionKey, markersKey, routeRequestKey]);
 
   const fitToMarkers = () => {

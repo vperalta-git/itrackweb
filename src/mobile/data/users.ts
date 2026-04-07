@@ -17,6 +17,8 @@ export type UserManagementRecord = {
   avatar?: string | null;
   role: UserRole;
   managerId?: string | null;
+  managerName?: string | null;
+  managerEmail?: string | null;
   isActive: boolean;
   password?: string;
   createdAt: Date;
@@ -30,8 +32,17 @@ type SaveUserManagementRecordInput = {
   lastName: string;
   bio?: string;
   role: UserRole;
+  managerId?: string | null;
   isActive?: boolean;
   password?: string;
+  sendCredentialsEmail?: boolean;
+};
+
+type UserManagerApiRecord = {
+  id: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
 };
 
 type UserApiRecord = {
@@ -46,9 +57,7 @@ type UserApiRecord = {
   isActive: boolean;
   createdAt: string;
   managerId?:
-    | {
-        id: string;
-      }
+    | UserManagerApiRecord
     | string
     | null;
 };
@@ -71,39 +80,37 @@ const sortUsersByCreatedDate = (
 
 const normalizeUserEmail = (value: string) => value.trim().toLowerCase();
 
-const randomCharFrom = (charset: string) =>
-  charset[Math.floor(Math.random() * charset.length)];
+const buildUserFullName = ({
+  firstName,
+  lastName,
+}: {
+  firstName?: string;
+  lastName?: string;
+}) => `${firstName ?? ''} ${lastName ?? ''}`.trim();
 
-const shuffleCharacters = (value: string[]) => {
-  const next = [...value];
+const mapUserRecord = (record: UserApiRecord): UserManagementRecord => {
+  const managerRecord =
+    typeof record.managerId === 'string' ? null : record.managerId;
 
-  for (let index = next.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    const current = next[index];
-
-    next[index] = next[swapIndex];
-    next[swapIndex] = current;
-  }
-
-  return next;
+  return {
+    id: record.id,
+    email: record.email,
+    phone: record.phone,
+    firstName: record.firstName,
+    lastName: record.lastName,
+    bio: record.bio?.trim() || 'No bio added yet.',
+    avatar: record.avatarUrl ?? null,
+    role: record.role,
+    managerId:
+      typeof record.managerId === 'string'
+        ? record.managerId
+        : record.managerId?.id ?? null,
+    managerName: managerRecord ? buildUserFullName(managerRecord) || null : null,
+    managerEmail: managerRecord?.email?.trim() || null,
+    isActive: record.isActive,
+    createdAt: toDate(record.createdAt),
+  };
 };
-
-const mapUserRecord = (record: UserApiRecord): UserManagementRecord => ({
-  id: record.id,
-  email: record.email,
-  phone: record.phone,
-  firstName: record.firstName,
-  lastName: record.lastName,
-  bio: record.bio?.trim() || 'No bio added yet.',
-  avatar: record.avatarUrl ?? null,
-  role: record.role,
-  managerId:
-    typeof record.managerId === 'string'
-      ? record.managerId
-      : record.managerId?.id ?? null,
-  isActive: record.isActive,
-  createdAt: toDate(record.createdAt),
-});
 
 const upsertUserRecord = (record: UserManagementRecord) => {
   const existingIndex = userManagementRecords.findIndex(
@@ -132,32 +139,56 @@ export const loadUserManagementRecords = async () => {
   return getUserManagementRecords();
 };
 
-export const generateUserManagementPassword = () => {
-  const uppercase = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const lowercase = 'abcdefghijkmnopqrstuvwxyz';
-  const digits = '23456789';
-  const special = '!@#$%&*?';
-  const mixed = `${uppercase}${lowercase}${digits}${special}`;
-
-  return shuffleCharacters([
-    randomCharFrom(uppercase),
-    randomCharFrom(lowercase),
-    randomCharFrom(digits),
-    randomCharFrom(special),
-    randomCharFrom(mixed),
-    randomCharFrom(mixed),
-    randomCharFrom(mixed),
-    randomCharFrom(mixed),
-    randomCharFrom(mixed),
-    randomCharFrom(mixed),
-  ]).join('');
-};
-
 export const getUserManagementRecords = () =>
   [...userManagementRecords].sort(sortUsersByCreatedDate);
 
 export const getUserManagementRecordById = (userId: string) =>
   userManagementRecords.find((record) => record.id === userId) ?? null;
+
+export const getAssignableManagerOptions = ({
+  includeManagerId,
+}: {
+  includeManagerId?: string | null;
+} = {}) =>
+  [...userManagementRecords]
+    .filter(
+      (record) =>
+        record.role === UserRole.MANAGER &&
+        (record.isActive || record.id === includeManagerId)
+    )
+    .sort((left, right) => {
+      if (left.isActive !== right.isActive) {
+        return left.isActive ? -1 : 1;
+      }
+
+      return buildUserFullName(left).localeCompare(buildUserFullName(right));
+    })
+    .map((record) => ({
+      label: record.isActive
+        ? buildUserFullName(record) || record.email
+        : `${buildUserFullName(record) || record.email} (Deactivated)`,
+      value: record.id,
+    }));
+
+export const getUserManagementManagerLabel = (
+  record: Pick<UserManagementRecord, 'managerId' | 'managerName'>
+) => {
+  if (record.managerName?.trim()) {
+    return record.managerName.trim();
+  }
+
+  if (!record.managerId) {
+    return 'Not assigned';
+  }
+
+  const managerRecord = getUserManagementRecordById(record.managerId);
+
+  if (!managerRecord) {
+    return 'Not assigned';
+  }
+
+  return buildUserFullName(managerRecord) || managerRecord.email;
+};
 
 export const isUserPhoneInUse = (
   phone: string,
@@ -180,8 +211,10 @@ export const saveUserManagementRecord = async ({
   lastName,
   bio,
   role,
+  managerId,
   isActive,
   password,
+  sendCredentialsEmail,
 }: SaveUserManagementRecordInput) => {
   const normalizedEmail = normalizeUserEmail(email);
   const payload = {
@@ -191,7 +224,9 @@ export const saveUserManagementRecord = async ({
     lastName: lastName.trim(),
     bio: bio?.trim() ?? 'No bio added yet.',
     role,
+    managerId: role === UserRole.SALES_AGENT ? managerId ?? null : null,
     isActive: isActive ?? true,
+    ...(sendCredentialsEmail ? { sendCredentialsEmail: true } : {}),
     ...(password ? { password } : {}),
   };
 
@@ -203,10 +238,7 @@ export const saveUserManagementRecord = async ({
 
     upsertUserRecord(savedRecord);
 
-    return {
-      ...savedRecord,
-      password,
-    };
+    return savedRecord;
   } catch (error) {
     throw new Error(
       getApiErrorMessage(error, 'The user record could not be saved right now.')
@@ -258,6 +290,8 @@ export const syncUserManagementRecordProfile = (
     avatar: user.avatar ?? null,
     role: user.role,
     managerId: null,
+    managerName: null,
+    managerEmail: null,
     isActive: user.isActive,
     createdAt: user.createdAt,
   });

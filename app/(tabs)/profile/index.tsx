@@ -60,7 +60,6 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: () => {
             logout();
-            router.replace('/(auth)/sign-in');
           },
         },
       ]

@@ -30,6 +30,7 @@ import {
   loadUnitAgentAllocations,
   UnitAgentAllocationRecord,
 } from '@/src/mobile/data/unit-agent-allocation';
+import { findVehicleStockById } from '@/src/mobile/data/vehicle-stocks';
 import {
   getModuleAccess,
   getRoleLabel,
@@ -155,24 +156,39 @@ export default function AllocationsScreen() {
   };
 
   const handleExportAllocations = async () => {
-    const message = [
-      'Agent Allocation Export',
-      `Scope: ${getRoleLabel(role)}`,
-      `Manager Filter: ${managerFilterLabel}`,
-      `Search: ${searchValue || 'None'}`,
-      `Records: ${filteredAllocations.length}`,
-      '',
-      ...(filteredAllocations.length
-        ? filteredAllocations.map(
-            (item) =>
-              `${formatAllocationReference(item.id)} | ${item.unitName} ${item.unitVariation} | ${item.managerName} | ${item.salesAgentName} | Created ${formatAllocationCreatedDate(item.createdAt)}`
-          )
-        : ['No matching agent allocation records.']),
-    ].join('\n');
-
     await shareExport({
-      title: 'Agent Allocation Export',
-      message,
+      title: 'Agent Allocation Report',
+      subtitle:
+        managerFilter === 'all'
+          ? 'All managers'
+          : `Manager: ${managerFilterLabel}`,
+      metadata: [
+        { label: 'Scope', value: getRoleLabel(role) },
+        { label: 'Manager Filter', value: managerFilterLabel },
+        { label: 'Search', value: searchValue || 'None' },
+        { label: 'Records', value: String(filteredAllocations.length) },
+      ],
+      columns: [
+        { header: 'Unit Name', value: (item) => item.unitName },
+        {
+          header: 'Conduction Number',
+          value: (item) =>
+            findVehicleStockById(item.unitId)?.conductionNumber ?? '-',
+        },
+        {
+          header: 'Body Color',
+          value: (item) => findVehicleStockById(item.unitId)?.bodyColor ?? '-',
+        },
+        { header: 'Variation', value: (item) => item.unitVariation },
+        { header: 'Assigned To', value: (item) => item.salesAgentName },
+        { header: 'Manager', value: (item) => item.managerName },
+        {
+          header: 'Date Created',
+          value: (item) => formatAllocationCreatedDate(item.createdAt),
+        },
+      ],
+      rows: filteredAllocations,
+      emptyStateMessage: 'No matching agent allocation records.',
       errorMessage: 'The agent allocation records could not be exported right now.',
     });
   };

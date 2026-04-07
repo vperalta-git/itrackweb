@@ -194,24 +194,49 @@ export default function TestDriveScreen() {
       statusFilter === 'all'
         ? 'All booking stages'
         : formatTestDriveStatusLabel(statusFilter as TestDriveStatus);
-    const message = [
-      'Test Drive Export',
-      `Scope: ${getRoleLabel(role)}`,
-      `Status Filter: ${statusFilterLabel}`,
-      `Search: ${searchValue || 'None'}`,
-      `Records: ${filteredBookings.length}`,
-      '',
-      ...(filteredBookings.length
-        ? filteredBookings.map(
-            (booking) =>
-              `${formatTestDriveReference(booking.id)} | ${booking.unitName} ${booking.variation} | ${booking.customerName} | ${booking.customerPhone} | ${formatTestDriveSchedule(booking.scheduledDate, booking.scheduledTime)} | ${formatTestDriveStatusLabel(booking.status)}`
-          )
-        : ['No matching test drive bookings.']),
-    ].join('\n');
 
     await shareExport({
-      title: 'Test Drive Export',
-      message,
+      title: 'Test Drive Requests Report',
+      subtitle:
+        statusFilter === 'all'
+          ? 'All test drive requests'
+          : `Status: ${statusFilterLabel}`,
+      metadata: [
+        { label: 'Scope', value: getRoleLabel(role) },
+        { label: 'Status Filter', value: statusFilterLabel },
+        { label: 'Search', value: searchValue || 'None' },
+        { label: 'Records', value: String(filteredBookings.length) },
+      ],
+      columns: [
+        {
+          header: 'Request No.',
+          value: (booking) => formatTestDriveReference(booking.id),
+        },
+        { header: 'Customer Name', value: (booking) => booking.customerName },
+        { header: 'Phone', value: (booking) => booking.customerPhone },
+        {
+          header: 'Vehicle',
+          value: (booking) => `${booking.unitName} ${booking.variation}`,
+        },
+        {
+          header: 'Conduction Number',
+          value: (booking) => booking.conductionNumber,
+        },
+        {
+          header: 'Scheduled Date',
+          value: (booking) =>
+            formatTestDriveSchedule(
+              booking.scheduledDate,
+              booking.scheduledTime
+            ),
+        },
+        {
+          header: 'Status',
+          value: (booking) => formatTestDriveStatusLabel(booking.status),
+        },
+      ],
+      rows: filteredBookings,
+      emptyStateMessage: 'No matching test drive bookings.',
       errorMessage: 'The test drive records could not be exported right now.',
     });
   };

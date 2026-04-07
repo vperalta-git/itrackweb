@@ -192,24 +192,35 @@ export default function VehiclesScreen() {
       statusFilter === 'all'
         ? 'All statuses'
         : formatVehicleStatusLabel(statusFilter as VehicleStatus);
-    const message = [
-      'Vehicle Stocks Export',
-      `Scope: ${getRoleLabel(role)}`,
-      `Status Filter: ${statusFilterLabel}`,
-      `Search: ${searchValue || 'None'}`,
-      `Records: ${filteredVehicles.length}`,
-      '',
-      ...(filteredVehicles.length
-        ? filteredVehicles.map(
-            (vehicle) =>
-              `${formatVehicleStockReference(vehicle.id)} | ${vehicle.unitName} ${vehicle.variation} | ${vehicle.conductionNumber} | ${vehicle.bodyColor} | ${formatVehicleStatusLabel(vehicle.status)} | Added ${formatVehicleCreatedDate(vehicle.createdAt)}`
-          )
-        : ['No matching vehicle records.']),
-    ].join('\n');
 
     await shareExport({
-      title: 'Vehicle Stocks Export',
-      message,
+      title: 'Vehicle Stocks Report',
+      subtitle: 'Current vehicle stock listing',
+      metadata: [
+        { label: 'Scope', value: getRoleLabel(role) },
+        { label: 'Status Filter', value: statusFilterLabel },
+        { label: 'Search', value: searchValue || 'None' },
+        { label: 'Records', value: String(filteredVehicles.length) },
+      ],
+      columns: [
+        { header: 'Unit Name', value: (vehicle) => vehicle.unitName },
+        {
+          header: 'Conduction Number',
+          value: (vehicle) => vehicle.conductionNumber,
+        },
+        { header: 'Body Color', value: (vehicle) => vehicle.bodyColor },
+        { header: 'Variation', value: (vehicle) => vehicle.variation },
+        {
+          header: 'Date Added',
+          value: (vehicle) => formatVehicleCreatedDate(vehicle.createdAt),
+        },
+        {
+          header: 'Status',
+          value: (vehicle) => formatVehicleStatusLabel(vehicle.status),
+        },
+      ],
+      rows: filteredVehicles,
+      emptyStateMessage: 'No matching vehicle records.',
       errorMessage: 'The vehicle stock records could not be exported right now.',
     });
   };

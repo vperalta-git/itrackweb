@@ -200,24 +200,41 @@ export default function PreparationScreen() {
       statusFilter === 'all'
         ? 'All stages'
         : getPreparationStatusLabel(statusFilter as PreparationStatus);
-    const message = [
-      'Vehicle Preparation Export',
-      `Scope: ${getRoleLabel(role)}`,
-      `Status Filter: ${statusFilterLabel}`,
-      `Search: ${searchValue || 'None'}`,
-      `Records: ${filteredPreparations.length}`,
-      '',
-      ...(filteredPreparations.length
-        ? filteredPreparations.map(
-            (item) =>
-              `${item.unitName} ${item.variation} | ${item.conductionNumber} | ${item.customerName} | ${formatRequestedServices(item.requestedServices, item.customRequests)} | ${getPreparationStatusLabel(item.status)} | Progress ${item.progress}%`
-          )
-        : ['No matching preparation records.']),
-    ].join('\n');
 
     await shareExport({
-      title: 'Vehicle Preparation Export',
-      message,
+      title: 'Vehicle Preparation Report',
+      subtitle: 'Preparation requests and checklist progress',
+      metadata: [
+        { label: 'Scope', value: getRoleLabel(role) },
+        { label: 'Status Filter', value: statusFilterLabel },
+        { label: 'Search', value: searchValue || 'None' },
+        { label: 'Records', value: String(filteredPreparations.length) },
+      ],
+      columns: [
+        { header: 'Date Created', value: (item) => item.createdAt },
+        {
+          header: 'Conduction Number',
+          value: (item) => item.conductionNumber,
+        },
+        { header: 'Unit Name', value: (item) => item.unitName },
+        {
+          header: 'Service',
+          value: (item) =>
+            formatRequestedServices(item.requestedServices, item.customRequests),
+        },
+        { header: 'Customer Name', value: (item) => item.customerName },
+        {
+          header: 'Contact Number',
+          value: (item) => item.customerContactNo,
+        },
+        {
+          header: 'Status',
+          value: (item) => getPreparationStatusLabel(item.status),
+        },
+        { header: 'Progress', value: (item) => `${item.progress}%` },
+      ],
+      rows: filteredPreparations,
+      emptyStateMessage: 'No matching preparation records.',
       errorMessage:
         'The preparation records could not be exported right now.',
     });

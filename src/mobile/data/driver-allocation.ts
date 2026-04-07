@@ -56,7 +56,10 @@ export interface DriverAllocationRecord {
   destinationLabel: string;
   eta: string;
   routeProgress?: number;
+  actualDuration?: number | null;
   status: AllocationStatus;
+  startTime?: Date | null;
+  endTime?: Date | null;
   createdAt: Date;
 }
 
@@ -73,6 +76,9 @@ type DriverAllocationApiRecord = {
   status: AllocationStatus;
   routeProgress?: number | null;
   estimatedDuration?: number | null;
+  actualDuration?: number | null;
+  startTime?: string | null;
+  endTime?: string | null;
   createdAt: string;
   managerId?: {
     id: string;
@@ -111,6 +117,10 @@ const ACTIVE_ALLOCATION_STATUSES = [
   AllocationStatus.ASSIGNED,
   AllocationStatus.IN_TRANSIT,
 ] as AllocationStatus[];
+const COMPLETED_ALLOCATION_STATUSES = new Set<AllocationStatus>([
+  AllocationStatus.COMPLETED,
+  AllocationStatus.DELIVERED,
+]);
 const DEFAULT_IN_TRANSIT_PROGRESS = 0.62;
 const TRIP_START_PROGRESS = 0.18;
 const EARTH_RADIUS_KM = 6371;
@@ -233,13 +243,19 @@ const mapDriverAllocationRecord = (
         ? 'Completed'
         : `${record.estimatedDuration ?? 25} mins`,
     routeProgress: record.routeProgress ?? undefined,
+    actualDuration: record.actualDuration ?? null,
     status: record.status,
+    startTime: record.startTime ? toDate(record.startTime) : null,
+    endTime: record.endTime ? toDate(record.endTime) : null,
     createdAt: toDate(record.createdAt),
   };
 };
 
 const isActiveDriverAllocationStatus = (status: AllocationStatus) =>
   ACTIVE_ALLOCATION_STATUSES.includes(status);
+
+const isCompletedDriverAllocationStatus = (status: AllocationStatus) =>
+  COMPLETED_ALLOCATION_STATUSES.has(status);
 
 const getPendingFilterStatuses = (statusFilter: string) =>
   statusFilter === AllocationStatus.PENDING
@@ -271,6 +287,19 @@ export const loadDriverAllocations = async () => {
 
 export const getDriverAllocations = () =>
   [...driverAllocationRecords].sort(sortDriverAllocationRecordsNewestFirst);
+
+export const getDriverAllocationHistoryRecords = (driverId?: string | null) =>
+  [...driverAllocationRecords]
+    .filter((record) =>
+      driverId ? record.driverId === driverId : true
+    )
+    .filter((record) => isCompletedDriverAllocationStatus(record.status))
+    .sort((left, right) => {
+      const leftDate = left.endTime ?? left.createdAt;
+      const rightDate = right.endTime ?? right.createdAt;
+
+      return rightDate.getTime() - leftDate.getTime();
+    });
 
 export const getDriverAllocationDashboardRecord = (
   driverId?: string | null
@@ -564,6 +593,51 @@ export const formatDriverAllocationCreatedDate = (date: Date) =>
     day: 'numeric',
     year: 'numeric',
   });
+
+export const formatDriverAllocationHistoryDateTime = (
+  allocation: DriverAllocationRecord
+) =>
+  (allocation.endTime ?? allocation.startTime ?? allocation.createdAt).toLocaleString(
+    'en-US',
+    {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }
+  );
+
+export const getDriverAllocationDurationMinutes = (
+  allocation: DriverAllocationRecord
+) => {
+  if (typeof allocation.actualDuration === 'number') {
+    return allocation.actualDuration;
+  }
+
+  if (allocation.startTime && allocation.endTime) {
+    return Math.max(
+      1,
+      Math.round(
+        (allocation.endTime.getTime() - allocation.startTime.getTime()) / 60000
+      )
+    );
+  }
+
+  return null;
+};
+
+export const formatDriverAllocationDuration = (
+  allocation: DriverAllocationRecord
+) => {
+  const duration = getDriverAllocationDurationMinutes(allocation);
+
+  if (duration === null) {
+    return 'Duration unavailable';
+  }
+
+  return `${duration} min${duration === 1 ? '' : 's'}`;
+};
 
 export const formatDriverAllocationReference = (allocationId: string) =>
   `Dispatch #${allocationId.replace(/\D/g, '').padStart(3, '0') || '000'}`;

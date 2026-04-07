@@ -20,6 +20,7 @@ import { theme } from '@/src/mobile/constants/theme';
 import {
   deleteUserManagementRecord,
   formatUserCreatedDate,
+  getUserManagementManagerLabel,
   formatUserRoleLabel,
   formatUserManagementStatusLabel,
   getUserManagementRecordById,
@@ -236,14 +237,25 @@ export default function UserDetailScreen() {
             { label: 'First Name', value: record.firstName },
             { label: 'Last Name', value: record.lastName },
             { label: 'Role', value: formatUserRoleLabel(record.role) },
+            ...(record.role === UserRole.SALES_AGENT
+              ? [
+                  {
+                    label: 'Assigned Manager',
+                    value: getUserManagementManagerLabel(record),
+                  },
+                ]
+              : []),
             {
               label: 'Status',
               value: formatUserManagementStatusLabel(record.isActive),
             },
-          ].map((item, index) => (
+          ].map((item, index, items) => (
             <View
               key={item.label}
-              style={[styles.row, index < 4 ? styles.rowDivider : null]}
+              style={[
+                styles.row,
+                index < items.length - 1 ? styles.rowDivider : null,
+              ]}
             >
               <Text style={styles.rowLabel}>{item.label}</Text>
               <Text style={styles.rowValue}>{item.value}</Text>

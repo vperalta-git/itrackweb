@@ -546,34 +546,37 @@ const roleProfiles: Record<UserRole, RoleAccessProfile> = {
       vehicleStocks: {
         scopeLabel: 'Read-only team stock view',
         scopeNote:
-          'You can list, search, filter, paginate, and open vehicle records only for agents assigned to your team.',
+          'You can list, search, filter, paginate, open, and export vehicle records only for agents assigned to your team.',
         canViewDetails: true,
         canSearch: true,
         canFilter: true,
         canPaginate: true,
+        canExportPdf: true,
       },
       vehiclePreparation: {
         scopeLabel: 'Read-only team preparation view',
         scopeNote:
-          'You can review preparation requests only for agents under your team, with search, filters, and pagination.',
+          'You can review and export preparation requests only for agents under your team, with search, filters, and pagination.',
         canViewDetails: true,
         canSearch: true,
         canFilter: true,
         canPaginate: true,
+        canExportPdf: true,
       },
       driverAllocation: {
         scopeLabel: 'Read-only team driver tracking',
         scopeNote:
-          'You can monitor the live driver tracking view for your team, while allocation management stays with Admin or Supervisor.',
+          'You can monitor and export the live driver tracking view for your team, while allocation management stays with Admin or Supervisor.',
         canSearch: true,
         canFilter: true,
         canPaginate: true,
         canTrackMap: true,
+        canExportPdf: true,
       },
       testDrive: {
         scopeLabel: 'Team test drive control',
         scopeNote:
-          'You can add, edit, delete, and review test drive units and schedules for your team.',
+          'You can add, edit, delete, review, and export test drive units and schedules for your team.',
         canCreate: true,
         canEdit: true,
         canDelete: true,
@@ -581,6 +584,7 @@ const roleProfiles: Record<UserRole, RoleAccessProfile> = {
         canSearch: true,
         canFilter: true,
         canPaginate: true,
+        canExportPdf: true,
       },
       reports: {
         scopeLabel: 'Team reports only',
@@ -627,32 +631,35 @@ const roleProfiles: Record<UserRole, RoleAccessProfile> = {
       vehicleStocks: {
         scopeLabel: 'My vehicle stock records',
         scopeNote:
-          'You can list, search, filter, and paginate only the vehicle stock records assigned to you.',
+          'You can list, search, filter, paginate, and export only the vehicle stock records assigned to you.',
         canSearch: true,
         canFilter: true,
         canPaginate: true,
+        canExportPdf: true,
       },
       vehiclePreparation: {
         scopeLabel: 'My preparation records',
         scopeNote:
-          'You can list, search, filter, and paginate only the preparation requests assigned to you.',
+          'You can list, search, filter, paginate, and export only the preparation requests assigned to you.',
         canSearch: true,
         canFilter: true,
         canPaginate: true,
+        canExportPdf: true,
       },
       driverAllocation: {
         scopeLabel: 'My driver tracking view',
         scopeNote:
-          'You can monitor your live driver tracking view only, while allocation management stays with Admin or Supervisor.',
+          'You can monitor and export your live driver tracking view only, while allocation management stays with Admin or Supervisor.',
         canSearch: true,
         canFilter: true,
         canPaginate: true,
         canTrackMap: true,
+        canExportPdf: true,
       },
       testDrive: {
         scopeLabel: 'Own test drive management',
         scopeNote:
-          'You can add test drive units and schedules, and edit or delete only the test drive records you own.',
+          'You can add, export, and manage only the test drive records you own.',
         canCreate: true,
         canEdit: true,
         canDelete: true,
@@ -660,6 +667,7 @@ const roleProfiles: Record<UserRole, RoleAccessProfile> = {
         canSearch: true,
         canFilter: true,
         canPaginate: true,
+        canExportPdf: true,
       },
       reports: {
         scopeLabel: 'My reports only',

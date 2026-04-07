@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import {
   AccessScopeNotice,
+  Button,
   Card,
   Header,
   StatusBadge,
@@ -27,9 +28,11 @@ import {
   findVehicleStockById,
   formatVehicleCreatedDate,
   formatVehicleStatusLabel,
+  formatVehicleStockReference,
   getVehicleStatusBadgeStatus,
   loadVehicleStocks,
 } from '@/src/mobile/data/vehicle-stocks';
+import { shareExport } from '@/src/mobile/utils/shareExport';
 
 export default function VehicleDetailScreen() {
   const router = useRouter();
@@ -117,6 +120,39 @@ export default function VehicleDetailScreen() {
     );
   };
 
+  const handleExportVehicle = async () => {
+    await shareExport({
+      title: `Vehicle Details ${vehicle.conductionNumber}`,
+      subtitle: `${vehicle.unitName} ${vehicle.variation}`,
+      filename: `vehicle-${vehicle.conductionNumber.toLowerCase()}.pdf`,
+      metadata: [
+        { label: 'Reference', value: formatVehicleStockReference(vehicle.id) },
+        { label: 'Status', value: formatVehicleStatusLabel(vehicle.status) },
+        { label: 'Date Added', value: formatVehicleCreatedDate(vehicle.createdAt) },
+      ],
+      columns: [
+        { header: 'Unit Name', value: (record) => record.unitName },
+        {
+          header: 'Conduction Number',
+          value: (record) => record.conductionNumber,
+        },
+        { header: 'Body Color', value: (record) => record.bodyColor },
+        { header: 'Variation', value: (record) => record.variation },
+        {
+          header: 'Date Added',
+          value: (record) => formatVehicleCreatedDate(record.createdAt),
+        },
+        {
+          header: 'Status',
+          value: (record) => formatVehicleStatusLabel(record.status),
+        },
+        { header: 'Notes', value: (record) => record.notes?.trim() || '-' },
+      ],
+      rows: [vehicle],
+      errorMessage: 'The vehicle record could not be exported right now.',
+    });
+  };
+
   return (
     <View style={styles.container}>
       <Header
@@ -129,6 +165,16 @@ export default function VehicleDetailScreen() {
           />
         }
         onLeftPress={() => router.dismiss()}
+        rightIcon={
+          access.canExportPdf ? (
+            <Ionicons
+              name="download-outline"
+              size={18}
+              color={theme.colors.text}
+            />
+          ) : undefined
+        }
+        onRightPress={access.canExportPdf ? handleExportVehicle : undefined}
       />
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -160,6 +206,23 @@ export default function VehicleDetailScreen() {
               <Text style={styles.metricValue}>{vehicle.bodyColor}</Text>
             </View>
           </View>
+
+          {access.canExportPdf ? (
+            <Button
+              title="Export Vehicle PDF"
+              size="small"
+              variant="outline"
+              icon={
+                <Ionicons
+                  name="download-outline"
+                  size={16}
+                  color={theme.colors.text}
+                />
+              }
+              onPress={handleExportVehicle}
+              style={styles.exportButton}
+            />
+          ) : null}
         </Card>
 
         <Card style={styles.card}>
@@ -327,6 +390,9 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.lg,
     backgroundColor: theme.colors.surfaceMuted,
     padding: theme.spacing.md,
+  },
+  exportButton: {
+    marginTop: theme.spacing.base,
   },
   metricLabel: {
     fontSize: 12,

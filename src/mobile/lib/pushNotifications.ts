@@ -3,7 +3,14 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+const hasExpoNotificationsApis =
+  typeof Notifications.getPermissionsAsync === 'function' &&
+  typeof Notifications.getExpoPushTokenAsync === 'function' &&
+  typeof Notifications.addNotificationReceivedListener === 'function';
+
 export const supportsExpoNotificationsRuntime =
+  Platform.OS !== 'web' &&
+  hasExpoNotificationsApis &&
   Constants.executionEnvironment !== 'storeClient' &&
   Constants.appOwnership !== 'expo';
 
@@ -20,6 +27,8 @@ export const ensureNotificationsRuntimeConfigured = () => {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: true,
       shouldSetBadge: false,
     }),

@@ -20,8 +20,11 @@ import { theme } from '@/src/mobile/constants/theme';
 import { useAuth } from '@/src/mobile/context/AuthContext';
 import {
   formatRequestedServices,
+  getDispatcherChecklistCompletionText,
   getDispatcherChecklistProgress,
+  getNextDispatcherChecklistLabel,
   getPendingDispatcherPreparations,
+  loadPreparationRecords,
   getPreparationApprovalLabel,
   getPreparationBadgeStatus,
   getPreparationRecordRequesterLabel,
@@ -40,6 +43,7 @@ export default function ChecklistScreen() {
   const requestedPreparationId = Array.isArray(preparationId)
     ? preparationId[0]
     : preparationId;
+  const [refreshing, setRefreshing] = useState(false);
   const [preparations, setPreparations] = useState<PreparationRecord[]>(() =>
     getPendingDispatcherPreparations(user?.id)
   );
@@ -48,15 +52,28 @@ export default function ChecklistScreen() {
   >(requestedPreparationId ?? null);
 
   useEffect(() => {
-    const refreshPreparations = () => {
-      setPreparations(getPendingDispatcherPreparations(user?.id));
+    let isActive = true;
+
+    const refreshPreparations = async () => {
+      try {
+        await loadPreparationRecords();
+      } finally {
+        if (isActive) {
+          setPreparations(getPendingDispatcherPreparations(user?.id));
+        }
+      }
     };
 
-    refreshPreparations();
+    refreshPreparations().catch(() => undefined);
 
-    const unsubscribe = navigation.addListener('focus', refreshPreparations);
+    const unsubscribe = navigation.addListener('focus', () => {
+      refreshPreparations().catch(() => undefined);
+    });
 
-    return unsubscribe;
+    return () => {
+      isActive = false;
+      unsubscribe();
+    };
   }, [navigation, user?.id]);
 
   useEffect(() => {
@@ -109,6 +126,17 @@ export default function ChecklistScreen() {
     setPreparations(getPendingDispatcherPreparations(user?.id));
   };
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+
+    try {
+      await loadPreparationRecords();
+    } finally {
+      setPreparations(getPendingDispatcherPreparations(user?.id));
+      setRefreshing(false);
+    }
+  };
+
   const handleToggleTask = async (stepId: string) => {
     if (!selectedPreparation) {
       return;
@@ -155,7 +183,7 @@ export default function ChecklistScreen() {
 
   if (!selectedPreparation) {
     return (
-      <AppScreen>
+      <AppScreen refreshing={refreshing} onRefresh={handleRefresh}>
         <PageHeader
           leading={
             <TouchableOpacity
@@ -185,7 +213,7 @@ export default function ChecklistScreen() {
   }
 
   return (
-    <AppScreen>
+    <AppScreen refreshing={refreshing} onRefresh={handleRefresh}>
       <PageHeader
         leading={
           <TouchableOpacity
@@ -256,16 +284,24 @@ export default function ChecklistScreen() {
 
         <View style={styles.serviceChip}>
           <Ionicons
-            name="construct-outline"
+            name="checkbox-outline"
             size={14}
             color={theme.colors.primaryDark}
           />
-          <Text style={styles.serviceChipLabel}>Requested Services</Text>
+          <Text style={styles.serviceChipLabel}>Checklist Progress</Text>
           <Text style={styles.serviceChipValue}>
-            {formatRequestedServices(
-              selectedPreparation.requestedServices,
-              selectedPreparation.customRequests
-            )}
+            {getDispatcherChecklistCompletionText(selectedPreparation)}
+          </Text>
+        </View>
+
+        <View style={[styles.infoRow, styles.checklistHintRow]}>
+          <Ionicons
+            name="list-outline"
+            size={14}
+            color={theme.colors.textSubtle}
+          />
+          <Text style={styles.infoText}>
+            Next step: {getNextDispatcherChecklistLabel(selectedPreparation)}
           </Text>
         </View>
 
@@ -322,6 +358,16 @@ export default function ChecklistScreen() {
         </View>
 
         <View style={styles.notesBlock}>
+          <Text style={styles.detailLabel}>Requested Services</Text>
+          <Text style={styles.notesText}>
+            {formatRequestedServices(
+              selectedPreparation.requestedServices,
+              selectedPreparation.customRequests
+            ) || 'No requested services listed.'}
+          </Text>
+        </View>
+
+        <View style={[styles.notesBlock, styles.secondaryBlock]}>
           <Text style={styles.detailLabel}>Notes</Text>
           <Text style={styles.notesText}>
             {selectedPreparation.notes || 'No notes added.'}
@@ -447,6 +493,9 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontFamily: theme.fonts.family.sans,
   },
+  checklistHintRow: {
+    marginTop: theme.spacing.sm,
+  },
   progress: {
     marginTop: theme.spacing.base,
   },
@@ -481,6 +530,9 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
     backgroundColor: theme.colors.surfaceMuted,
     padding: theme.spacing.md,
+  },
+  secondaryBlock: {
+    marginTop: theme.spacing.sm,
   },
   notesText: {
     fontSize: 14,

@@ -17,8 +17,11 @@ import { theme } from '@/src/mobile/constants/theme';
 import { useAuth } from '@/src/mobile/context/AuthContext';
 import {
   formatRequestedServices,
+  getDispatcherChecklistCompletionText,
   getDispatcherDashboardSummary,
+  getNextDispatcherChecklistLabel,
   getPendingDispatcherPreparations,
+  loadPreparationRecords,
   getPreparationApprovalLabel,
   getPreparationBadgeStatus,
   getPreparationRecordRequesterLabel,
@@ -29,21 +32,46 @@ import {
 export default function DispatcherDashboard() {
   const navigation = useNavigation();
   const { user } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
   const [pendingPreparations, setPendingPreparations] = useState<
     PreparationRecord[]
   >(() => getPendingDispatcherPreparations(user?.id));
 
   useEffect(() => {
-    const refreshPreparations = () => {
-      setPendingPreparations(getPendingDispatcherPreparations(user?.id));
+    let isActive = true;
+
+    const refreshPreparations = async () => {
+      try {
+        await loadPreparationRecords();
+      } finally {
+        if (isActive) {
+          setPendingPreparations(getPendingDispatcherPreparations(user?.id));
+        }
+      }
     };
 
-    refreshPreparations();
+    refreshPreparations().catch(() => undefined);
 
-    const unsubscribe = navigation.addListener('focus', refreshPreparations);
+    const unsubscribe = navigation.addListener('focus', () => {
+      refreshPreparations().catch(() => undefined);
+    });
 
-    return unsubscribe;
+    return () => {
+      isActive = false;
+      unsubscribe();
+    };
   }, [navigation, user?.id]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+
+    try {
+      await loadPreparationRecords();
+    } finally {
+      setPendingPreparations(getPendingDispatcherPreparations(user?.id));
+      setRefreshing(false);
+    }
+  };
 
   const summary = useMemo(
     () => getDispatcherDashboardSummary(user?.id),
@@ -51,7 +79,7 @@ export default function DispatcherDashboard() {
   );
 
   return (
-    <AppScreen>
+    <AppScreen refreshing={refreshing} onRefresh={handleRefresh}>
       <PageHeader
         eyebrow="Dispatcher"
         title="Dispatcher Dashboard"
@@ -159,12 +187,35 @@ export default function DispatcherDashboard() {
 
                 <View style={styles.serviceChip}>
                   <Ionicons
-                    name="construct-outline"
+                    name="checkbox-outline"
                     size={14}
                     color={theme.colors.primaryDark}
                   />
-                  <Text style={styles.serviceChipLabel}>Requested Services</Text>
+                  <Text style={styles.serviceChipLabel}>Checklist Progress</Text>
                   <Text style={styles.serviceChipValue}>
+                    {getDispatcherChecklistCompletionText(item)}
+                  </Text>
+                </View>
+
+                <View style={styles.metaRow}>
+                  <Ionicons
+                    name="list-outline"
+                    size={14}
+                    color={theme.colors.textSubtle}
+                  />
+                  <Text style={styles.metaText}>
+                    Next step: {getNextDispatcherChecklistLabel(item)}
+                  </Text>
+                </View>
+
+                <View style={styles.metaRow}>
+                  <Ionicons
+                    name="construct-outline"
+                    size={14}
+                    color={theme.colors.textSubtle}
+                  />
+                  <Text style={styles.metaText}>
+                    Requested services:{' '}
                     {formatRequestedServices(
                       item.requestedServices,
                       item.customRequests
@@ -174,7 +225,7 @@ export default function DispatcherDashboard() {
 
                 <View style={styles.queueFooter}>
                   <Text style={styles.queueFooterText}>
-                    Tap to see vehicle prep details
+                    Tap to open dispatcher checklist
                   </Text>
                   <Ionicons
                     name="chevron-forward-outline"

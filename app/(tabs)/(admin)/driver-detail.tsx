@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import {
   AccessScopeNotice,
+  Button,
   Card,
   Header,
   MapViewComponent,
@@ -23,17 +24,20 @@ import {
   findDriverAllocationLocation,
   findDriverAllocationRecord,
   formatDriverAllocationCreatedDate,
+  formatDriverAllocationReference,
   formatDriverAllocationStatusLabel,
   getDriverAllocationBadgeStatus,
   getDriverAllocationInitialRegion,
   getDriverAllocationRoute,
   loadDriverAllocations,
 } from '@/src/mobile/data/driver-allocation';
+import { findVehicleStockById } from '@/src/mobile/data/vehicle-stocks';
 import {
   getModuleAccess,
   getRoleRoute,
 } from '@/src/mobile/navigation/access';
 import { AllocationStatus, UserRole } from '@/src/mobile/types';
+import { shareExport } from '@/src/mobile/utils/shareExport';
 
 const DEFAULT_IN_TRANSIT_PROGRESS = 0.62;
 const EARTH_RADIUS_KM = 6371;
@@ -262,6 +266,66 @@ export default function DriverDetailScreen() {
   }
 
   const remainingDistanceValue = formatRemainingDistanceValue(allocation);
+  const linkedVehicle = findVehicleStockById(allocation.unitId);
+
+  const handleExportAllocation = async () => {
+    await shareExport({
+      title: `Driver Allocation ${allocation.conductionNumber}`,
+      subtitle: `${allocation.unitName} - ${allocation.driverName}`,
+      filename: `driver-allocation-${allocation.conductionNumber.toLowerCase()}.pdf`,
+      metadata: [
+        {
+          label: 'Reference',
+          value: formatDriverAllocationReference(allocation.id),
+        },
+        {
+          label: 'Status',
+          value: formatDriverAllocationStatusLabel(allocation.status),
+        },
+        { label: 'ETA', value: allocation.eta },
+      ],
+      columns: [
+        {
+          header: 'Date',
+          value: (record) => formatDriverAllocationCreatedDate(record.createdAt),
+        },
+        { header: 'Unit Name', value: (record) => record.unitName },
+        {
+          header: 'Conduction Number',
+          value: (record) => record.conductionNumber,
+        },
+        {
+          header: 'Body Color',
+          value: () => linkedVehicle?.bodyColor ?? '-',
+        },
+        { header: 'Variation', value: (record) => record.variation },
+        { header: 'Manager', value: (record) => record.managerName },
+        {
+          header: 'Assigned Driver',
+          value: (record) => record.driverName,
+        },
+        {
+          header: 'Driver Phone',
+          value: (record) => record.driverPhone,
+        },
+        {
+          header: 'Pickup Location',
+          value: (record) => record.pickupLabel,
+        },
+        {
+          header: 'Destination',
+          value: (record) => record.destinationLabel,
+        },
+        {
+          header: 'Status',
+          value: (record) => formatDriverAllocationStatusLabel(record.status),
+        },
+        { header: 'ETA', value: (record) => record.eta },
+      ],
+      rows: [allocation],
+      errorMessage: 'The driver allocation record could not be exported right now.',
+    });
+  };
 
   const handleDeleteAllocation = () => {
     Alert.alert(
@@ -296,6 +360,18 @@ export default function DriverDetailScreen() {
           />
         }
         onLeftPress={() => router.dismiss()}
+        rightIcon={
+          access.canExportPdf ? (
+            <Ionicons
+              name="download-outline"
+              size={18}
+              color={theme.colors.text}
+            />
+          ) : undefined
+        }
+        onRightPress={
+          access.canExportPdf ? handleExportAllocation : undefined
+        }
       />
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -333,6 +409,23 @@ export default function DriverDetailScreen() {
               </View>
             ) : null}
           </View>
+
+          {access.canExportPdf ? (
+            <Button
+              title="Export Allocation PDF"
+              size="small"
+              variant="outline"
+              icon={
+                <Ionicons
+                  name="download-outline"
+                  size={16}
+                  color={theme.colors.text}
+                />
+              }
+              onPress={handleExportAllocation}
+              style={styles.exportButton}
+            />
+          ) : null}
         </Card>
 
         {pickup && destination ? (
@@ -524,6 +617,9 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.lg,
     backgroundColor: theme.colors.surfaceMuted,
     padding: theme.spacing.md,
+  },
+  exportButton: {
+    marginTop: theme.spacing.base,
   },
   metricLabel: {
     fontSize: 12,

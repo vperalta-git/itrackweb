@@ -1,4 +1,6 @@
 import React from 'react';
+import { useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import {
   StyleSheet,
   Text,
@@ -7,70 +9,138 @@ import {
 import {
   AppScreen,
   Card,
+  EmptyState,
+  LoadingSpinner,
   PageHeader,
   StatusBadge,
 } from '@/src/mobile/components';
 import { theme } from '@/src/mobile/constants/theme';
+import { useAuth } from '@/src/mobile/context/AuthContext';
+import {
+  DriverAllocationRecord,
+  formatDriverAllocationDuration,
+  formatDriverAllocationHistoryDateTime,
+  getDriverAllocationHistoryRecords,
+  loadDriverAllocations,
+} from '@/src/mobile/data/driver-allocation';
 
 export default function DriverHistoryScreen() {
-  const history = [
-    {
-      id: '1',
-      vehicle: 'Tesla Model S - TS001',
-      from: 'Stockyard',
-      to: 'Downtown',
-      status: 'completed' as const,
-      date: 'Today, 2:15 PM',
-      duration: '15 mins',
+  const { user } = useAuth();
+  const [history, setHistory] = React.useState<DriverAllocationRecord[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+
+  const syncHistory = React.useCallback(
+    async (options?: { refresh?: boolean }) => {
+      if (!user?.id) {
+        setHistory([]);
+        setIsLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
+
+      if (options?.refresh) {
+        setIsRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
+
+      try {
+        await loadDriverAllocations();
+      } catch (error) {
+        console.error('Unable to refresh driver trip history:', error);
+      } finally {
+        setHistory(getDriverAllocationHistoryRecords(user.id));
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     },
-    {
-      id: '2',
-      vehicle: 'BMW 3 Series - BM002',
-      from: 'Warehouse',
-      to: 'Service Center',
-      status: 'completed' as const,
-      date: 'Today, 10:30 AM',
-      duration: '22 mins',
-    },
-    {
-      id: '3',
-      vehicle: 'Audi A4 - AU003',
-      from: 'Central Hub',
-      to: 'Branch Office',
-      status: 'completed' as const,
-      date: 'Yesterday, 4:45 PM',
-      duration: '18 mins',
-    },
-  ];
+    [user?.id]
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void syncHistory();
+    }, [syncHistory])
+  );
 
   return (
-    <AppScreen>
+    <AppScreen
+      refreshing={isRefreshing}
+      onRefresh={() => {
+        void syncHistory({ refresh: true });
+      }}
+    >
       <PageHeader
         eyebrow="Driver"
         title="Trip History"
         subtitle="See your recent completed trips and route timings."
       />
 
-      <View style={styles.list}>
-        {history.map((trip) => (
-          <Card key={trip.id} style={styles.card}>
-            <View style={styles.cardTop}>
-              <View style={styles.copy}>
-                <Text style={styles.title}>{trip.vehicle}</Text>
-                <Text style={styles.route}>
-                  {trip.from} to {trip.to}
-                </Text>
-              </View>
-              <StatusBadge status={trip.status} label="Completed" />
-            </View>
+      {isLoading ? (
+        <View style={styles.loadingWrap}>
+          <LoadingSpinner size="large" />
+          <Text style={styles.loadingText}>Loading your completed trips...</Text>
+        </View>
+      ) : history.length === 0 ? (
+        <EmptyState
+          icon={
+            <Ionicons
+              name="time-outline"
+              size={26}
+              color={theme.colors.primary}
+            />
+          }
+          title="No completed trips yet"
+          description="Completed driver bookings will appear here once you finish a trip."
+        />
+      ) : (
+        <View style={styles.list}>
+          {history.map((trip) => {
+            const vehicleLabel = [trip.unitName, trip.variation]
+              .filter(Boolean)
+              .join(' ');
 
-            <View style={styles.cardFooter}>
-              <Text style={styles.date}>{trip.date}</Text>
-              <Text style={styles.duration}>{trip.duration}</Text>
-            </View>
-          </Card>
-        ))}
-      </View>
+            return (
+              <Card key={trip.id} style={styles.card}>
+                <View style={styles.cardTop}>
+                  <View style={styles.copy}>
+                    <Text style={styles.title}>
+                      {[vehicleLabel, trip.conductionNumber].filter(Boolean).join(' - ')}
+                    </Text>
+                    <Text style={styles.route}>
+                      {trip.pickupLabel} to {trip.destinationLabel}
+                    </Text>
+                  </View>
+                  <StatusBadge status="completed" label="Completed" />
+                </View>
+
+                <View style={styles.metaRow}>
+                  <View style={styles.metaChip}>
+                    <Text style={styles.metaLabel}>Driver</Text>
+                    <Text style={styles.metaValue}>{trip.driverName}</Text>
+                  </View>
+                  <View style={styles.metaChip}>
+                    <Text style={styles.metaLabel}>Manager</Text>
+                    <Text style={styles.metaValue}>
+                      {trip.managerName || 'Unassigned'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.cardFooter}>
+                  <Text style={styles.date}>
+                    {formatDriverAllocationHistoryDateTime(trip)}
+                  </Text>
+                  <Text style={styles.duration}>
+                    {formatDriverAllocationDuration(trip)}
+                  </Text>
+                </View>
+              </Card>
+            );
+          })}
+        </View>
+      )}
     </AppScreen>
   );
 }
@@ -78,6 +148,18 @@ export default function DriverHistoryScreen() {
 const styles = StyleSheet.create({
   list: {
     gap: theme.spacing.md,
+  },
+  loadingWrap: {
+    flex: 1,
+    minHeight: 260,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: theme.spacing.md,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: theme.colors.textMuted,
+    fontFamily: theme.fonts.family.sans,
   },
   card: {
     marginBottom: theme.spacing.md,
@@ -102,6 +184,35 @@ const styles = StyleSheet.create({
   route: {
     fontSize: 14,
     color: theme.colors.textMuted,
+    fontFamily: theme.fonts.family.sans,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.base,
+  },
+  metaChip: {
+    flex: 1,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.surfaceOverlay,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  metaLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: theme.colors.textSubtle,
+    marginBottom: 4,
+    fontFamily: theme.fonts.family.sans,
+  },
+  metaValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.text,
     fontFamily: theme.fonts.family.sans,
   },
   cardFooter: {

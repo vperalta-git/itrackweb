@@ -12,7 +12,6 @@ import {
 import { theme } from '@/src/mobile/constants/theme';
 import { useAuth } from '@/src/mobile/context/AuthContext';
 import {
-  buildReleaseHistoryExportSummary,
   formatReleaseDateTime,
   getReleaseHistoryExportFileName,
   getReleaseHistoryRecordById,
@@ -20,6 +19,30 @@ import {
 import { getModuleAccess } from '@/src/mobile/navigation/access';
 import { UserRole } from '@/src/mobile/types';
 import { shareExport } from '@/src/mobile/utils/shareExport';
+
+const buildReleasePreparationSummary = (
+  release: NonNullable<ReturnType<typeof getReleaseHistoryRecordById>>
+) =>
+  release.preparationDone.length
+    ? release.preparationDone
+        .map(
+          (item, index) =>
+            `${index + 1}. ${item.title} (${formatReleaseDateTime(
+              item.completedAt
+            )})`
+        )
+        .join('\n')
+    : 'No preparation items recorded.';
+
+const buildReleaseTimelineSummary = (
+  release: NonNullable<ReturnType<typeof getReleaseHistoryRecordById>>
+) =>
+  release.timeline
+    .map(
+      (item) =>
+        `${formatReleaseDateTime(item.timestamp)}\n${item.title}\n${item.description}`
+    )
+    .join('\n\n');
 
 export default function ReleaseHistoryDetailScreen() {
   const router = useRouter();
@@ -59,8 +82,62 @@ export default function ReleaseHistoryDetailScreen() {
   const vehicleSummary = `${release.variation} - ${release.bodyColor}`;
   const handleExportRelease = async () => {
     await shareExport({
-      title: getReleaseHistoryExportFileName(release),
-      message: buildReleaseHistoryExportSummary(release),
+      title: 'Release History Report',
+      subtitle:
+        'Complete unit history from backend preparation and release records',
+      filename: getReleaseHistoryExportFileName(release),
+      metadata: [
+        { label: 'Scope', value: access.scopeLabel },
+        { label: 'Record', value: release.conductionNumber },
+        { label: 'Status', value: release.statusLabel },
+        { label: 'Released', value: formatReleaseDateTime(release.releasedAt) },
+      ],
+      layout: 'cards',
+      recordTitle: (record) => `${record.conductionNumber} - ${record.unitName}`,
+      recordSubtitle: (record) => `${record.variation} - ${record.bodyColor}`,
+      columns: [
+        {
+          header: 'Vehicle Added',
+          value: (record) => formatReleaseDateTime(record.addedAt),
+        },
+        {
+          header: 'Conduction Number',
+          value: (record) => record.conductionNumber,
+        },
+        {
+          header: 'Unit Details',
+          value: (record) =>
+            `${record.unitName}\n${record.variation}\n${record.bodyColor}`,
+        },
+        {
+          header: 'Delivery Pickup',
+          value: (record) => formatReleaseDateTime(record.pickupAt),
+        },
+        {
+          header: 'Preparation Done',
+          value: (record) => buildReleasePreparationSummary(record),
+        },
+        {
+          header: 'Agent Assigned',
+          value: (record) =>
+            `${record.assignedAgent}\n${formatReleaseDateTime(record.assignedDate)}`,
+        },
+        {
+          header: 'Customer',
+          value: (record) =>
+            `${record.customerName}\n${record.customerPhone}`,
+        },
+        {
+          header: 'Date Released',
+          value: (record) => formatReleaseDateTime(record.releasedAt),
+        },
+        {
+          header: 'History',
+          value: (record) => buildReleaseTimelineSummary(record),
+          spanFull: true,
+        },
+      ],
+      rows: [release],
       errorMessage: 'The release history record could not be exported right now.',
     });
   };

@@ -38,6 +38,7 @@ import {
   loadDriverAllocations,
   matchesDriverAllocationStatusFilter,
 } from '@/src/mobile/data/driver-allocation';
+import { findVehicleStockById } from '@/src/mobile/data/vehicle-stocks';
 import {
   getModuleAccess,
   getRoleLabel,
@@ -293,30 +294,77 @@ export default function DriverAllocationScreen() {
         : DRIVER_ALLOCATION_MANAGER_OPTIONS.find(
             (option) => option.value === managerFilter
           )?.label ?? managerFilter;
-    const exportTitle =
-      activeTab === 'live_tracking'
-        ? 'Driver Allocation Live Tracking Export'
-        : 'Driver Allocation Export';
-    const message = [
-      exportTitle,
-      `Scope: ${getRoleLabel(role)}`,
-      `Tab: ${activeTab === 'live_tracking' ? 'Live Tracking' : 'Allocations'}`,
-      `Status Filter: ${activeTab === 'allocations' ? statusFilterLabel : 'Not applied'}`,
-      `Manager Filter: ${managerFilterLabel}`,
-      `Search: ${searchValue || 'None'}`,
-      `Records: ${exportRecords.length}`,
-      '',
-      ...(exportRecords.length
-        ? exportRecords.map(
-            (allocation) =>
-              `${formatDriverAllocationReference(allocation.id)} | ${allocation.unitName} ${allocation.variation} | ${allocation.driverName} | ${allocation.pickupLabel} -> ${allocation.destinationLabel} | ${formatDriverAllocationStatusLabel(allocation.status)} | ETA ${allocation.eta}`
-          )
-        : ['No matching driver allocation records.']),
-    ].join('\n');
-
     await shareExport({
-      title: exportTitle,
-      message,
+      title:
+        activeTab === 'live_tracking'
+          ? 'Driver Allocation Live Tracking Report'
+          : 'Driver Allocation Report',
+      subtitle:
+        activeTab === 'live_tracking'
+          ? 'Active live route tracking'
+          : statusFilter === 'all'
+            ? 'All driver allocations'
+            : `Status: ${statusFilterLabel}`,
+      metadata: [
+        { label: 'Scope', value: getRoleLabel(role) },
+        {
+          label: 'Tab',
+          value: activeTab === 'live_tracking' ? 'Live Tracking' : 'Allocations',
+        },
+        {
+          label: 'Status Filter',
+          value: activeTab === 'allocations' ? statusFilterLabel : 'Not applied',
+        },
+        { label: 'Manager Filter', value: managerFilterLabel },
+        { label: 'Search', value: searchValue || 'None' },
+        { label: 'Records', value: String(exportRecords.length) },
+      ],
+      columns: [
+        {
+          header: 'Date',
+          value: (allocation) =>
+            formatDriverAllocationCreatedDate(allocation.createdAt),
+        },
+        { header: 'Unit Name', value: (allocation) => allocation.unitName },
+        {
+          header: 'Conduction Number',
+          value: (allocation) => allocation.conductionNumber,
+        },
+        {
+          header: 'Body Color',
+          value: (allocation) =>
+            findVehicleStockById(allocation.unitId)?.bodyColor ?? '-',
+        },
+        { header: 'Variation', value: (allocation) => allocation.variation },
+        {
+          header: 'Assigned Driver',
+          value: (allocation) => allocation.driverName,
+        },
+        {
+          header: 'Driver Phone',
+          value: (allocation) => allocation.driverPhone,
+        },
+        {
+          header: 'Pickup Location',
+          value: (allocation) => allocation.pickupLabel,
+        },
+        {
+          header: 'Destination',
+          value: (allocation) => allocation.destinationLabel,
+        },
+        {
+          header: 'Status',
+          value: (allocation) =>
+            formatDriverAllocationStatusLabel(allocation.status),
+        },
+        { header: 'ETA', value: (allocation) => allocation.eta },
+        {
+          header: 'Remaining Distance',
+          value: (allocation) => formatRemainingDistanceLabel(allocation) ?? '-',
+        },
+      ],
+      rows: exportRecords,
+      emptyStateMessage: 'No matching driver allocation records.',
       errorMessage:
         'The driver allocation records could not be exported right now.',
     });
