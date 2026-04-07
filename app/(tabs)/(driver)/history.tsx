@@ -1,12 +1,16 @@
 import React from 'react';
 import {
-  View,
-  Text,
   StyleSheet,
-  ScrollView,
-  SafeAreaView,
+  Text,
+  View,
 } from 'react-native';
-import { colors, typography, spacing, radius } from '../../constants/theme';
+import {
+  AppScreen,
+  Card,
+  PageHeader,
+  StatusBadge,
+} from '@/src/mobile/components';
+import { theme } from '@/src/mobile/constants/theme';
 
 export default function DriverHistoryScreen() {
   const history = [
@@ -15,7 +19,7 @@ export default function DriverHistoryScreen() {
       vehicle: 'Tesla Model S - TS001',
       from: 'Stockyard',
       to: 'Downtown',
-      status: 'completed',
+      status: 'completed' as const,
       date: 'Today, 2:15 PM',
       duration: '15 mins',
     },
@@ -24,7 +28,7 @@ export default function DriverHistoryScreen() {
       vehicle: 'BMW 3 Series - BM002',
       from: 'Warehouse',
       to: 'Service Center',
-      status: 'completed',
+      status: 'completed' as const,
       date: 'Today, 10:30 AM',
       duration: '22 mins',
     },
@@ -33,135 +37,91 @@ export default function DriverHistoryScreen() {
       vehicle: 'Audi A4 - AU003',
       from: 'Central Hub',
       to: 'Branch Office',
-      status: 'completed',
+      status: 'completed' as const,
       date: 'Yesterday, 4:45 PM',
       duration: '18 mins',
     },
   ];
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContentStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Trip History</Text>
-        </View>
+    <AppScreen>
+      <PageHeader
+        eyebrow="Driver"
+        title="Trip History"
+        subtitle="See your recent completed trips and route timings."
+      />
 
-        <View style={styles.list}>
-          {history.map((trip) => (
-            <View key={trip.id} style={styles.card}>
-              <View style={styles.cardTop}>
-                <View style={styles.vehicleInfo}>
-                  <Text style={styles.vehicleName}>{trip.vehicle}</Text>
-                  <View style={styles.routeInfo}>
-                    <Text style={styles.routeText}>
-                      {trip.from} → {trip.to}
-                    </Text>
-                  </View>
-                </View>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    trip.status === 'completed' &&
-                      styles.statusBadgeCompleted,
-                  ]}
-                >
-                  <Text style={styles.statusBadgeText}>
-                    {trip.status.toUpperCase()}
-                  </Text>
-                </View>
+      <View style={styles.list}>
+        {history.map((trip) => (
+          <Card key={trip.id} style={styles.card}>
+            <View style={styles.cardTop}>
+              <View style={styles.copy}>
+                <Text style={styles.title}>{trip.vehicle}</Text>
+                <Text style={styles.route}>
+                  {trip.from} to {trip.to}
+                </Text>
               </View>
-              <View style={styles.cardBottom}>
-                <Text style={styles.date}>{trip.date}</Text>
-                <Text style={styles.duration}>⏱️ {trip.duration}</Text>
-              </View>
+              <StatusBadge status={trip.status} label="Completed" />
             </View>
-          ))}
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+
+            <View style={styles.cardFooter}>
+              <Text style={styles.date}>{trip.date}</Text>
+              <Text style={styles.duration}>{trip.duration}</Text>
+            </View>
+          </Card>
+        ))}
+      </View>
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.white,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.base,
-    paddingTop: spacing.base,
-    paddingBottom: spacing['2xl'],
-  },
-  header: {
-    marginBottom: spacing.lg,
-  },
-  title: {
-    fontSize: typography.fontSize['2xl'],
-    fontWeight: '700',
-    color: colors.gray900,
-  },
   list: {
-    gap: spacing.lg,
+    gap: theme.spacing.md,
   },
   card: {
-    backgroundColor: colors.gray50,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
+    marginBottom: theme.spacing.md,
   },
   cardTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: spacing.lg,
+    gap: theme.spacing.base,
+    marginBottom: theme.spacing.base,
   },
-  vehicleInfo: {
+  copy: {
     flex: 1,
   },
-  vehicleName: {
-    fontSize: typography.fontSize.base,
-    fontWeight: '600',
-    color: colors.gray900,
-    marginBottom: spacing.sm,
+  title: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: 4,
+    fontFamily: theme.fonts.family.sans,
   },
-  routeInfo: {
-    backgroundColor: colors.gray100,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+  route: {
+    fontSize: 14,
+    color: theme.colors.textMuted,
+    fontFamily: theme.fonts.family.sans,
   },
-  routeText: {
-    fontSize: typography.fontSize.sm,
-    color: colors.gray700,
-  },
-  statusBadge: {
-    backgroundColor: colors.warning,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
-  },
-  statusBadgeCompleted: {
-    backgroundColor: colors.success,
-  },
-  statusBadgeText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  cardBottom: {
+  cardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: spacing.lg,
+    gap: theme.spacing.base,
+    paddingTop: theme.spacing.base,
     borderTopWidth: 1,
-    borderTopColor: colors.gray200,
+    borderTopColor: theme.colors.border,
   },
   date: {
-    fontSize: typography.fontSize.sm,
-    color: colors.gray600,
+    fontSize: 13,
+    color: theme.colors.textSubtle,
+    fontFamily: theme.fonts.family.sans,
   },
   duration: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: '600',
-    color: colors.gray900,
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
   },
 });

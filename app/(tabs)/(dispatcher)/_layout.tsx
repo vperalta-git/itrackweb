@@ -6,7 +6,6 @@ export default function DispatcherLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        animationEnabled: true,
       }}
     >
       <Stack.Screen name="dashboard" />

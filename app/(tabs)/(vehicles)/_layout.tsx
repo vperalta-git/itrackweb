@@ -6,7 +6,6 @@ export default function VehiclesLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        animationEnabled: true,
       }}
     >
       <Stack.Screen name="index" />

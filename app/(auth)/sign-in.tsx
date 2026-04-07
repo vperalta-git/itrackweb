@@ -1,17 +1,25 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  View,
+  Image,
+  Pressable,
+  StyleSheet,
   Text,
-  ScrollView,
-  Alert,
-  SafeAreaView,
+  View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useAuth } from '../context/AuthContext';
-import { theme } from '../constants/theme';
-import { Input, Button, Checkbox } from '../components';
-import { useForm } from '../hooks/useForm';
-import FormValidator from '../utils/validation';
+import { useAuth } from '@/src/mobile/context/AuthContext';
+import { getDefaultRouteForRole } from '@/src/mobile/navigation/access';
+import FormValidator from '@/src/mobile/utils/validation';
+import { useForm } from '@/src/mobile/hooks/useForm';
+import {
+  AppScreen,
+  Button,
+  Checkbox,
+  Input,
+} from '@/src/mobile/components';
+import { brandLogo } from '@/src/mobile/constants/assets';
+import { AppTheme, useTheme } from '@/src/mobile/constants/theme';
 
 interface SignInFormData {
   email: string;
@@ -20,8 +28,12 @@ interface SignInFormData {
 }
 
 export default function SignInScreen() {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const { login } = useAuth();
   const [submitError, setSubmitError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const form = useForm<SignInFormData>({
     initialValues: {
@@ -39,153 +51,203 @@ export default function SignInScreen() {
     onSubmit: async (values) => {
       setSubmitError('');
       try {
-        await login(values.email, values.password);
-        router.replace('/(tabs)/(admin)/dashboard');
+        const user = await login(values.email.trim(), values.password);
+        router.replace(getDefaultRouteForRole(user.role) as any);
       } catch (error) {
+        void error;
         setSubmitError('Invalid email or password. Please try again.');
       }
     },
   });
 
+  const handleEmailChange = (value: string) => {
+    if (submitError) {
+      setSubmitError('');
+    }
+    form.setFieldValue('email', value);
+  };
+
+  const handlePasswordChange = (value: string) => {
+    if (submitError) {
+      setSubmitError('');
+    }
+    form.setFieldValue('password', value);
+  };
+
+  const handleSignIn = () => {
+    setHasSubmitted(true);
+    form.setFieldTouched('email');
+    form.setFieldTouched('password');
+    form.handleSubmit();
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.contentContainer}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.logo}>I-TRACK</Text>
-          <Text style={styles.subtitle}>Fleet Management System</Text>
-        </View>
+    <AppScreen contentContainerStyle={styles.contentContainer}>
+      <View style={styles.hero}>
+        <Image source={brandLogo} style={styles.logoImage} resizeMode="contain" />
+        <Text style={styles.title}>I-TRACK</Text>
+        <Text style={styles.subtitle}>ISUZU's Vehicle Service Management System</Text>
+      </View>
 
-        {/* Form */}
-        <View style={styles.form}>
-          {/* Error Alert */}
-          {submitError && (
-            <View style={styles.errorAlert}>
-              <Text style={styles.errorAlertText}>{submitError}</Text>
-            </View>
-          )}
+      <View style={styles.formShell}>
+        {submitError ? (
+          <View style={styles.errorBanner}>
+            <Ionicons
+              name="alert-circle-outline"
+              size={18}
+              color={theme.colors.error}
+            />
+            <Text style={styles.errorText}>{submitError}</Text>
+          </View>
+        ) : null}
 
-          {/* Email Input */}
-          <Input
-            label="Email Address"
-            placeholder="your@email.com"
-            value={form.values.email}
-            onChangeText={(value) => form.setFieldValue('email', value)}
-            onBlur={() => form.setFieldTouched('email')}
-            error={form.touched.email ? form.errors.email : undefined}
-            keyboardType="email-address"
-            editable={!form.isSubmitting}
-          />
+        <Input
+          label="Email address"
+          placeholder="you@itrack.com"
+          value={form.values.email}
+          onChangeText={handleEmailChange}
+          onBlur={() => form.setFieldTouched('email')}
+          error={form.touched.email || hasSubmitted ? form.errors.email : undefined}
+          keyboardType="email-address"
+          editable={!form.isSubmitting}
+          icon={
+            <Ionicons
+              name="mail-outline"
+              size={18}
+              color={theme.colors.textSubtle}
+            />
+          }
+        />
 
-          {/* Password Input */}
-          <Input
-            label="Password"
-            placeholder="Enter your password"
-            value={form.values.password}
-            onChangeText={(value) => form.setFieldValue('password', value)}
-            onBlur={() => form.setFieldTouched('password')}
-            error={form.touched.password ? form.errors.password : undefined}
-            secureTextEntry
-            editable={!form.isSubmitting}
-          />
+        <Input
+          label="Password"
+          placeholder="Enter your password"
+          value={form.values.password}
+          onChangeText={handlePasswordChange}
+          onBlur={() => form.setFieldTouched('password')}
+          error={form.touched.password || hasSubmitted ? form.errors.password : undefined}
+          secureTextEntry={!showPassword}
+          editable={!form.isSubmitting}
+          icon={
+            <Ionicons
+              name="lock-closed-outline"
+              size={18}
+              color={theme.colors.textSubtle}
+            />
+          }
+          rightIcon={
+            <Ionicons
+              name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+              size={18}
+              color={theme.colors.textSubtle}
+            />
+          }
+          onRightIconPress={() => setShowPassword((current) => !current)}
+        />
 
-          {/* Remember Me */}
+        <View style={styles.formRow}>
           <Checkbox
             value={form.values.rememberMe}
             onValueChange={(value) => form.setFieldValue('rememberMe', value)}
             label="Remember me"
             disabled={form.isSubmitting}
-            style={styles.rememberMe}
           />
 
-          {/* Sign In Button */}
-          <Button
-            title="Sign In"
-            onPress={form.handleSubmit}
-            loading={form.isSubmitting}
-            disabled={form.isSubmitting}
-            fullWidth
-            size="large"
-            style={styles.signInButton}
-          />
-
-          {/* Forgot Password Link */}
-          <Button
-            title="Forgot Password?"
-            variant="ghost"
+          <Pressable
             onPress={() => router.push('/(auth)/forgot-password')}
+            style={styles.forgotPasswordLink}
             disabled={form.isSubmitting}
-            fullWidth
-          />
+          >
+            <Text style={styles.forgotPasswordText}>Forgot password?</Text>
+          </Pressable>
         </View>
 
-        {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            © 2024 I-TRACK. All rights reserved.
-          </Text>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+        <Button
+          title="Sign In"
+          onPress={handleSignIn}
+          loading={form.isSubmitting}
+          disabled={form.isSubmitting}
+          fullWidth
+          size="large"
+          style={styles.submitButton}
+        />
+      </View>
+    </AppScreen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.white,
-  },
-  contentContainer: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 24,
-  },
-  header: {
-    marginBottom: 24,
-    alignItems: 'center',
-  },
-  logo: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: theme.colors.primary,
-    marginBottom: 8,
-    fontFamily: theme.fonts.family.sans,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: theme.colors.gray500,
-    fontFamily: theme.fonts.family.sans,
-  },
-  form: {
-    marginBottom: 24,
-  },
-  errorAlert: {
-    backgroundColor: '#fee2e2',
-    borderRadius: theme.radius.md,
-    padding: 12,
-    marginBottom: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: theme.colors.danger,
-  },
-  errorAlertText: {
-    fontSize: 13,
-    color: '#991b1b',
-    fontFamily: theme.fonts.family.sans,
-  },
-  rememberMe: {
-    marginBottom: 16,
-  },
-  signInButton: {
-    marginBottom: 12,
-  },
-  footer: {
-    marginTop: 24,
-    alignItems: 'center',
-  },
-  footerText: {
-    fontSize: 12,
-    color: theme.colors.gray500,
-    fontFamily: theme.fonts.family.sans,
-  },
-});
+const createStyles = (theme: AppTheme) =>
+  StyleSheet.create({
+    contentContainer: {
+      justifyContent: 'center',
+      paddingVertical: theme.spacing['2xl'],
+    },
+    hero: {
+      alignItems: 'center',
+      marginBottom: theme.spacing.lg,
+    },
+    logoImage: {
+      marginBottom: theme.spacing.base,
+      width: 90,
+      height: 90,
+    },
+    title: {
+      fontSize: 32,
+      lineHeight: 36,
+      fontWeight: '700',
+      textAlign: 'center',
+      color: theme.colors.primary,
+      letterSpacing: 0.4,
+      fontFamily: theme.fonts.family.sans,
+    },
+    subtitle: {
+      marginTop: 6,
+      fontSize: 14,
+      color: theme.colors.textMuted,
+      textAlign: 'center',
+      fontFamily: theme.fonts.family.sans,
+    },
+    formShell: {
+      width: '100%',
+      maxWidth: 440,
+      alignSelf: 'center',
+      paddingTop: theme.spacing.sm,
+    },
+    errorBanner: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: theme.spacing.sm,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.error,
+      backgroundColor: theme.colors.errorLight,
+      padding: theme.spacing.md,
+      marginBottom: theme.spacing.base,
+    },
+    errorText: {
+      flex: 1,
+      fontSize: 13,
+      lineHeight: 19,
+      color: theme.colors.error,
+      fontFamily: theme.fonts.family.sans,
+    },
+    formRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: theme.spacing.lg,
+      gap: theme.spacing.base,
+    },
+    forgotPasswordLink: {
+      paddingVertical: theme.spacing.xs,
+    },
+    forgotPasswordText: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: theme.colors.primary,
+      fontFamily: theme.fonts.family.sans,
+    },
+    submitButton: {
+      marginTop: theme.spacing.xs,
+    },
+  });

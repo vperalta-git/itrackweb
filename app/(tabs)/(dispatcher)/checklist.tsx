@@ -1,224 +1,536 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
+  Alert,
   StyleSheet,
-  ScrollView,
-  SafeAreaView,
+  Text,
   TouchableOpacity,
+  View,
 } from 'react-native';
-import { colors, typography, spacing, radius } from '../../constants/theme';
+import { Ionicons } from '@expo/vector-icons';
+import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+import {
+  AppScreen,
+  Card,
+  EmptyState,
+  PageHeader,
+  ProgressBar,
+  StatusBadge,
+} from '@/src/mobile/components';
+import { theme } from '@/src/mobile/constants/theme';
+import { useAuth } from '@/src/mobile/context/AuthContext';
+import {
+  formatRequestedServices,
+  getDispatcherChecklistProgress,
+  getPendingDispatcherPreparations,
+  getPreparationApprovalLabel,
+  getPreparationBadgeStatus,
+  getPreparationRecordRequesterLabel,
+  getPreparationStatusLabel,
+  PreparationRecord,
+  toggleDispatcherChecklistStep,
+} from '@/src/mobile/data/preparation';
+import { PreparationStatus } from '@/src/mobile/types';
 
 export default function ChecklistScreen() {
-  const [checklist, setChecklist] = useState([
-    { id: '1', label: 'Exterior Wash', completed: true },
-    { id: '2', label: 'Interior Cleaning', completed: true },
-    { id: '3', label: 'Tire Inspection', completed: false },
-    { id: '4', label: 'Fluid Check', completed: false },
-    { id: '5', label: 'Brake Test', completed: false },
-    { id: '6', label: 'Final Inspection', completed: false },
-  ]);
+  const navigation = useNavigation();
+  const { user } = useAuth();
+  const { preparationId } = useLocalSearchParams<{
+    preparationId?: string | string[];
+  }>();
+  const requestedPreparationId = Array.isArray(preparationId)
+    ? preparationId[0]
+    : preparationId;
+  const [preparations, setPreparations] = useState<PreparationRecord[]>(() =>
+    getPendingDispatcherPreparations(user?.id)
+  );
+  const [selectedPreparationId, setSelectedPreparationId] = useState<
+    string | null
+  >(requestedPreparationId ?? null);
 
-  const toggleTask = (id: string) => {
-    setChecklist((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, completed: !item.completed } : item
-      )
-    );
+  useEffect(() => {
+    const refreshPreparations = () => {
+      setPreparations(getPendingDispatcherPreparations(user?.id));
+    };
+
+    refreshPreparations();
+
+    const unsubscribe = navigation.addListener('focus', refreshPreparations);
+
+    return unsubscribe;
+  }, [navigation, user?.id]);
+
+  useEffect(() => {
+    if (requestedPreparationId) {
+      setSelectedPreparationId(requestedPreparationId);
+    }
+  }, [requestedPreparationId]);
+
+  useEffect(() => {
+    if (!preparations.length) {
+      setSelectedPreparationId(null);
+      return;
+    }
+
+    if (
+      requestedPreparationId &&
+      preparations.some((item) => item.id === requestedPreparationId)
+    ) {
+      setSelectedPreparationId(requestedPreparationId);
+      return;
+    }
+
+    if (
+      selectedPreparationId &&
+      preparations.some((item) => item.id === selectedPreparationId)
+    ) {
+      return;
+    }
+
+    setSelectedPreparationId(preparations[0].id);
+  }, [preparations, requestedPreparationId, selectedPreparationId]);
+
+  const selectedPreparation = useMemo(
+    () =>
+      preparations.find((item) => item.id === selectedPreparationId) ??
+      preparations[0] ??
+      null,
+    [preparations, selectedPreparationId]
+  );
+
+  const progressPercent = selectedPreparation
+    ? getDispatcherChecklistProgress(selectedPreparation)
+    : 0;
+  const completedCount = selectedPreparation
+    ? selectedPreparation.dispatcherChecklist.filter((item) => item.completed)
+        .length
+    : 0;
+  const checklistCount = selectedPreparation?.dispatcherChecklist.length ?? 0;
+  const refreshPreparations = () => {
+    setPreparations(getPendingDispatcherPreparations(user?.id));
   };
 
-  const completedCount = checklist.filter((item) => item.completed).length;
-  const progressPercent = (completedCount / checklist.length) * 100;
+  const handleToggleTask = async (stepId: string) => {
+    if (!selectedPreparation) {
+      return;
+    }
+
+    try {
+      const updatedPreparation = await toggleDispatcherChecklistStep(
+        selectedPreparation.id,
+        stepId
+      );
+
+      if (updatedPreparation.status === PreparationStatus.COMPLETED) {
+        const remainingPreparations = getPendingDispatcherPreparations(user?.id);
+
+        setPreparations(remainingPreparations);
+        setSelectedPreparationId(remainingPreparations[0]?.id ?? null);
+
+        Alert.alert(
+          'Dispatcher Checklist Completed',
+          `${selectedPreparation.unitName} has been marked as Completed and removed from the in-dispatch queue.`
+        );
+        return;
+      }
+
+      refreshPreparations();
+    } catch (error) {
+      Alert.alert(
+        'Unable to update checklist',
+        error instanceof Error
+          ? error.message
+          : 'The checklist step could not be updated right now.'
+      );
+    }
+  };
+
+  const handleBackPress = () => {
+    if (navigation.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace('/(tabs)/(dispatcher)/dashboard' as any);
+  };
+
+  if (!selectedPreparation) {
+    return (
+      <AppScreen>
+        <PageHeader
+          leading={
+            <TouchableOpacity
+              style={styles.backButton}
+              activeOpacity={0.85}
+              onPress={handleBackPress}
+            >
+              <Ionicons
+                name="arrow-back-outline"
+                size={20}
+                color={theme.colors.text}
+              />
+            </TouchableOpacity>
+          }
+          leadingPlacement="above"
+        eyebrow="Dispatcher"
+        title="Dispatcher Checklist"
+        subtitle="Approved vehicle preparation endorsements will appear here once they move into the dispatch queue."
+      />
+
+      <EmptyState
+        title="No in-dispatch checklist"
+        description="Vehicle preparation requests approved by admin or supervisor will automatically appear here for the dispatcher."
+      />
+      </AppScreen>
+    );
+  }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Vehicle Header */}
-        <View style={styles.vehicleHeader}>
-          <Text style={styles.vehicleTitle}>Tesla Model S - TS001</Text>
-          <Text style={styles.vehicleSubtitle}>Exterior Preparation</Text>
+    <AppScreen>
+      <PageHeader
+        leading={
+          <TouchableOpacity
+            style={styles.backButton}
+            activeOpacity={0.85}
+            onPress={handleBackPress}
+          >
+            <Ionicons
+              name="arrow-back-outline"
+              size={20}
+              color={theme.colors.text}
+            />
+          </TouchableOpacity>
+        }
+        leadingPlacement="above"
+        eyebrow="Dispatcher"
+        title="Dispatcher Checklist"
+        subtitle="Review the selected vehicle prep details and complete the dispatcher checks before release."
+      />
+
+      <Card style={styles.heroCard} variant="outlined">
+        <View style={styles.heroTop}>
+          <View style={styles.heroCopy}>
+            <Text style={styles.vehicleTitle}>{selectedPreparation.unitName}</Text>
+            <Text style={styles.vehicleSubtitle}>
+              {selectedPreparation.variation}
+            </Text>
+          </View>
+
+          <StatusBadge
+            status={getPreparationBadgeStatus(selectedPreparation.status)}
+            label={getPreparationStatusLabel(selectedPreparation.status)}
+          />
         </View>
 
-        {/* Progress Bar */}
-        <View style={styles.progressSection}>
-          <View style={styles.progressBar}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: `${progressPercent}%` },
-              ]}
-            />
-          </View>
-          <Text style={styles.progressText}>
-            {completedCount} of {checklist.length} Complete
+        <View style={styles.infoRow}>
+          <Ionicons
+            name="car-sport-outline"
+            size={14}
+            color={theme.colors.textSubtle}
+          />
+          <Text style={styles.infoText}>
+            Conduction No: {selectedPreparation.conductionNumber}
           </Text>
         </View>
 
-        {/* Checklist */}
-        <View style={styles.checklistContainer}>
-          <Text style={styles.checklistTitle}>Preparation Steps</Text>
-          {checklist.map((task) => (
-            <TouchableOpacity
-              key={task.id}
-              style={styles.checklistItem}
-              onPress={() => toggleTask(task.id)}
-            >
-              <View
-                style={[
-                  styles.checkbox,
-                  task.completed && styles.checkboxChecked,
-                ]}
-              >
-                {task.completed && <Text style={styles.checkmark}>✓</Text>}
-              </View>
-              <Text
-                style={[
-                  styles.checklistLabel,
-                  task.completed && styles.checklistLabelCompleted,
-                ]}
-              >
-                {task.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
+        <View style={styles.infoRow}>
+          <Ionicons
+            name="person-outline"
+            size={14}
+            color={theme.colors.textSubtle}
+          />
+          <Text style={styles.infoText}>
+            Submitted by {getPreparationRecordRequesterLabel(selectedPreparation)}
+          </Text>
         </View>
 
-        {/* Action Buttons */}
-        <View style={styles.buttonContainer}>
-          {completedCount === checklist.length ? (
-            <TouchableOpacity style={styles.completeButton}>
-              <Text style={styles.completeButtonText}>
-                ✓ Mark as Complete
-              </Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity style={[styles.button, styles.buttonDisabled]}>
-              <Text style={styles.buttonText}>
-                Complete all steps to finish
-              </Text>
-            </TouchableOpacity>
-          )}
+        <View style={styles.infoRow}>
+          <Ionicons
+            name="shield-checkmark-outline"
+            size={14}
+            color={theme.colors.textSubtle}
+          />
+          <Text style={styles.infoText}>
+            Approved by {getPreparationApprovalLabel(selectedPreparation)}
+          </Text>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+
+        <View style={styles.serviceChip}>
+          <Ionicons
+            name="construct-outline"
+            size={14}
+            color={theme.colors.primaryDark}
+          />
+          <Text style={styles.serviceChipLabel}>Requested Services</Text>
+          <Text style={styles.serviceChipValue}>
+            {formatRequestedServices(
+              selectedPreparation.requestedServices,
+              selectedPreparation.customRequests
+            )}
+          </Text>
+        </View>
+
+        <ProgressBar
+          progress={progressPercent}
+          label={`Dispatcher Completion - ${completedCount}/${checklistCount} steps`}
+          style={styles.progress}
+        />
+      </Card>
+
+      <Card style={styles.detailCard}>
+        <Text style={styles.sectionTitle}>Vehicle Prep Details</Text>
+
+        <View style={styles.detailGrid}>
+          <View style={styles.detailTile}>
+            <Text style={styles.detailLabel}>Conduction Number</Text>
+            <Text style={styles.detailValue}>
+              {selectedPreparation.conductionNumber}
+            </Text>
+          </View>
+
+          <View style={styles.detailTile}>
+            <Text style={styles.detailLabel}>Body Color</Text>
+            <Text style={styles.detailValue}>{selectedPreparation.bodyColor}</Text>
+          </View>
+        </View>
+
+        <View style={styles.detailGrid}>
+          <View style={styles.detailTile}>
+            <Text style={styles.detailLabel}>Customer</Text>
+            <Text style={styles.detailValue}>{selectedPreparation.customerName}</Text>
+          </View>
+
+          <View style={styles.detailTile}>
+            <Text style={styles.detailLabel}>Contact Number</Text>
+            <Text style={styles.detailValue}>
+              {selectedPreparation.customerContactNo}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.detailGrid}>
+          <View style={styles.detailTile}>
+            <Text style={styles.detailLabel}>Date Created</Text>
+            <Text style={styles.detailValue}>{selectedPreparation.createdAt}</Text>
+          </View>
+
+          <View style={styles.detailTile}>
+            <Text style={styles.detailLabel}>Assigned Dispatcher</Text>
+            <Text style={styles.detailValue}>
+              {selectedPreparation.dispatcherName ?? 'Unassigned'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.notesBlock}>
+          <Text style={styles.detailLabel}>Notes</Text>
+          <Text style={styles.notesText}>
+            {selectedPreparation.notes || 'No notes added.'}
+          </Text>
+        </View>
+      </Card>
+
+      <Card style={styles.listCard}>
+        <Text style={styles.sectionTitle}>Checklist for Dispatcher</Text>
+
+        {selectedPreparation.dispatcherChecklist.map((task, index) => (
+          <TouchableOpacity
+            key={task.id}
+            style={[
+              styles.taskRow,
+              index < selectedPreparation.dispatcherChecklist.length - 1
+                ? styles.rowDivider
+                : null,
+            ]}
+            activeOpacity={0.85}
+            onPress={() => handleToggleTask(task.id)}
+          >
+            <View
+              style={[
+                styles.checkCircle,
+                task.completed && styles.checkCircleActive,
+              ]}
+            >
+              {task.completed ? (
+                <Ionicons
+                  name="checkmark"
+                  size={16}
+                  color={theme.colors.white}
+                />
+              ) : null}
+            </View>
+            <Text
+              style={[
+                styles.taskLabel,
+                task.completed && styles.taskLabelCompleted,
+              ]}
+            >
+              {task.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </Card>
+
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.white,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.base,
-    paddingTop: spacing.base,
-    paddingBottom: spacing['2xl'],
-  },
-  vehicleHeader: {
-    marginBottom: spacing['2xl'],
-  },
-  vehicleTitle: {
-    fontSize: typography.fontSize.xl,
-    fontWeight: '700',
-    color: colors.gray900,
-    marginBottom: spacing.xs,
-  },
-  vehicleSubtitle: {
-    fontSize: typography.fontSize.sm,
-    color: colors.gray600,
-  },
-  progressSection: {
-    marginBottom: spacing['2xl'],
-  },
-  progressBar: {
-    height: 12,
-    backgroundColor: colors.gray200,
-    borderRadius: radius.sm,
-    marginBottom: spacing.md,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: colors.primary,
-  },
-  progressText: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: '600',
-    color: colors.gray700,
-  },
-  checklistContainer: {
-    marginBottom: spacing['2xl'],
-  },
-  checklistTitle: {
-    fontSize: typography.fontSize.lg,
-    fontWeight: '700',
-    color: colors.gray900,
-    marginBottom: spacing.lg,
-  },
-  checklistItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    backgroundColor: colors.gray50,
-    borderRadius: radius.lg,
-    marginBottom: spacing.lg,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderWidth: 2,
-    borderColor: colors.gray400,
-    borderRadius: radius.sm,
-    marginRight: spacing.lg,
+  backButton: {
+    width: 42,
+    height: 42,
+    borderRadius: theme.radius.full,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.white,
   },
-  checkboxChecked: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  heroCard: {
+    marginBottom: theme.spacing.base,
   },
-  checkmark: {
-    color: colors.white,
-    fontSize: typography.fontSize.base,
-    fontWeight: '700',
+  heroTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: theme.spacing.base,
+    marginBottom: theme.spacing.base,
   },
-  checklistLabel: {
-    fontSize: typography.fontSize.base,
-    fontWeight: '600',
-    color: colors.gray900,
+  heroCopy: {
     flex: 1,
   },
-  checklistLabelCompleted: {
-    color: colors.gray400,
+  vehicleTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: 4,
+    fontFamily: theme.fonts.family.sans,
+  },
+  vehicleSubtitle: {
+    fontSize: 14,
+    color: theme.colors.textMuted,
+    fontFamily: theme.fonts.family.sans,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 12,
+    color: theme.colors.textSubtle,
+    fontFamily: theme.fonts.family.sans,
+  },
+  serviceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.primarySurface,
+    borderWidth: 1,
+    borderColor: theme.colors.primarySurfaceStrong,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    marginTop: theme.spacing.sm,
+  },
+  serviceChipLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.primaryDark,
+    fontFamily: theme.fonts.family.sans,
+  },
+  serviceChipValue: {
+    flex: 1,
+    fontSize: 12,
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
+  },
+  progress: {
+    marginTop: theme.spacing.base,
+  },
+  detailCard: {
+    marginBottom: theme.spacing.base,
+  },
+  detailGrid: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
+  },
+  detailTile: {
+    flex: 1,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surfaceMuted,
+    padding: theme.spacing.md,
+  },
+  detailLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.textSubtle,
+    marginBottom: 6,
+    fontFamily: theme.fonts.family.sans,
+  },
+  detailValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
+  },
+  notesBlock: {
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surfaceMuted,
+    padding: theme.spacing.md,
+  },
+  notesText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
+  },
+  listCard: {
+    marginBottom: theme.spacing.base,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: theme.spacing.sm,
+    fontFamily: theme.fonts.family.sans,
+  },
+  taskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.base,
+    paddingVertical: theme.spacing.md,
+  },
+  rowDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  checkCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: theme.colors.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
+  },
+  checkCircleActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  taskLabel: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
+  },
+  taskLabelCompleted: {
+    color: theme.colors.textSubtle,
     textDecorationLine: 'line-through',
-  },
-  buttonContainer: {
-    marginTop: spacing['2xl'],
-  },
-  button: {
-    backgroundColor: colors.gray300,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.lg,
-    alignItems: 'center',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    fontSize: typography.fontSize.base,
-    fontWeight: '600',
-    color: colors.gray700,
-  },
-  completeButton: {
-    backgroundColor: colors.success,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.lg,
-    alignItems: 'center',
-  },
-  completeButtonText: {
-    fontSize: typography.fontSize.base,
-    fontWeight: '600',
-    color: colors.white,
   },
 });

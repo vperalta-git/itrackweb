@@ -1,248 +1,319 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
   StyleSheet,
-  ScrollView,
-  SafeAreaView,
-  TouchableOpacity,
+  Text,
+  View,
 } from 'react-native';
-import { router } from 'expo-router';
-import { theme } from '../../constants/theme';
-import { MapViewComponent } from '../../components/MapView';
-import LocationTracker from '../../utils/locationTracker';
+import { Ionicons } from '@expo/vector-icons';
+import { router, useNavigation } from 'expo-router';
+import {
+  AppScreen,
+  Card,
+  EmptyState,
+  PageHeader,
+  StatusBadge,
+} from '@/src/mobile/components';
+import { theme } from '@/src/mobile/constants/theme';
+import { useAuth } from '@/src/mobile/context/AuthContext';
+import {
+  formatRequestedServices,
+  getDispatcherDashboardSummary,
+  getPendingDispatcherPreparations,
+  getPreparationApprovalLabel,
+  getPreparationBadgeStatus,
+  getPreparationRecordRequesterLabel,
+  getPreparationStatusLabel,
+  PreparationRecord,
+} from '@/src/mobile/data/preparation';
 
 export default function DispatcherDashboard() {
-  const stats = [
-    { label: 'Pending', value: '5', icon: '⏳' },
-    { label: 'In Progress', value: '3', icon: '🔄' },
-    { label: 'Completed', value: '12', icon: '✓' },
-  ];
+  const navigation = useNavigation();
+  const { user } = useAuth();
+  const [pendingPreparations, setPendingPreparations] = useState<
+    PreparationRecord[]
+  >(() => getPendingDispatcherPreparations(user?.id));
 
-  // Get drivers for display
-  const drivers = LocationTracker.getDriversForDisplay(
-    ['driver-1', 'driver-2', 'driver-3'],
-    {
-      'driver-1': 'John Doe',
-      'driver-2': 'Jane Smith',
-      'driver-3': 'Mike Johnson',
-    },
-    {
-      'driver-1': 'active',
-      'driver-2': 'active',
-      'driver-3': 'inactive',
-    }
+  useEffect(() => {
+    const refreshPreparations = () => {
+      setPendingPreparations(getPendingDispatcherPreparations(user?.id));
+    };
+
+    refreshPreparations();
+
+    const unsubscribe = navigation.addListener('focus', refreshPreparations);
+
+    return unsubscribe;
+  }, [navigation, user?.id]);
+
+  const summary = useMemo(
+    () => getDispatcherDashboardSummary(user?.id),
+    [pendingPreparations, user?.id]
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.greeting}>Dispatcher Dashboard</Text>
-          <Text style={styles.subtitle}>Live Driver Tracking</Text>
-        </View>
+    <AppScreen>
+      <PageHeader
+        eyebrow="Dispatcher"
+        title="Dispatcher Dashboard"
+        subtitle="Review approved vehicle preparation endorsements and open each in-dispatch vehicle prep record for dispatcher checklist processing."
+      />
 
-        {/* Live Tracking Map */}
-        <MapViewComponent
-          markers={drivers}
-          initialRegion={{
-            latitude: 40.7128,
-            longitude: -74.006,
-            latitudeDelta: 0.1,
-            longitudeDelta: 0.1,
-          }}
-          style={styles.mapContainer}
-          showScale
-        />
-
-        {/* Stats */}
-        <View style={styles.statsContainer}>
-          {stats.map((stat, index) => (
-            <View key={index} style={styles.statCard}>
-              <Text style={styles.statIcon}>{stat.icon}</Text>
-              <Text style={styles.statValue}>{stat.value}</Text>
-              <Text style={styles.statLabel}>{stat.label}</Text>
+      <View style={styles.statsRow}>
+        {[
+          {
+            label: 'In Dispatch',
+            value: `${summary.inDispatch}`,
+            icon: 'swap-horizontal-outline',
+            tint: theme.colors.infoLight,
+            color: theme.colors.info,
+          },
+          {
+            label: 'Completed',
+            value: `${summary.completed}`,
+            icon: 'checkmark-done-outline',
+            tint: theme.colors.successLight,
+            color: theme.colors.success,
+          },
+          {
+            label: 'Ready for Release',
+            value: `${summary.readyForRelease}`,
+            icon: 'shield-checkmark-outline',
+            tint: theme.colors.primarySurface,
+            color: theme.colors.primary,
+          },
+        ].map((stat) => (
+          <Card key={stat.label} style={styles.statCard}>
+            <View style={[styles.statIconWrap, { backgroundColor: stat.tint }]}>
+              <Ionicons name={stat.icon as any} size={18} color={stat.color} />
             </View>
-          ))}
-        </View>
+            <Text style={styles.statValue}>{stat.value}</Text>
+            <Text style={styles.statLabel}>{stat.label}</Text>
+          </Card>
+        ))}
+      </View>
 
-        {/* Quick Actions */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <TouchableOpacity
-            style={styles.actionCard}
-            onPress={() => router.push('/(tabs)/(dispatcher)/checklist')}
-          >
-            <Text style={styles.actionIcon}>✓</Text>
-            <View style={styles.actionContent}>
-              <Text style={styles.actionTitle}>Vehicle Checklist</Text>
-              <Text style={styles.actionSubtitle}>Mark preparation steps</Text>
-            </View>
-            <Text style={styles.arrowIcon}>→</Text>
-          </TouchableOpacity>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>In Dispatch Queue</Text>
 
-          <TouchableOpacity
-            style={styles.actionCard}
-            onPress={() => router.push('/(tabs)/(dispatcher)/history')}
-          >
-            <Text style={styles.actionIcon}>📋</Text>
-            <View style={styles.actionContent}>
-              <Text style={styles.actionTitle}>Dispatch History</Text>
-              <Text style={styles.actionSubtitle}>View past dispatches</Text>
-            </View>
-            <Text style={styles.arrowIcon}>→</Text>
-          </TouchableOpacity>
-        </View>
+        {pendingPreparations.length ? (
+          <View style={styles.queueList}>
+            {pendingPreparations.map((item) => (
+              <Card
+                key={item.id}
+                style={styles.queueCard}
+                variant="elevated"
+                onPress={() =>
+                  router.push({
+                    pathname: '/(tabs)/(dispatcher)/checklist',
+                    params: {
+                      preparationId: item.id,
+                    },
+                  })
+                }
+              >
+                <View style={styles.queueHeader}>
+                  <View style={styles.queueTitleWrap}>
+                    <Text style={styles.queueTitle}>{item.unitName}</Text>
+                    <Text style={styles.queueSubtitle}>{item.variation}</Text>
+                  </View>
 
-        {/* Recent Tasks */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent Tasks</Text>
-          {[1, 2, 3].map((_, index) => (
-            <View key={index} style={styles.taskCard}>
-              <View style={styles.taskDot} />
-              <View style={styles.taskContent}>
-                <Text style={styles.taskTitle}>Prepare Vehicle TSL-001</Text>
-                <Text style={styles.taskTime}>In progress • 2 hours</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+                  <StatusBadge
+                    status={getPreparationBadgeStatus(item.status)}
+                    label={getPreparationStatusLabel(item.status)}
+                    size="small"
+                  />
+                </View>
+
+                <View style={styles.metaRow}>
+                  <Ionicons
+                    name="car-sport-outline"
+                    size={14}
+                    color={theme.colors.textSubtle}
+                  />
+                  <Text style={styles.metaText}>
+                    Conduction No: {item.conductionNumber}
+                  </Text>
+                </View>
+
+                <View style={styles.metaRow}>
+                  <Ionicons
+                    name="person-outline"
+                    size={14}
+                    color={theme.colors.textSubtle}
+                  />
+                  <Text style={styles.metaText}>
+                    Submitted by {getPreparationRecordRequesterLabel(item)}
+                  </Text>
+                </View>
+
+                <View style={styles.metaRow}>
+                  <Ionicons
+                    name="shield-checkmark-outline"
+                    size={14}
+                    color={theme.colors.textSubtle}
+                  />
+                  <Text style={styles.metaText}>
+                    Approved by {getPreparationApprovalLabel(item)}
+                  </Text>
+                </View>
+
+                <View style={styles.serviceChip}>
+                  <Ionicons
+                    name="construct-outline"
+                    size={14}
+                    color={theme.colors.primaryDark}
+                  />
+                  <Text style={styles.serviceChipLabel}>Requested Services</Text>
+                  <Text style={styles.serviceChipValue}>
+                    {formatRequestedServices(
+                      item.requestedServices,
+                      item.customRequests
+                    )}
+                  </Text>
+                </View>
+
+                <View style={styles.queueFooter}>
+                  <Text style={styles.queueFooterText}>
+                    Tap to see vehicle prep details
+                  </Text>
+                  <Ionicons
+                    name="chevron-forward-outline"
+                    size={16}
+                    color={theme.colors.textSubtle}
+                  />
+                </View>
+              </Card>
+            ))}
+          </View>
+        ) : (
+          <EmptyState
+            title="No in-dispatch checklist"
+            description="Approved vehicle preparation requests will appear here automatically after endorsement from admin or supervisor."
+          />
+        )}
+      </View>
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.white,
-  },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
-  },
-  header: {
-    marginBottom: 20,
-  },
-  greeting: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: theme.colors.gray900,
-    marginBottom: 4,
-    fontFamily: theme.fonts.family.sans,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: theme.colors.gray600,
-    fontFamily: theme.fonts.family.sans,
-  },
-  mapContainer: {
-    marginBottom: 20,
-    height: 300,
-  },
-  statsContainer: {
+  statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.xl,
   },
   statCard: {
     flex: 1,
-    backgroundColor: theme.colors.gray50,
-    borderRadius: theme.radius.lg,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
     alignItems: 'center',
-    marginHorizontal: 4,
   },
-  statIcon: {
-    fontSize: 28,
-    marginBottom: 8,
+  statIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: theme.radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: theme.spacing.sm,
   },
   statValue: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '700',
-    color: theme.colors.gray900,
+    color: theme.colors.text,
     marginBottom: 4,
     fontFamily: theme.fonts.family.sans,
   },
   statLabel: {
     fontSize: 12,
-    color: theme.colors.gray600,
+    fontWeight: '700',
+    color: theme.colors.textMuted,
     fontFamily: theme.fonts.family.sans,
   },
   section: {
-    marginBottom: 20,
+    marginBottom: theme.spacing.xl,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
-    color: theme.colors.gray900,
-    marginBottom: 12,
+    color: theme.colors.text,
+    marginBottom: theme.spacing.base,
     fontFamily: theme.fonts.family.sans,
   },
-  actionCard: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.radius.lg,
-    padding: 12,
+  queueList: {
+    gap: theme.spacing.md,
+  },
+  queueCard: {
+    gap: theme.spacing.base,
+  },
+  queueHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: theme.spacing.base,
   },
-  actionIcon: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  actionContent: {
+  queueTitleWrap: {
     flex: 1,
   },
-  actionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: theme.colors.white,
+  queueTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: theme.colors.text,
     marginBottom: 4,
     fontFamily: theme.fonts.family.sans,
   },
-  actionSubtitle: {
-    fontSize: 12,
-    color: theme.colors.gray100,
+  queueSubtitle: {
+    fontSize: 13,
+    color: theme.colors.textMuted,
     fontFamily: theme.fonts.family.sans,
   },
-  arrowIcon: {
-    fontSize: 16,
-    color: theme.colors.white,
-    fontWeight: '700',
-  },
-  taskCard: {
+  metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    backgroundColor: theme.colors.gray50,
-    borderRadius: theme.radius.lg,
-    marginBottom: 12,
+    gap: theme.spacing.xs,
   },
-  taskDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: theme.colors.primary,
-    marginRight: 12,
-  },
-  taskContent: {
+  metaText: {
     flex: 1,
-  },
-  taskTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: theme.colors.gray900,
+    fontSize: 12,
+    color: theme.colors.textSubtle,
     fontFamily: theme.fonts.family.sans,
   },
-  taskTime: {
+  serviceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.primarySurface,
+    borderWidth: 1,
+    borderColor: theme.colors.primarySurfaceStrong,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+  },
+  serviceChipLabel: {
     fontSize: 12,
-    color: theme.colors.gray600,
-    marginTop: 4,
+    fontWeight: '700',
+    color: theme.colors.primaryDark,
+    fontFamily: theme.fonts.family.sans,
+  },
+  serviceChipValue: {
+    flex: 1,
+    fontSize: 12,
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
+  },
+  queueFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+    paddingTop: theme.spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  queueFooterText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.text,
     fontFamily: theme.fonts.family.sans,
   },
 });

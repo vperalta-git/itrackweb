@@ -1,149 +1,140 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
   StyleSheet,
-  ScrollView,
-  SafeAreaView,
+  Text,
+  View,
 } from 'react-native';
-import { colors, typography, spacing, radius } from '../../constants/theme';
+import {
+  AppScreen,
+  Card,
+  EmptyState,
+  PageHeader,
+  StatusBadge,
+} from '@/src/mobile/components';
+import { theme } from '@/src/mobile/constants/theme';
+import { useAuth } from '@/src/mobile/context/AuthContext';
+import { useNavigation } from 'expo-router';
+import {
+  formatRequestedServices,
+  getCompletedDispatcherPreparations,
+  getPreparationBadgeStatus,
+  getPreparationRecordCompletionLabel,
+  getPreparationStatusLabel,
+  PreparationRecord,
+} from '@/src/mobile/data/preparation';
 
 export default function HistoryScreen() {
-  const history = [
-    {
-      id: '1',
-      vehicle: 'Tesla Model S - TS001',
-      status: 'completed',
-      date: 'Today, 2:30 PM',
-      duration: '3 hours',
-    },
-    {
-      id: '2',
-      vehicle: 'BMW 3 Series - BM002',
-      status: 'completed',
-      date: 'Today, 11:00 AM',
-      duration: '2.5 hours',
-    },
-    {
-      id: '3',
-      vehicle: 'Audi A4 - AU003',
-      status: 'completed',
-      date: 'Yesterday, 4:00 PM',
-      duration: '4 hours',
-    },
-  ];
+  const navigation = useNavigation();
+  const { user } = useAuth();
+  const [history, setHistory] = useState<PreparationRecord[]>(() =>
+    getCompletedDispatcherPreparations(user?.id)
+  );
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return colors.success;
-      case 'in_progress':
-        return colors.warning;
-      default:
-        return colors.gray400;
-    }
-  };
+  useEffect(() => {
+    const refreshHistory = () => {
+      setHistory(getCompletedDispatcherPreparations(user?.id));
+    };
+
+    refreshHistory();
+
+    const unsubscribe = navigation.addListener('focus', refreshHistory);
+
+    return unsubscribe;
+  }, [navigation, user?.id]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Dispatch History</Text>
-        </View>
+    <AppScreen>
+      <PageHeader
+        eyebrow="Dispatcher"
+        title="Dispatch History"
+        subtitle="Review dispatcher checklist records that were completed or already marked ready for release."
+      />
 
-        <View style={styles.list}>
-          {history.map((item) => (
-            <View key={item.id} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={styles.cardInfo}>
-                  <Text style={styles.vehicleName}>{item.vehicle}</Text>
-                  <Text style={styles.date}>{item.date}</Text>
+      <View style={styles.list}>
+        {history.length ? (
+          history.map((item) => (
+            <Card key={item.id} style={styles.card}>
+              <View style={styles.cardTop}>
+                <View style={styles.copy}>
+                  <Text style={styles.title}>{item.unitName}</Text>
+                  <Text style={styles.subtitle}>{item.variation}</Text>
                 </View>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    { backgroundColor: getStatusColor(item.status) },
-                  ]}
-                >
-                  <Text style={styles.statusBadgeText}>
-                    {item.status.toUpperCase()}
-                  </Text>
-                </View>
+                <StatusBadge
+                  status={getPreparationBadgeStatus(item.status)}
+                  label={getPreparationStatusLabel(item.status)}
+                />
               </View>
+
+              <Text style={styles.services}>
+                {formatRequestedServices(
+                  item.requestedServices,
+                  item.customRequests
+                )}
+              </Text>
+
               <View style={styles.cardFooter}>
-                <Text style={styles.duration}>⏱️ {item.duration}</Text>
+                <Text style={styles.duration}>
+                  {getPreparationRecordCompletionLabel(item)}
+                </Text>
               </View>
-            </View>
-          ))}
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+            </Card>
+          ))
+        ) : (
+          <EmptyState
+            title="No completed dispatch checklist yet"
+            description="Completed dispatcher vehicle preparation checklists will appear here."
+          />
+        )}
+      </View>
+    </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.white,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.base,
-    paddingTop: spacing.base,
-    paddingBottom: spacing['2xl'],
-  },
-  header: {
-    marginBottom: spacing.lg,
-  },
-  title: {
-    fontSize: typography.fontSize['2xl'],
-    fontWeight: '700',
-    color: colors.gray900,
-  },
   list: {
-    gap: spacing.lg,
+    gap: theme.spacing.md,
   },
   card: {
-    backgroundColor: colors.gray50,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
+    marginBottom: theme.spacing.md,
   },
-  cardHeader: {
+  cardTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: spacing.lg,
+    gap: theme.spacing.base,
+    marginBottom: theme.spacing.sm,
   },
-  cardInfo: {
+  copy: {
     flex: 1,
   },
-  vehicleName: {
-    fontSize: typography.fontSize.base,
-    fontWeight: '600',
-    color: colors.gray900,
-    marginBottom: spacing.xs,
+  title: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: 4,
+    fontFamily: theme.fonts.family.sans,
   },
-  date: {
-    fontSize: typography.fontSize.sm,
-    color: colors.gray600,
+  subtitle: {
+    fontSize: 13,
+    color: theme.colors.textMuted,
+    fontFamily: theme.fonts.family.sans,
   },
-  statusBadge: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
-  },
-  statusBadgeText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: '600',
-    color: colors.white,
+  services: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
   },
   cardFooter: {
-    paddingTop: spacing.lg,
+    paddingTop: theme.spacing.base,
+    marginTop: theme.spacing.base,
     borderTopWidth: 1,
-    borderTopColor: colors.gray200,
+    borderTopColor: theme.colors.border,
   },
   duration: {
-    fontSize: typography.fontSize.sm,
-    color: colors.gray700,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
   },
 });

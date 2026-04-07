@@ -1,0 +1,880 @@
+import { format } from 'date-fns';
+import {
+  PreparationStatus,
+  ServiceType,
+  UserRole,
+  VehicleStatus,
+} from '@/src/mobile/types';
+import { api, getApiErrorMessage, getResponseData } from '../lib/api';
+import { getVehicleStocks, loadVehicleStocks } from './vehicle-stocks';
+import { toDate } from './shared';
+import {
+  areMobilePhoneNumbersEqual,
+  normalizeMobilePhoneNumber,
+} from '../utils/phone';
+
+export type DispatcherChecklistStep = {
+  id: string;
+  label: string;
+  completed: boolean;
+};
+
+export type PreparationApprovalStatus =
+  | 'awaiting_approval'
+  | 'approved'
+  | 'rejected';
+
+export type PreparationVehicleOption = {
+  id: string;
+  unitName: string;
+  variation: string;
+  conductionNumber: string;
+  bodyColor: string;
+  status: VehicleStatus;
+};
+
+export type PreparationRecord = {
+  id: string;
+  vehicleId: string;
+  unitName: string;
+  variation: string;
+  conductionNumber: string;
+  bodyColor: string;
+  requestedServices: ServiceType[];
+  customRequests: string[];
+  customerName: string;
+  customerContactNo: string;
+  notes: string;
+  status: PreparationStatus;
+  createdAt: string;
+  progress: number;
+  requestedByRole: UserRole;
+  requestedByName: string;
+  approvalStatus: PreparationApprovalStatus;
+  approvedByRole?: UserRole;
+  approvedByName?: string;
+  approvedAt?: string;
+  dispatcherId?: string;
+  dispatcherName?: string;
+  dispatcherChecklist: DispatcherChecklistStep[];
+  completedAt?: string;
+  readyForReleaseAt?: string;
+};
+
+type SavePreparationRecordInput = {
+  id?: string;
+  vehicleId: string;
+  requestedByUserId?: string;
+  requestedServices: ServiceType[];
+  customRequests: string[];
+  customerName: string;
+  customerContactNo: string;
+  notes: string;
+  requestedByRole: UserRole;
+  requestedByName: string;
+  dispatcherId?: string;
+  dispatcherName?: string;
+  approvalStatus?: PreparationApprovalStatus;
+  approvedByRole?: UserRole;
+  approvedByName?: string;
+  approvedAt?: string;
+  status?: PreparationStatus;
+  progress?: number;
+  dispatcherChecklist?: DispatcherChecklistStep[];
+  completedAt?: string;
+  readyForReleaseAt?: string;
+};
+
+type PreparationApiRecord = {
+  id: string;
+  requestedServices: ServiceType[];
+  customRequests: string[];
+  customerName: string;
+  customerContactNo: string;
+  notes: string;
+  status: PreparationStatus;
+  progress: number;
+  requestedByRole: UserRole;
+  requestedByName: string;
+  approvalStatus: PreparationApprovalStatus;
+  approvedByRole?: UserRole | null;
+  approvedByName?: string | null;
+  approvedAt?: string | null;
+  completedAt?: string | null;
+  readyForReleaseAt?: string | null;
+  createdAt: string;
+  dispatcherChecklist: DispatcherChecklistStep[];
+  dispatcherId?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+  } | null;
+  vehicleId?: {
+    id: string;
+    unitName: string;
+    variation: string;
+    conductionNumber: string;
+    bodyColor: string;
+    status: VehicleStatus;
+  } | null;
+};
+
+const DATE_DISPLAY_FORMAT = 'MMMM d, yyyy';
+
+export const PREPARATION_SERVICE_OPTIONS = [
+  {
+    label: 'Detailing',
+    value: ServiceType.DETAILING,
+  },
+  {
+    label: 'Tinting',
+    value: ServiceType.TINTING,
+  },
+  {
+    label: 'Ceramic Coating',
+    value: ServiceType.CERAMIC_COATING,
+  },
+  {
+    label: 'Accessories',
+    value: ServiceType.ACCESSORIES,
+  },
+  {
+    label: 'Rust Proof',
+    value: ServiceType.RUST_PROOF,
+  },
+  {
+    label: 'Custom Request',
+    value: ServiceType.CUSTOM_REQUEST,
+  },
+] as const;
+
+export const PREPARATION_VEHICLE_OPTIONS: PreparationVehicleOption[] = [];
+
+let preparationRecords: PreparationRecord[] = [];
+
+const formatDisplayDate = (value = new Date()) =>
+  format(value, DATE_DISPLAY_FORMAT);
+
+const setVehicleOptions = () => {
+  const vehicles = getVehicleStocks()
+    .filter((vehicle) => vehicle.status !== VehicleStatus.COMPLETED)
+    .map((vehicle) => ({
+      id: vehicle.id,
+      unitName: vehicle.unitName,
+      variation: vehicle.variation,
+      conductionNumber: vehicle.conductionNumber,
+      bodyColor: vehicle.bodyColor,
+      status: vehicle.status,
+    }));
+
+  PREPARATION_VEHICLE_OPTIONS.splice(0, PREPARATION_VEHICLE_OPTIONS.length, ...vehicles);
+};
+
+const buildChecklistStepId = (label: string) =>
+  label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'dispatcher-step';
+
+const buildDispatcherChecklistLabels = (
+  services: ServiceType[],
+  customRequests: string[]
+) => {
+  const labels = ['Review approved vehicle prep endorsement'];
+
+  services.forEach((service) => {
+    switch (service) {
+      case ServiceType.DETAILING:
+        labels.push('Confirm detailing and interior cleanliness');
+        break;
+      case ServiceType.TINTING:
+        labels.push('Inspect tint application and film quality');
+        break;
+      case ServiceType.CERAMIC_COATING:
+        labels.push('Inspect ceramic coating finish');
+        break;
+      case ServiceType.ACCESSORIES:
+        labels.push('Verify accessory installation and fitment');
+        break;
+      case ServiceType.RUST_PROOF:
+        labels.push('Validate rust proof application');
+        break;
+      case ServiceType.CARWASH:
+        labels.push('Confirm exterior and interior wash');
+        break;
+      case ServiceType.INSPECTION:
+        labels.push('Complete dispatcher inspection');
+        break;
+      case ServiceType.MAINTENANCE:
+        labels.push('Verify maintenance clearance');
+        break;
+      case ServiceType.PAINTING:
+        labels.push('Check paint finish and panel condition');
+        break;
+      case ServiceType.CUSTOM_REQUEST:
+        if (!customRequests.length) {
+          labels.push('Review custom request completion');
+        }
+        break;
+      default:
+        break;
+    }
+  });
+
+  customRequests.forEach((request) => {
+    if (request.trim()) {
+      labels.push(`Validate custom request: ${request.trim()}`);
+    }
+  });
+
+  labels.push('Confirm release documents and key handover');
+  labels.push('Dispatcher final readiness confirmation');
+
+  return [...new Set(labels)];
+};
+
+const buildDispatcherChecklist = (
+  services: ServiceType[],
+  customRequests: string[],
+  existingChecklist: DispatcherChecklistStep[] = []
+) =>
+  buildDispatcherChecklistLabels(services, customRequests).map((label) => {
+    const existingStep = existingChecklist.find((step) => step.label === label);
+
+    return {
+      id: existingStep?.id ?? buildChecklistStepId(label),
+      label,
+      completed: existingStep?.completed ?? false,
+    };
+  });
+
+const getChecklistProgressFromSteps = (
+  checklist: DispatcherChecklistStep[]
+) => {
+  if (!checklist.length) {
+    return 0;
+  }
+
+  const completedCount = checklist.filter((step) => step.completed).length;
+
+  return Math.round((completedCount / checklist.length) * 100);
+};
+
+const getRecordSortValue = (record: PreparationRecord) =>
+  Number(record.id.replace(/\D/g, '')) || 0;
+
+const getStatusRank = (status: PreparationStatus) => {
+  switch (status) {
+    case PreparationStatus.PENDING:
+      return 0;
+    case PreparationStatus.IN_DISPATCH:
+      return 1;
+    case PreparationStatus.COMPLETED:
+      return 2;
+    case PreparationStatus.READY_FOR_RELEASE:
+      return 3;
+    case PreparationStatus.REJECTED:
+      return 4;
+    default:
+      return 5;
+  }
+};
+
+const sortPreparationRecords = (
+  left: PreparationRecord,
+  right: PreparationRecord
+) =>
+  getStatusRank(left.status) - getStatusRank(right.status) ||
+  getRecordSortValue(right) - getRecordSortValue(left);
+
+const findPreparationVehicleById = (
+  vehicleId: string | null
+): PreparationVehicleOption | null =>
+  PREPARATION_VEHICLE_OPTIONS.find((vehicle) => vehicle.id === vehicleId) ?? null;
+
+const buildDispatcherScopeMatcher = (
+  dispatcherId?: string | null
+) => (record: PreparationRecord) =>
+  !dispatcherId || !record.dispatcherId || record.dispatcherId === dispatcherId;
+
+const getFullName = (person?: { firstName: string; lastName: string } | null) =>
+  `${person?.firstName ?? ''} ${person?.lastName ?? ''}`.trim();
+
+const mapPreparationRecord = (record: PreparationApiRecord): PreparationRecord => ({
+  id: record.id,
+  vehicleId: record.vehicleId?.id ?? '',
+  unitName: record.vehicleId?.unitName ?? '',
+  variation: record.vehicleId?.variation ?? '',
+  conductionNumber: record.vehicleId?.conductionNumber ?? '',
+  bodyColor: record.vehicleId?.bodyColor ?? '',
+  requestedServices: record.requestedServices ?? [],
+  customRequests: record.customRequests ?? [],
+  customerName: record.customerName,
+  customerContactNo: record.customerContactNo,
+  notes: record.notes ?? '',
+  status: record.status,
+  createdAt: formatDisplayDate(toDate(record.createdAt)),
+  progress: record.progress ?? 0,
+  requestedByRole: record.requestedByRole,
+  requestedByName: record.requestedByName,
+  approvalStatus: record.approvalStatus,
+  approvedByRole: record.approvedByRole ?? undefined,
+  approvedByName: record.approvedByName ?? undefined,
+  approvedAt: record.approvedAt ? formatDisplayDate(toDate(record.approvedAt)) : undefined,
+  dispatcherId: record.dispatcherId?.id ?? undefined,
+  dispatcherName: record.dispatcherId ? getFullName(record.dispatcherId) : undefined,
+  dispatcherChecklist: record.dispatcherChecklist ?? [],
+  completedAt: record.completedAt
+    ? formatDisplayDate(toDate(record.completedAt))
+    : undefined,
+  readyForReleaseAt: record.readyForReleaseAt
+    ? formatDisplayDate(toDate(record.readyForReleaseAt))
+    : undefined,
+});
+
+const upsertPreparationRecord = (record: PreparationRecord) => {
+  const existingIndex = preparationRecords.findIndex((item) => item.id === record.id);
+
+  if (existingIndex === -1) {
+    preparationRecords = [record, ...preparationRecords];
+  } else {
+    preparationRecords = preparationRecords.map((item) =>
+      item.id === record.id ? record : item
+    );
+  }
+
+  return record;
+};
+
+export const loadPreparationRecords = async () => {
+  await loadVehicleStocks();
+  setVehicleOptions();
+
+  const response = await api.get('/preparations');
+  preparationRecords = (getResponseData<PreparationApiRecord[]>(response) ?? []).map(
+    mapPreparationRecord
+  );
+
+  setVehicleOptions();
+  return getPreparationRecords();
+};
+
+export const getPreparationRecords = () =>
+  [...preparationRecords].sort(sortPreparationRecords);
+
+export const findPreparationRecordById = (id: string): PreparationRecord | null =>
+  preparationRecords.find((record) => record.id === id) ?? null;
+
+export const getPreparationRecordById = (id: string): PreparationRecord | null =>
+  findPreparationRecordById(id);
+
+export const getPreparationVehicleById = (
+  vehicleId: string
+): PreparationVehicleOption | null =>
+  findPreparationVehicleById(vehicleId);
+
+export const isPreparationCustomerContactInUse = (
+  phone: string,
+  excludePreparationId?: string | null
+) => {
+  const normalizedPhoneNumber = normalizeMobilePhoneNumber(phone);
+
+  return preparationRecords.some(
+    (record) =>
+      record.id !== excludePreparationId &&
+      areMobilePhoneNumbersEqual(record.customerContactNo, normalizedPhoneNumber)
+  );
+};
+
+export const canAutoApprovePreparationForRole = (role: UserRole) =>
+  role === UserRole.ADMIN || role === UserRole.SUPERVISOR;
+
+const resolvePreparationStatus = (
+  approvalStatus: PreparationApprovalStatus,
+  existingStatus?: PreparationStatus,
+  explicitStatus?: PreparationStatus
+) => {
+  if (explicitStatus) {
+    return explicitStatus;
+  }
+
+  if (existingStatus) {
+    return existingStatus;
+  }
+
+  switch (approvalStatus) {
+    case 'approved':
+      return PreparationStatus.IN_DISPATCH;
+    case 'rejected':
+      return PreparationStatus.REJECTED;
+    default:
+      return PreparationStatus.PENDING;
+  }
+};
+
+export const savePreparationRecord = async ({
+  id,
+  vehicleId,
+  requestedByUserId,
+  requestedServices,
+  customRequests,
+  customerName,
+  customerContactNo,
+  notes,
+  requestedByRole,
+  requestedByName,
+  dispatcherId,
+  approvalStatus,
+  approvedByRole,
+  approvedByName,
+  approvedAt,
+  status,
+  progress,
+  dispatcherChecklist: providedDispatcherChecklist,
+  completedAt,
+  readyForReleaseAt,
+}: SavePreparationRecordInput) => {
+  const vehicle = findPreparationVehicleById(vehicleId);
+
+  if (!vehicle) {
+    throw new Error('Selected vehicle could not be found.');
+  }
+
+  const existingRecord = id
+    ? preparationRecords.find((record) => record.id === id)
+    : undefined;
+  const resolvedApprovalStatus =
+    approvalStatus ??
+    existingRecord?.approvalStatus ??
+    (canAutoApprovePreparationForRole(requestedByRole)
+      ? 'approved'
+      : 'awaiting_approval');
+  const dispatcherChecklist = buildDispatcherChecklist(
+    requestedServices,
+    customRequests,
+    providedDispatcherChecklist ?? existingRecord?.dispatcherChecklist
+  );
+  const checklistProgress = getChecklistProgressFromSteps(dispatcherChecklist);
+  const nextStatus = resolvePreparationStatus(
+    resolvedApprovalStatus,
+    existingRecord?.status,
+    status
+  );
+  const nextProgress =
+    nextStatus === PreparationStatus.COMPLETED ||
+    nextStatus === PreparationStatus.READY_FOR_RELEASE
+      ? 100
+      : nextStatus === PreparationStatus.PENDING ||
+          nextStatus === PreparationStatus.REJECTED
+        ? 0
+        : progress ??
+          Math.max(
+            existingRecord?.progress ?? 0,
+            checklistProgress === 100 ? 95 : checklistProgress
+          );
+
+  const payload = {
+    vehicleId,
+    ...(requestedByUserId
+      ? {
+          requestedByUserId,
+        }
+      : {}),
+    requestedServices,
+    customRequests,
+    customerName: customerName.trim(),
+    customerContactNo: normalizeMobilePhoneNumber(customerContactNo),
+    notes: notes.trim(),
+    status: nextStatus,
+    progress: nextProgress,
+    requestedByRole,
+    requestedByName: requestedByName.trim(),
+    approvalStatus: resolvedApprovalStatus,
+    approvedByRole:
+      resolvedApprovalStatus === 'approved' ? approvedByRole ?? requestedByRole : null,
+    approvedByName:
+      resolvedApprovalStatus === 'approved'
+        ? approvedByName?.trim() ?? requestedByName.trim()
+        : null,
+    approvedAt:
+      resolvedApprovalStatus === 'approved'
+        ? toDate(approvedAt ?? new Date()).toISOString()
+        : null,
+    dispatcherId: resolvedApprovalStatus === 'approved' ? dispatcherId ?? null : null,
+    dispatcherChecklist,
+    completedAt:
+      nextStatus === PreparationStatus.COMPLETED ||
+      nextStatus === PreparationStatus.READY_FOR_RELEASE
+        ? toDate(completedAt ?? existingRecord?.completedAt ?? new Date()).toISOString()
+        : null,
+    readyForReleaseAt:
+      nextStatus === PreparationStatus.READY_FOR_RELEASE
+        ? toDate(
+            readyForReleaseAt ?? existingRecord?.readyForReleaseAt ?? new Date()
+          ).toISOString()
+        : null,
+  };
+
+  try {
+    const response = id
+      ? await api.patch(`/preparations/${id}`, payload)
+      : await api.post('/preparations', payload);
+    const savedRecord = mapPreparationRecord(
+      getResponseData<PreparationApiRecord>(response)
+    );
+
+    upsertPreparationRecord(savedRecord);
+    return savedRecord;
+  } catch (error) {
+    throw new Error(
+      getApiErrorMessage(
+        error,
+        'The preparation request could not be saved right now.'
+      )
+    );
+  }
+};
+
+export const deletePreparationRecord = async (preparationId: string) => {
+  await api.delete(`/preparations/${preparationId}`);
+  preparationRecords = preparationRecords.filter(
+    (record) => record.id !== preparationId
+  );
+};
+
+export const getDispatcherChecklistProgress = (
+  record: Pick<PreparationRecord, 'dispatcherChecklist'>
+) => getChecklistProgressFromSteps(record.dispatcherChecklist);
+
+export const getPendingDispatcherPreparations = (dispatcherId?: string | null) =>
+  getPreparationRecords().filter(
+    (record) =>
+      record.approvalStatus === 'approved' &&
+      record.status === PreparationStatus.IN_DISPATCH &&
+      buildDispatcherScopeMatcher(dispatcherId)(record)
+  );
+
+export const getCompletedDispatcherPreparations = (
+  dispatcherId?: string | null
+) =>
+  getPreparationRecords().filter(
+    (record) =>
+      record.approvalStatus === 'approved' &&
+      (record.status === PreparationStatus.COMPLETED ||
+        record.status === PreparationStatus.READY_FOR_RELEASE) &&
+      buildDispatcherScopeMatcher(dispatcherId)(record)
+  );
+
+export const getDispatcherDashboardSummary = (
+  dispatcherId?: string | null
+) => {
+  const activePreparations = getPendingDispatcherPreparations(dispatcherId);
+  const completedPreparations =
+    getCompletedDispatcherPreparations(dispatcherId);
+
+  return {
+    total: activePreparations.length,
+    inDispatch: activePreparations.length,
+    completed: completedPreparations.filter(
+      (record) => record.status === PreparationStatus.COMPLETED
+    ).length,
+    readyForRelease: completedPreparations.filter(
+      (record) => record.status === PreparationStatus.READY_FOR_RELEASE
+    ).length,
+    nextPreparation: activePreparations[0] ?? null,
+  };
+};
+
+export const toggleDispatcherChecklistStep = async (
+  preparationId: string,
+  stepId: string
+): Promise<PreparationRecord> => {
+  const existingRecord = findPreparationRecordById(preparationId);
+
+  if (!existingRecord) {
+    throw new Error('Selected preparation request could not be found.');
+  }
+
+  const dispatcherChecklist = existingRecord.dispatcherChecklist.map((step) =>
+    step.id === stepId ? { ...step, completed: !step.completed } : step
+  );
+  const checklistProgress = getChecklistProgressFromSteps(dispatcherChecklist);
+
+  return savePreparationRecord({
+    ...existingRecord,
+    id: existingRecord.id,
+    requestedServices: existingRecord.requestedServices,
+    customRequests: existingRecord.customRequests,
+    customerName: existingRecord.customerName,
+    customerContactNo: existingRecord.customerContactNo,
+    notes: existingRecord.notes,
+    requestedByRole: existingRecord.requestedByRole,
+    requestedByName: existingRecord.requestedByName,
+    dispatcherId: existingRecord.dispatcherId,
+    dispatcherName: existingRecord.dispatcherName,
+    approvalStatus: existingRecord.approvalStatus,
+    approvedByRole: existingRecord.approvedByRole,
+    approvedByName: existingRecord.approvedByName,
+    approvedAt: existingRecord.approvedAt,
+    status:
+      checklistProgress === 100
+        ? PreparationStatus.COMPLETED
+        : PreparationStatus.IN_DISPATCH,
+    progress:
+      checklistProgress === 100
+        ? 100
+        : Math.max(existingRecord.progress, checklistProgress),
+    dispatcherChecklist,
+    completedAt: checklistProgress === 100 ? formatDisplayDate() : undefined,
+    readyForReleaseAt: undefined,
+  }).then((savedRecord) => {
+    const patchedRecord = {
+      ...savedRecord,
+      dispatcherChecklist,
+      progress:
+        checklistProgress === 100
+          ? 100
+          : Math.max(savedRecord.progress, checklistProgress),
+      status:
+        checklistProgress === 100
+          ? PreparationStatus.COMPLETED
+          : PreparationStatus.IN_DISPATCH,
+      completedAt:
+        checklistProgress === 100 ? formatDisplayDate() : undefined,
+      readyForReleaseAt: undefined,
+    };
+
+    upsertPreparationRecord(patchedRecord);
+    return patchedRecord;
+  });
+};
+
+export const completeDispatcherChecklist = async (
+  preparationId: string
+): Promise<PreparationRecord> => {
+  const existingRecord = findPreparationRecordById(preparationId);
+
+  if (!existingRecord) {
+    throw new Error('Selected preparation request could not be found.');
+  }
+
+  const dispatcherChecklist = existingRecord.dispatcherChecklist.map((step) => ({
+    ...step,
+    completed: true,
+  }));
+
+  const savedRecord = await savePreparationRecord({
+    ...existingRecord,
+    id: existingRecord.id,
+    requestedServices: existingRecord.requestedServices,
+    customRequests: existingRecord.customRequests,
+    customerName: existingRecord.customerName,
+    customerContactNo: existingRecord.customerContactNo,
+    notes: existingRecord.notes,
+    requestedByRole: existingRecord.requestedByRole,
+    requestedByName: existingRecord.requestedByName,
+    dispatcherId: existingRecord.dispatcherId,
+    dispatcherName: existingRecord.dispatcherName,
+    approvalStatus: existingRecord.approvalStatus,
+    approvedByRole: existingRecord.approvedByRole,
+    approvedByName: existingRecord.approvedByName,
+    approvedAt: existingRecord.approvedAt,
+    status: PreparationStatus.COMPLETED,
+    progress: 100,
+    dispatcherChecklist,
+    completedAt: formatDisplayDate(),
+    readyForReleaseAt: undefined,
+  });
+
+  const patchedRecord = {
+    ...savedRecord,
+    dispatcherChecklist,
+    completedAt: formatDisplayDate(),
+    readyForReleaseAt: undefined,
+  };
+
+  upsertPreparationRecord(patchedRecord);
+  return patchedRecord;
+};
+
+export const approvePreparationRequest = async (
+  preparationId: string,
+  approverRole: UserRole,
+  approverName: string
+): Promise<PreparationRecord> => {
+  const existingRecord = findPreparationRecordById(preparationId);
+
+  if (!existingRecord) {
+    throw new Error('Selected preparation request could not be found.');
+  }
+
+  return savePreparationRecord({
+    ...existingRecord,
+    id: existingRecord.id,
+    requestedServices: existingRecord.requestedServices,
+    customRequests: existingRecord.customRequests,
+    customerName: existingRecord.customerName,
+    customerContactNo: existingRecord.customerContactNo,
+    notes: existingRecord.notes,
+    requestedByRole: existingRecord.requestedByRole,
+    requestedByName: existingRecord.requestedByName,
+    dispatcherId: existingRecord.dispatcherId,
+    dispatcherName: existingRecord.dispatcherName,
+    approvalStatus: 'approved',
+    approvedByRole: approverRole,
+    approvedByName: approverName.trim(),
+    approvedAt: formatDisplayDate(),
+    status: PreparationStatus.IN_DISPATCH,
+    progress: 0,
+  });
+};
+
+export const rejectPreparationRequest = async (
+  preparationId: string
+): Promise<PreparationRecord> => {
+  const existingRecord = findPreparationRecordById(preparationId);
+
+  if (!existingRecord) {
+    throw new Error('Selected preparation request could not be found.');
+  }
+
+  return savePreparationRecord({
+    ...existingRecord,
+    id: existingRecord.id,
+    requestedServices: existingRecord.requestedServices,
+    customRequests: existingRecord.customRequests,
+    customerName: existingRecord.customerName,
+    customerContactNo: existingRecord.customerContactNo,
+    notes: existingRecord.notes,
+    requestedByRole: existingRecord.requestedByRole,
+    requestedByName: existingRecord.requestedByName,
+    approvalStatus: 'rejected',
+    status: PreparationStatus.REJECTED,
+    progress: 0,
+  });
+};
+
+export const markPreparationReadyForRelease = async (
+  preparationId: string
+): Promise<PreparationRecord> => {
+  const existingRecord = findPreparationRecordById(preparationId);
+
+  if (!existingRecord) {
+    throw new Error('Selected preparation request could not be found.');
+  }
+
+  return savePreparationRecord({
+    ...existingRecord,
+    id: existingRecord.id,
+    requestedServices: existingRecord.requestedServices,
+    customRequests: existingRecord.customRequests,
+    customerName: existingRecord.customerName,
+    customerContactNo: existingRecord.customerContactNo,
+    notes: existingRecord.notes,
+    requestedByRole: existingRecord.requestedByRole,
+    requestedByName: existingRecord.requestedByName,
+    dispatcherId: existingRecord.dispatcherId,
+    dispatcherName: existingRecord.dispatcherName,
+    approvalStatus: existingRecord.approvalStatus,
+    approvedByRole: existingRecord.approvedByRole,
+    approvedByName: existingRecord.approvedByName,
+    approvedAt: existingRecord.approvedAt,
+    status: PreparationStatus.READY_FOR_RELEASE,
+    progress: 100,
+  });
+};
+
+export const formatPreparationRoleLabel = (role: UserRole) => {
+  switch (role) {
+    case UserRole.ADMIN:
+      return 'Admin';
+    case UserRole.SUPERVISOR:
+      return 'Supervisor';
+    case UserRole.MANAGER:
+      return 'Manager';
+    case UserRole.SALES_AGENT:
+      return 'Sales Agent';
+    case UserRole.DISPATCHER:
+      return 'Dispatcher';
+    case UserRole.DRIVER:
+      return 'Driver';
+    default:
+      return 'User';
+  }
+};
+
+export const getPreparationRecordRequesterLabel = (record: PreparationRecord) =>
+  `${formatPreparationRoleLabel(record.requestedByRole)} - ${record.requestedByName}`;
+
+export const getPreparationApprovalLabel = (record: PreparationRecord) => {
+  if (record.approvalStatus === 'rejected') {
+    return 'Rejected by admin or supervisor';
+  }
+
+  if (record.approvalStatus !== 'approved') {
+    return 'Awaiting admin or supervisor approval';
+  }
+
+  if (!record.approvedByRole || !record.approvedByName) {
+    return 'Approved for dispatcher processing';
+  }
+
+  return `${formatPreparationRoleLabel(record.approvedByRole)} - ${record.approvedByName}`;
+};
+
+export const getPreparationRecordCompletionLabel = (record: PreparationRecord) =>
+  record.status === PreparationStatus.READY_FOR_RELEASE
+    ? record.readyForReleaseAt
+      ? `Ready for release ${record.readyForReleaseAt}`
+      : 'Ready for release'
+    : record.completedAt
+      ? `Completed ${record.completedAt}`
+      : 'Pending dispatcher completion';
+
+export const getPreparationStatusLabel = (status: PreparationStatus) => {
+  switch (status) {
+    case PreparationStatus.PENDING:
+      return 'Pending';
+    case PreparationStatus.IN_DISPATCH:
+      return 'In Dispatch';
+    case PreparationStatus.COMPLETED:
+      return 'Completed';
+    case PreparationStatus.READY_FOR_RELEASE:
+      return 'Ready for Release';
+    case PreparationStatus.REJECTED:
+      return 'Rejected';
+  }
+};
+
+export const getPreparationBadgeStatus = (status: PreparationStatus) => {
+  switch (status) {
+    case PreparationStatus.PENDING:
+      return 'pending';
+    case PreparationStatus.IN_DISPATCH:
+      return 'active';
+    case PreparationStatus.COMPLETED:
+      return 'completed';
+    case PreparationStatus.READY_FOR_RELEASE:
+      return 'assigned';
+    case PreparationStatus.REJECTED:
+      return 'cancelled';
+  }
+};
+
+export const formatRequestedServices = (
+  services: ServiceType[],
+  customRequests: string[] = []
+) =>
+  services
+    .map((service) => {
+      const label =
+        PREPARATION_SERVICE_OPTIONS.find((option) => option.value === service)
+          ?.label ?? service;
+
+      if (service === ServiceType.CUSTOM_REQUEST && customRequests.length) {
+        return `${label} (${customRequests.length})`;
+      }
+
+      return label;
+    })
+    .join(', ');

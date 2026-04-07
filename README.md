@@ -301,19 +301,23 @@ pnpm web    # Web browser
 
 Create `.env.local`:
 ```
-EXPO_PUBLIC_API_URL=http://localhost:3000
+EXPO_PUBLIC_API_URL=http://localhost:4000/api
+EXPO_PUBLIC_EAS_PROJECT_ID=your-expo-project-id
 EXPO_PUBLIC_ENVIRONMENT=development
 ```
 
+Forgot-password OTP now depends on the backend password recovery endpoints and EmailJS being configured on the server.
+Push notifications also require an Expo/EAS project ID plus platform push credentials configured for the build you install on a physical device.
+
 ## API Integration
 
-The app is currently using mock data. To integrate with a real backend:
+The mobile app now reads from the backend-backed data layer. For production-ready integration you can still extend it with:
 
-1. Replace mock data in components with API calls
-2. Update `location Tracker.ts` with real GPS data
-3. Implement authentication with backend tokens
-4. Add real-time websocket connections for live tracking
-5. Configure push notifications
+1. Persistent authentication tokens and refresh handling
+2. Real GPS/device location updates for driver tracking
+3. Real-time websocket updates for live tracking
+4. Deep-link routing from push notifications to role-specific detail screens
+5. Backend audit logging and activity history
 
 ## Form Validation Examples
 

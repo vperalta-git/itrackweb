@@ -4,10 +4,11 @@
     "slug": "i-track-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "newArchEnabled": false,
+    "icon": "./public/logo.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./public/logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -20,23 +21,18 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./public/logo-android-adaptive.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.itrack.mobile"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./public/icon-light-32x32.png"
     },
     "scheme": "itrack",
     "plugins": [
       "expo-router",
-      [
-        "react-native-maps",
-        {
-          "mapsApiKey": "YOUR_GOOGLE_MAPS_API_KEY"
-        }
-      ]
+      "expo-notifications"
     ]
   }
 }

@@ -1,27 +1,40 @@
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
   ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { colors, typography, spacing, radius } from '../constants/theme';
+import {
+  Button,
+  Input,
+} from '@/src/mobile/components';
+import { theme } from '@/src/mobile/constants/theme';
+import FormValidator from '@/src/mobile/utils/validation';
 
 export default function ResetPasswordScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const closeModal = () => {
+    router.back();
+  };
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
     if (!password) {
       newErrors.password = 'Password is required';
-    } else if (password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters';
+    } else if (!FormValidator.validatePassword(password)) {
+      newErrors.password = FormValidator.getPasswordRequirementsMessage();
     }
 
     if (!confirmPassword) {
@@ -36,135 +49,169 @@ export default function ResetPasswordScreen() {
 
   const handleReset = () => {
     if (validateForm()) {
-      // In production, call reset API
       router.replace('/(auth)/sign-in');
     }
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <TouchableOpacity onPress={() => router.back()}>
-        <Text style={styles.backButton}>← Back</Text>
-      </TouchableOpacity>
+      <Pressable style={styles.backdrop} onPress={closeModal} />
 
-      <View style={styles.header}>
-        <Text style={styles.title}>Reset Password</Text>
-        <Text style={styles.subtitle}>Enter your new password</Text>
-      </View>
+      <ScrollView
+        style={styles.fill}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="always"
+      >
+        <View style={styles.sheet}>
+          <Pressable onPress={closeModal} style={styles.closeButton}>
+            <Ionicons
+              name="close-outline"
+              size={22}
+              color={theme.colors.text}
+            />
+          </Pressable>
 
-      <View style={styles.form}>
-        {/* Password Input */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>New Password</Text>
-          <TextInput
-            style={[styles.input, errors.password && styles.inputError]}
+          <Text style={styles.eyebrow}>Security Update</Text>
+          <Text style={styles.title}>Create a new password</Text>
+          <Text style={styles.subtitle}>
+            Use a strong password to secure your I-TRACK account.
+          </Text>
+          <Text style={styles.passwordHint}>
+            {FormValidator.getPasswordRequirementsMessage()}
+          </Text>
+
+          <Input
+            label="New password"
             placeholder="Enter new password"
-            placeholderTextColor={colors.gray400}
             value={password}
             onChangeText={setPassword}
-            secureTextEntry
+            secureTextEntry={!showPassword}
+            error={errors.password}
+            icon={
+              <Ionicons
+                name="lock-closed-outline"
+                size={18}
+                color={theme.colors.textSubtle}
+              />
+            }
+            rightIcon={
+              <Ionicons
+                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                size={18}
+                color={theme.colors.textSubtle}
+              />
+            }
+            onRightIconPress={() => setShowPassword((current) => !current)}
           />
-          {errors.password && (
-            <Text style={styles.errorText}>{errors.password}</Text>
-          )}
-        </View>
 
-        {/* Confirm Password Input */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Confirm Password</Text>
-          <TextInput
-            style={[styles.input, errors.confirmPassword && styles.inputError]}
+          <Input
+            label="Confirm password"
             placeholder="Confirm new password"
-            placeholderTextColor={colors.gray400}
             value={confirmPassword}
             onChangeText={setConfirmPassword}
-            secureTextEntry
+            secureTextEntry={!showConfirmPassword}
+            error={errors.confirmPassword}
+            icon={
+              <Ionicons
+                name="shield-checkmark-outline"
+                size={18}
+                color={theme.colors.textSubtle}
+              />
+            }
+            rightIcon={
+              <Ionicons
+                name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                size={18}
+                color={theme.colors.textSubtle}
+              />
+            }
+            onRightIconPress={() =>
+              setShowConfirmPassword((current) => !current)
+            }
           />
-          {errors.confirmPassword && (
-            <Text style={styles.errorText}>{errors.confirmPassword}</Text>
-          )}
-        </View>
 
-        <TouchableOpacity style={styles.button} onPress={handleReset}>
-          <Text style={styles.buttonText}>Reset Password</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+          <Button
+            title="Reset Password"
+            onPress={handleReset}
+            fullWidth
+            size="large"
+          />
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: colors.white,
   },
-  contentContainer: {
+  fill: {
+    flex: 1,
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(9, 9, 11, 0.46)',
+  },
+  scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.xl,
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing['2xl'],
   },
-  backButton: {
-    fontSize: typography.fontSize.base,
-    color: colors.primary,
-    fontWeight: '600',
-    marginBottom: spacing.xl,
+  sheet: {
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
+    paddingVertical: theme.spacing.base,
   },
-  header: {
-    marginBottom: spacing['2xl'],
+  closeButton: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-end',
+    marginBottom: theme.spacing.sm,
+    backgroundColor: 'transparent',
+  },
+  eyebrow: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    color: theme.colors.primary,
+    marginBottom: theme.spacing.xs,
+    fontFamily: theme.fonts.family.sans,
   },
   title: {
-    fontSize: typography.fontSize['2xl'],
+    fontSize: 26,
+    lineHeight: 32,
     fontWeight: '700',
-    color: colors.gray900,
-    marginBottom: spacing.sm,
+    textAlign: 'center',
+    color: theme.colors.text,
+    marginBottom: theme.spacing.sm,
+    fontFamily: theme.fonts.family.sans,
   },
   subtitle: {
-    fontSize: typography.fontSize.sm,
-    color: colors.gray600,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    color: theme.colors.textMuted,
+    marginBottom: theme.spacing.lg,
+    fontFamily: theme.fonts.family.sans,
   },
-  form: {
-    marginBottom: spacing['2xl'],
-  },
-  fieldGroup: {
-    marginBottom: spacing.lg,
-  },
-  label: {
-    fontSize: typography.fontSize.sm,
-    fontWeight: '600',
-    color: colors.gray900,
-    marginBottom: spacing.sm,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.gray300,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    fontSize: typography.fontSize.base,
-    color: colors.gray900,
-    backgroundColor: colors.gray50,
-  },
-  inputError: {
-    borderColor: colors.error,
-    backgroundColor: colors.errorLight,
-  },
-  errorText: {
-    fontSize: typography.fontSize.xs,
-    color: colors.error,
-    marginTop: spacing.xs,
-  },
-  button: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-  },
-  buttonText: {
-    fontSize: typography.fontSize.base,
-    fontWeight: '600',
-    color: colors.white,
+  passwordHint: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    color: theme.colors.textSubtle,
+    marginTop: -theme.spacing.sm,
+    marginBottom: theme.spacing.lg,
+    fontFamily: theme.fonts.family.sans,
   },
 });
