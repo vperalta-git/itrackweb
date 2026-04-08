@@ -5,7 +5,6 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   FileText,
   Filter,
-  Search,
   Clock,
 } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -13,7 +12,6 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@/components/data-table'
 import { PageHeader } from '@/components/page-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -76,7 +74,6 @@ export default function AuditTrailPage() {
   const [logs, setLogs] = React.useState<AuditTableRecord[]>([])
   const [users, setUsers] = React.useState<SystemUser[]>(() => loadUsers())
   const [isLoading, setIsLoading] = React.useState(true)
-  const [searchQuery, setSearchQuery] = React.useState('')
   const [actionFilter, setActionFilter] = React.useState('all')
   const [moduleFilter, setModuleFilter] = React.useState('all')
 
@@ -177,21 +174,13 @@ export default function AuditTrailPage() {
   )
 
   const filteredLogs = React.useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase()
-
     return logs.filter((log) => {
-      const matchesSearch =
-        normalizedQuery.length === 0 ||
-        [log.user, log.description, log.module, log.timestamp]
-          .join(' ')
-          .toLowerCase()
-          .includes(normalizedQuery)
       const matchesAction = actionFilter === 'all' || log.action === actionFilter
       const matchesModule = moduleFilter === 'all' || log.module === moduleFilter
 
-      return matchesSearch && matchesAction && matchesModule
+      return matchesAction && matchesModule
     })
-  }, [actionFilter, logs, moduleFilter, searchQuery])
+  }, [actionFilter, logs, moduleFilter])
 
   React.useEffect(() => {
     const handleAuditLogUpdated = () => {
@@ -272,51 +261,6 @@ export default function AuditTrailPage() {
       />
 
       <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="relative min-w-[200px] flex-1">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search by user or description..."
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Filter className="size-4 text-muted-foreground" />
-            </div>
-            <Select value={actionFilter} onValueChange={setActionFilter}>
-              <SelectTrigger className="w-36">
-                <SelectValue placeholder="Action" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Actions</SelectItem>
-                <SelectItem value="CREATE">Create</SelectItem>
-                <SelectItem value="UPDATE">Update</SelectItem>
-                <SelectItem value="DELETE">Delete</SelectItem>
-                <SelectItem value="LOGIN">Login</SelectItem>
-                <SelectItem value="LOGOUT">Logout</SelectItem>
-                <SelectItem value="EXPORT">Export</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={moduleFilter} onValueChange={setModuleFilter}>
-              <SelectTrigger className="w-44">
-                <SelectValue placeholder="Module" />
-              </SelectTrigger>
-              <SelectContent>
-                {moduleOptions.map((module) => (
-                  <SelectItem key={module} value={module}>
-                    {module === 'all' ? 'All Modules' : module}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="size-5 text-primary" />
@@ -332,8 +276,39 @@ export default function AuditTrailPage() {
           <DataTable
             columns={columns}
             data={filteredLogs}
-            searchKey="description"
-            searchPlaceholder="Search by activity..."
+            toolbarRight={
+              <>
+                <div className="flex items-center gap-2 pr-1">
+                  <Filter className="size-4 text-muted-foreground" />
+                </div>
+                <Select value={actionFilter} onValueChange={setActionFilter}>
+                  <SelectTrigger className="w-36">
+                    <SelectValue placeholder="Action" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Actions</SelectItem>
+                    <SelectItem value="CREATE">Create</SelectItem>
+                    <SelectItem value="UPDATE">Update</SelectItem>
+                    <SelectItem value="DELETE">Delete</SelectItem>
+                    <SelectItem value="LOGIN">Login</SelectItem>
+                    <SelectItem value="LOGOUT">Logout</SelectItem>
+                    <SelectItem value="EXPORT">Export</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={moduleFilter} onValueChange={setModuleFilter}>
+                  <SelectTrigger className="w-44">
+                    <SelectValue placeholder="Module" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {moduleOptions.map((module) => (
+                      <SelectItem key={module} value={module}>
+                        {module === 'all' ? 'All Modules' : module}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            }
             exportConfig={{
               title: 'Audit Trail Report',
               subtitle: 'Backend-derived system activity log',

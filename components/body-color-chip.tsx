@@ -17,7 +17,38 @@ const bodyColorSwatches: Record<string, string> = {
 }
 
 export function getBodyColorSwatch(bodyColor: string) {
-  return bodyColorSwatches[bodyColor] ?? '#cbd5e1'
+  const trimmed = bodyColor.trim()
+  if (!trimmed) return '#cbd5e1'
+
+  const exactMatch =
+    bodyColorSwatches[trimmed] ??
+    Object.entries(bodyColorSwatches).find(
+      ([key]) => key.toLowerCase() === trimmed.toLowerCase()
+    )?.[1]
+
+  if (exactMatch) return exactMatch
+
+  if (/^#([\da-f]{3}|[\da-f]{6})$/i.test(trimmed)) {
+    return trimmed
+  }
+
+  if (/^(rgb|rgba|hsl|hsla)\(/i.test(trimmed)) {
+    return trimmed
+  }
+
+  if (typeof CSS !== 'undefined') {
+    const directCandidate = trimmed.toLowerCase()
+    if (CSS.supports('color', directCandidate)) {
+      return directCandidate
+    }
+
+    const condensedCandidate = trimmed.toLowerCase().replace(/[\s-]+/g, '')
+    if (CSS.supports('color', condensedCandidate)) {
+      return condensedCandidate
+    }
+  }
+
+  return '#cbd5e1'
 }
 
 export function BodyColorChip({

@@ -4,7 +4,9 @@ import * as React from 'react'
 import {
   ChevronDown,
   ChevronRight,
+  CirclePlus,
   Layers3,
+  MoreHorizontal,
   Pencil,
   Plus,
   Settings2,
@@ -27,6 +29,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -471,7 +479,7 @@ export default function UnitSetupPage() {
         </div>
         {filteredUnits.length === 0 ? (
           <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-            No unit setup matches your current filters.
+            No unit setup matches your current filters. Try clearing the search or add a new unit.
           </div>
         ) : (
           filteredUnits.map((unit) => {
@@ -503,26 +511,28 @@ export default function UnitSetupPage() {
                   </button>
                   <span className="text-sm font-medium">{unit.variations.length}</span>
                   <span className="text-sm font-medium">{totalColors}</span>
-                  <div className="flex items-center justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleOpenEdit(unit)}
-                    >
-                      <Pencil className="mr-2 size-4" />
-                      Edit
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleDeleteUnit(unit)}
-                      className="text-destructive"
-                    >
-                      <Trash2 className="mr-2 size-4" />
-                      Delete
-                    </Button>
+                  <div className="flex items-center justify-end">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button type="button" variant="outline" size="icon-sm">
+                          <MoreHorizontal className="size-4" />
+                          <span className="sr-only">Open actions</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleOpenEdit(unit)}>
+                          <Pencil className="size-4" />
+                          Edit unit setup
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleDeleteUnit(unit)}
+                          variant="destructive"
+                        >
+                          <Trash2 className="size-4" />
+                          Delete unit setup
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
 
@@ -597,11 +607,16 @@ export default function UnitSetupPage() {
               {editorState.originalUnitName ? 'Edit Unit Setup' : 'Add Unit Setup'}
             </DialogTitle>
             <DialogDescription>
-              Maintain the exact combinations available in the Add New Vehicle modal.
+              Keep this simple: add the unit, list its variations, then assign the valid body colors.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-6 py-2">
+            <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
+              Changes here update the Unit Name, Variation, and Body Color dropdowns used in stock
+              entry.
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="unit-name">Unit Name</Label>
               <Input
@@ -622,7 +637,7 @@ export default function UnitSetupPage() {
                 <div>
                   <p className="font-semibold text-foreground">Variations</p>
                   <p className="text-sm text-muted-foreground">
-                    Each variation drives the next body color dropdown.
+                    Add only the valid combinations your team should be allowed to select.
                   </p>
                 </div>
                 <Button type="button" variant="outline" onClick={handleAddVariation}>
@@ -641,8 +656,8 @@ export default function UnitSetupPage() {
                             Variation {variationIndex + 1}
                           </CardTitle>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            Prevent duplicate combinations by keeping this variation unique under the
-                            selected unit.
+                            Keep the variation name unique under this unit to avoid duplicate stock
+                            combinations.
                           </p>
                         </div>
                         <Button
@@ -730,7 +745,8 @@ export default function UnitSetupPage() {
                         <div>
                           <Label>Add Body Colors</Label>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            Add one or many colors separated by commas.
+                            Add one or many colors separated by commas. Common names like Red,
+                            Blue, White, Silver, and Black will now preview with the proper swatch.
                           </p>
                         </div>
                         <div className="flex flex-col gap-3 md:flex-row">
@@ -745,7 +761,7 @@ export default function UnitSetupPage() {
                             placeholder="Splash White, Mercury Silver"
                           />
                           <Button type="button" onClick={() => handleAddColors(variationIndex)}>
-                            <Plus className="mr-2 size-4" />
+                            <CirclePlus className="mr-2 size-4" />
                             Add Color
                           </Button>
                         </div>
@@ -786,14 +802,11 @@ export default function UnitSetupPage() {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="border-t bg-background px-0 pt-4">
             <Button type="button" variant="outline" onClick={() => setIsEditorOpen(false)}>
               Cancel
             </Button>
-            <Button
-              type="button"
-              onClick={handleSaveUnit}
-            >
+            <Button type="button" onClick={handleSaveUnit}>
               <Settings2 className="mr-2 size-4" />
               Save Unit Setup
             </Button>
