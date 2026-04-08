@@ -14,17 +14,17 @@ export default function AuthLayout({
         <div className="relative z-10 flex flex-col justify-between p-12 text-primary-foreground">
           <div>
             <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-white px-3 py-2 shadow-sm">
+              <div className="rounded-2xl bg-white px-4 py-3 shadow-sm">
                 <Image
                   src={itrackLogo}
                   alt="I-TRACK logo"
-                  className="h-8 w-auto object-contain"
+                  className="h-12 w-auto object-contain"
                   priority
                 />
               </div>
-              <span className="text-2xl font-bold tracking-tight">I-TRACK</span>
+              <span className="text-3xl font-bold tracking-tight xl:text-4xl">I-TRACK</span>
             </div>
-            <p className="text-sm opacity-70 mt-1">Isuzu Pasig</p>
+            <p className="mt-2 text-base opacity-70">Isuzu Pasig</p>
           </div>
           
           <div className="space-y-6">

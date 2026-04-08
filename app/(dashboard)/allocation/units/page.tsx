@@ -44,6 +44,7 @@ import {
 } from '@/components/ui/select'
 import { exportPdfReport } from '@/lib/export-pdf'
 import { getAuditActor, logAuditEvent } from '@/lib/audit-log'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   InventoryVehicle,
   loadInventoryVehicles,
@@ -105,6 +106,16 @@ export default function UnitAllocationPage() {
 
   const managerUsers = React.useMemo(
     () => users.filter((user) => user.role === 'manager' && user.status === 'active'),
+    [users]
+  )
+  const userAvatarByName = React.useMemo(
+    () =>
+      new Map(
+        users.map((user) => [
+          `${user.firstName} ${user.lastName}`.trim(),
+          user.avatarUrl ?? '',
+        ])
+      ),
     [users]
   )
 
@@ -305,9 +316,23 @@ export default function UnitAllocationPage() {
       accessorKey: 'assignedTo',
       header: 'Assigned To',
       cell: ({ row }) => (
-        <div>
-          <span className="font-medium">{row.getValue('assignedTo')}</span>
-          <p className="text-xs text-muted-foreground">{row.original.manager}</p>
+        <div className="flex items-center gap-2">
+          <Avatar className="size-8">
+            <AvatarImage
+              src={userAvatarByName.get(row.original.assignedTo) || ''}
+              alt={row.original.assignedTo}
+            />
+            <AvatarFallback className="bg-primary/10 text-[10px] text-primary">
+              {row.original.assignedTo
+                .split(' ')
+                .map((name) => name[0])
+                .join('')}
+            </AvatarFallback>
+          </Avatar>
+          <div>
+            <span className="font-medium">{row.getValue('assignedTo')}</span>
+            <p className="text-xs text-muted-foreground">{row.original.manager}</p>
+          </div>
         </div>
       ),
     },
@@ -450,7 +475,18 @@ export default function UnitAllocationPage() {
                       .filter((manager) => manager !== 'All Managers')
                       .map((manager) => (
                         <SelectItem key={manager} value={manager}>
-                          {manager}
+                          <div className="flex items-center gap-2">
+                            <Avatar className="size-6">
+                              <AvatarImage src={userAvatarByName.get(manager) || ''} alt={manager} />
+                              <AvatarFallback className="bg-primary/10 text-[10px] text-primary">
+                                {manager
+                                  .split(' ')
+                                  .map((name) => name[0])
+                                  .join('')}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span>{manager}</span>
+                          </div>
                         </SelectItem>
                       ))}
                   </SelectContent>
@@ -475,7 +511,18 @@ export default function UnitAllocationPage() {
                   <SelectContent>
                     {visibleAgents.map((agent) => (
                       <SelectItem key={agent} value={agent}>
-                        {agent}
+                        <div className="flex items-center gap-2">
+                          <Avatar className="size-6">
+                            <AvatarImage src={userAvatarByName.get(agent) || ''} alt={agent} />
+                            <AvatarFallback className="bg-primary/10 text-[10px] text-primary">
+                              {agent
+                                .split(' ')
+                                .map((name) => name[0])
+                                .join('')}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span>{agent}</span>
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -649,7 +696,18 @@ export default function UnitAllocationPage() {
                     .filter((manager) => manager !== 'All Managers')
                     .map((manager) => (
                       <SelectItem key={manager} value={manager}>
-                        {manager}
+                        <div className="flex items-center gap-2">
+                          <Avatar className="size-6">
+                            <AvatarImage src={userAvatarByName.get(manager) || ''} alt={manager} />
+                            <AvatarFallback className="bg-primary/10 text-[10px] text-primary">
+                              {manager
+                                .split(' ')
+                                .map((name) => name[0])
+                                .join('')}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span>{manager}</span>
+                        </div>
                       </SelectItem>
                     ))}
                 </SelectContent>
@@ -672,7 +730,18 @@ export default function UnitAllocationPage() {
                 <SelectContent>
                   {reassignAgents.map((agent) => (
                     <SelectItem key={agent} value={agent}>
-                      {agent}
+                      <div className="flex items-center gap-2">
+                        <Avatar className="size-6">
+                          <AvatarImage src={userAvatarByName.get(agent) || ''} alt={agent} />
+                          <AvatarFallback className="bg-primary/10 text-[10px] text-primary">
+                            {agent
+                              .split(' ')
+                              .map((name) => name[0])
+                              .join('')}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span>{agent}</span>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -47,7 +47,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { getAuditActor, logAuditEvent } from '@/lib/audit-log'
 import { getRoleFromPathname } from '@/lib/rbac'
 import {
@@ -302,6 +302,7 @@ export default function UsersPage() {
       role: pendingRole,
       status: selectedUser.status,
       bio: selectedUser.bio,
+      skipPhoneValidation: true,
     })
 
     updateSelectedUser(updatedUser)
@@ -326,6 +327,7 @@ export default function UsersPage() {
       role: userToDeactivate.role,
       status: 'inactive',
       bio: userToDeactivate.bio,
+      skipPhoneValidation: true,
     })
 
     updateSelectedUser(updatedUser)
@@ -350,6 +352,7 @@ export default function UsersPage() {
       role: userToActivate.role,
       status: 'active',
       bio: userToActivate.bio,
+      skipPhoneValidation: true,
     })
 
     updateSelectedUser(updatedUser)
@@ -371,6 +374,7 @@ export default function UsersPage() {
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
           <Avatar className="size-8">
+            <AvatarImage src={row.original.avatarUrl ?? ''} alt={getFullName(row.original)} />
             <AvatarFallback className="text-xs bg-primary/10 text-primary">
               {getInitials(row.original)}
             </AvatarFallback>
@@ -712,6 +716,7 @@ export default function UsersPage() {
             <div className="space-y-6">
               <div className="flex items-center gap-4">
                   <Avatar className="size-16">
+                    <AvatarImage src={selectedUser.avatarUrl ?? ''} alt={getFullName(selectedUser)} />
                     <AvatarFallback className="text-xl bg-primary/10 text-primary">
                     {getInitials(selectedUser)}
                   </AvatarFallback>

@@ -108,12 +108,12 @@ export default function LoginPage() {
       {/* Mobile Logo */}
       <div className="lg:hidden text-center mb-8">
         <div className="inline-flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground font-bold text-lg">
+          <div className="flex size-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-primary-foreground">
             IP
           </div>
           <div className="text-left">
-            <span className="text-2xl font-bold tracking-tight block">I-TRACK</span>
-            <span className="text-xs text-muted-foreground">Isuzu Pasig</span>
+            <span className="block text-3xl font-bold tracking-tight">I-TRACK</span>
+            <span className="text-sm text-muted-foreground">Isuzu Pasig</span>
           </div>
         </div>
       </div>

@@ -143,11 +143,19 @@ export async function updateUserRecord(
     role: UserRole
     status: 'active' | 'inactive'
     bio?: string
+    avatarUrl?: string | null
+    skipPhoneValidation?: boolean
   }
 ) {
-  const phone = normalizeMobilePhoneNumber(input.phone)
+  const trimmedPhone = input.phone.trim()
+  const normalizedPhone = normalizeMobilePhoneNumber(trimmedPhone)
+  const phone = input.skipPhoneValidation
+    ? isValidMobilePhoneNumber(normalizedPhone)
+      ? normalizedPhone
+      : trimmedPhone
+    : normalizedPhone
 
-  if (!isValidMobilePhoneNumber(phone)) {
+  if (!input.skipPhoneValidation && !isValidMobilePhoneNumber(phone)) {
     throw new Error(MOBILE_PHONE_VALIDATION_MESSAGE)
   }
 
@@ -161,6 +169,7 @@ export async function updateUserRecord(
       role: mapUserRoleToBackendRole(input.role),
       isActive: input.status === 'active',
       bio: input.bio?.trim() ?? '',
+      avatarUrl: input.avatarUrl ?? null,
     },
   })
 

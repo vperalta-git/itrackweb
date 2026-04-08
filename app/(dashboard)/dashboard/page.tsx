@@ -17,7 +17,7 @@ import {
 
 import { PageHeader } from '@/components/page-header'
 import { MetricCard } from '@/components/metric-card'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -49,6 +49,7 @@ import {
 } from '@/lib/inventory-data'
 import { getRoleFromPathname } from '@/lib/rbac'
 import { getScopedRoleData, matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
+import { loadUsers, syncUsersFromBackend, type SystemUser, USERS_UPDATED_EVENT } from '@/lib/user-data'
 
 const statusLabels: Record<InventoryVehicle['status'], string> = {
   available: 'Available',
@@ -92,6 +93,7 @@ export default function DashboardPage() {
   const isManager = role === 'manager'
   const isAdminOrSupervisor = role === 'admin' || role === 'supervisor'
   const [vehicles, setVehicles] = React.useState<InventoryVehicle[]>(() => loadInventoryVehicles())
+  const [users, setUsers] = React.useState<SystemUser[]>(() => loadUsers())
   const [vehicleStatusFilter, setVehicleStatusFilter] =
     React.useState<'week' | 'month' | 'year'>('month')
   const [modelPeriodFilter, setModelPeriodFilter] =
@@ -124,6 +126,31 @@ export default function DashboardPage() {
       window.removeEventListener(INVENTORY_UPDATED_EVENT, syncInventory)
     }
   }, [])
+
+  React.useEffect(() => {
+    const syncUsers = () => {
+      setUsers(loadUsers())
+    }
+
+    syncUsers()
+    void syncUsersFromBackend().then(setUsers).catch(() => null)
+    window.addEventListener(USERS_UPDATED_EVENT, syncUsers)
+
+    return () => {
+      window.removeEventListener(USERS_UPDATED_EVENT, syncUsers)
+    }
+  }, [])
+
+  const userAvatarByName = React.useMemo(
+    () =>
+      new Map(
+        users.map((user) => [
+          `${user.firstName} ${user.lastName}`.trim(),
+          user.avatarUrl ?? '',
+        ])
+      ),
+    [users]
+  )
 
   const scopedVehicles = React.useMemo(
     () =>
@@ -505,6 +532,7 @@ export default function DashboardPage() {
                           <TableCell>
                             <div className="flex items-center gap-3">
                               <Avatar className="size-8">
+                                <AvatarImage src={userAvatarByName.get(agent.name) || ''} alt={agent.name} />
                                 <AvatarFallback className="bg-primary/10 text-xs text-primary">
                                   {agent.name.split(' ').map((name) => name[0]).join('')}
                                 </AvatarFallback>
@@ -839,6 +867,7 @@ export default function DashboardPage() {
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <Avatar className="size-8">
+                              <AvatarImage src={userAvatarByName.get(agent.name) || ''} alt={agent.name} />
                               <AvatarFallback className="bg-primary/10 text-xs text-primary">
                                 {agent.name.split(' ').map((name) => name[0]).join('')}
                               </AvatarFallback>

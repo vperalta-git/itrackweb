@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Truck,
   LocateFixed,
+  RotateCcw,
 } from 'lucide-react'
 
 import { PageHeader } from '@/components/page-header'
@@ -189,6 +190,15 @@ export default function LiveTrackingPage() {
   const [routePolyline, setRoutePolyline] = React.useState<MapPoint[]>([])
   const [isRefreshing, setIsRefreshing] = React.useState(false)
   const [lastUpdatedAt, setLastUpdatedAt] = React.useState<string | null>(null)
+  const [mapOffset, setMapOffset] = React.useState({ x: 0, y: 0 })
+  const [isDraggingMap, setIsDraggingMap] = React.useState(false)
+  const dragStateRef = React.useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+  } | null>(null)
 
   React.useEffect(() => {
     const syncAllocations = () => {
@@ -277,6 +287,12 @@ export default function LiveTrackingPage() {
   }, [scopedDrivers])
 
   React.useEffect(() => {
+    setMapOffset({ x: 0, y: 0 })
+    setIsDraggingMap(false)
+    dragStateRef.current = null
+  }, [selectedDriver?.id])
+
+  React.useEffect(() => {
     let isActive = true
 
     const resolveRoute = async () => {
@@ -350,6 +366,44 @@ export default function LiveTrackingPage() {
         : '',
     [mapBounds, routePolyline]
   )
+
+  const handleMapPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: mapOffset.x,
+      originY: mapOffset.y,
+    }
+    setIsDraggingMap(true)
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const handleMapPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragStateRef.current || dragStateRef.current.pointerId !== event.pointerId) {
+      return
+    }
+
+    const deltaX = event.clientX - dragStateRef.current.startX
+    const deltaY = event.clientY - dragStateRef.current.startY
+
+    setMapOffset({
+      x: dragStateRef.current.originX + deltaX,
+      y: dragStateRef.current.originY + deltaY,
+    })
+  }
+
+  const handleMapPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragStateRef.current?.pointerId === event.pointerId) {
+      dragStateRef.current = null
+      setIsDraggingMap(false)
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const handleResetMapView = () => {
+    setMapOffset({ x: 0, y: 0 })
+  }
 
   return (
     <div className="space-y-6">
@@ -483,106 +537,132 @@ export default function LiveTrackingPage() {
               </div>
             ) : (
               <>
-                <div className="relative h-[400px] w-full overflow-hidden rounded-xl border bg-[radial-gradient(circle_at_top,rgba(239,68,68,0.08),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.98))]">
-                  <div className="absolute inset-0 opacity-60">
-                    <div className="absolute inset-x-0 top-[20%] h-px bg-border/80" />
-                    <div className="absolute inset-x-0 top-[40%] h-px bg-border/70" />
-                    <div className="absolute inset-x-0 top-[60%] h-px bg-border/70" />
-                    <div className="absolute inset-x-0 top-[80%] h-px bg-border/80" />
-                    <div className="absolute inset-y-0 left-[20%] w-px bg-border/70" />
-                    <div className="absolute inset-y-0 left-[40%] w-px bg-border/60" />
-                    <div className="absolute inset-y-0 left-[60%] w-px bg-border/60" />
-                    <div className="absolute inset-y-0 left-[80%] w-px bg-border/70" />
-                  </div>
-
-                  <svg
-                    className="absolute inset-0 h-full w-full"
-                    viewBox="0 0 100 100"
-                    preserveAspectRatio="none"
+                <div
+                  className={`relative h-[400px] w-full overflow-hidden rounded-xl border bg-[radial-gradient(circle_at_top,rgba(239,68,68,0.08),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.98))] ${isDraggingMap ? 'cursor-grabbing' : 'cursor-grab'}`}
+                  onPointerDown={handleMapPointerDown}
+                  onPointerMove={handleMapPointerMove}
+                  onPointerUp={handleMapPointerUp}
+                  onPointerCancel={handleMapPointerUp}
+                  onPointerLeave={handleMapPointerUp}
+                  style={{ touchAction: 'none' }}
+                >
+                  <div
+                    className="absolute inset-0"
+                    style={{
+                      transform: `translate(${mapOffset.x}px, ${mapOffset.y}px)`,
+                      transition: isDraggingMap ? 'none' : 'transform 180ms ease-out',
+                    }}
                   >
-                    {routePath ? (
-                      <polyline
-                        points={routePath}
-                        fill="none"
-                        stroke="var(--color-info)"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        opacity="0.9"
-                      />
+                    <div className="absolute inset-0 opacity-60">
+                      <div className="absolute inset-x-0 top-[20%] h-px bg-border/80" />
+                      <div className="absolute inset-x-0 top-[40%] h-px bg-border/70" />
+                      <div className="absolute inset-x-0 top-[60%] h-px bg-border/70" />
+                      <div className="absolute inset-x-0 top-[80%] h-px bg-border/80" />
+                      <div className="absolute inset-y-0 left-[20%] w-px bg-border/70" />
+                      <div className="absolute inset-y-0 left-[40%] w-px bg-border/60" />
+                      <div className="absolute inset-y-0 left-[60%] w-px bg-border/60" />
+                      <div className="absolute inset-y-0 left-[80%] w-px bg-border/70" />
+                    </div>
+
+                    <svg
+                      className="absolute inset-0 h-full w-full"
+                      viewBox="0 0 100 100"
+                      preserveAspectRatio="none"
+                    >
+                      {routePath ? (
+                        <polyline
+                          points={routePath}
+                          fill="none"
+                          stroke="var(--color-info)"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          opacity="0.9"
+                        />
+                      ) : null}
+                      {routePath ? (
+                        <polyline
+                          points={routePath}
+                          fill="none"
+                          stroke="var(--color-primary)"
+                          strokeWidth="0.7"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeDasharray="2.5 2.5"
+                          opacity="0.95"
+                        />
+                      ) : null}
+                    </svg>
+
+                    {originPosition ? (
+                      <div
+                        className="absolute flex flex-col items-center"
+                        style={{
+                          left: `${originPosition.x}%`,
+                          top: `${originPosition.y}%`,
+                          transform: 'translate(-50%, -100%)',
+                        }}
+                      >
+                        <div className="rounded-full border-2 border-muted-foreground bg-background p-2 shadow-sm">
+                          <MapPin className="size-4 text-muted-foreground" />
+                        </div>
+                        <span className="mt-1 rounded bg-background px-1.5 py-0.5 text-[10px] shadow-sm">
+                          Pickup
+                        </span>
+                      </div>
                     ) : null}
-                    {routePath ? (
-                      <polyline
-                        points={routePath}
-                        fill="none"
-                        stroke="var(--color-primary)"
-                        strokeWidth="0.7"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeDasharray="2.5 2.5"
-                        opacity="0.95"
-                      />
+
+                    {driverPosition ? (
+                      <div
+                        className="absolute flex flex-col items-center animate-pulse"
+                        style={{
+                          left: `${driverPosition.x}%`,
+                          top: `${driverPosition.y}%`,
+                          transform: 'translate(-50%, -100%)',
+                        }}
+                      >
+                        <div className="rounded-full bg-primary p-2 shadow-lg ring-4 ring-primary/15">
+                          <Truck className="size-5 text-primary-foreground" />
+                        </div>
+                        <span className="mt-1 rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground shadow-sm">
+                          {selectedDriver.name.split(' ')[0]}
+                        </span>
+                      </div>
                     ) : null}
-                  </svg>
 
-                  {originPosition ? (
-                    <div
-                      className="absolute flex flex-col items-center"
-                      style={{
-                        left: `${originPosition.x}%`,
-                        top: `${originPosition.y}%`,
-                        transform: 'translate(-50%, -100%)',
-                      }}
-                    >
-                      <div className="rounded-full border-2 border-muted-foreground bg-background p-2 shadow-sm">
-                        <MapPin className="size-4 text-muted-foreground" />
+                    {destinationPosition ? (
+                      <div
+                        className="absolute flex flex-col items-center"
+                        style={{
+                          left: `${destinationPosition.x}%`,
+                          top: `${destinationPosition.y}%`,
+                          transform: 'translate(-50%, -100%)',
+                        }}
+                      >
+                        <div className="rounded-full border-2 border-success bg-success p-2 shadow-sm">
+                          <Navigation className="size-4 text-success-foreground" />
+                        </div>
+                        <span className="mt-1 rounded bg-success px-1.5 py-0.5 text-[10px] text-success-foreground shadow-sm">
+                          Destination
+                        </span>
                       </div>
-                      <span className="mt-1 rounded bg-background px-1.5 py-0.5 text-[10px] shadow-sm">
-                        Pickup
-                      </span>
-                    </div>
-                  ) : null}
-
-                  {driverPosition ? (
-                    <div
-                      className="absolute flex flex-col items-center animate-pulse"
-                      style={{
-                        left: `${driverPosition.x}%`,
-                        top: `${driverPosition.y}%`,
-                        transform: 'translate(-50%, -100%)',
-                      }}
-                    >
-                      <div className="rounded-full bg-primary p-2 shadow-lg ring-4 ring-primary/15">
-                        <Truck className="size-5 text-primary-foreground" />
-                      </div>
-                      <span className="mt-1 rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground shadow-sm">
-                        {selectedDriver.name.split(' ')[0]}
-                      </span>
-                    </div>
-                  ) : null}
-
-                  {destinationPosition ? (
-                    <div
-                      className="absolute flex flex-col items-center"
-                      style={{
-                        left: `${destinationPosition.x}%`,
-                        top: `${destinationPosition.y}%`,
-                        transform: 'translate(-50%, -100%)',
-                      }}
-                    >
-                      <div className="rounded-full border-2 border-success bg-success p-2 shadow-sm">
-                        <Navigation className="size-4 text-success-foreground" />
-                      </div>
-                      <span className="mt-1 rounded bg-success px-1.5 py-0.5 text-[10px] text-success-foreground shadow-sm">
-                        Destination
-                      </span>
-                    </div>
-                  ) : null}
+                    ) : null}
+                  </div>
 
                   <div className="absolute right-4 top-4 flex flex-col gap-2">
                     <Badge variant="secondary" className="justify-center bg-background/95">
                       {hasDirectionsApiKey() ? 'Google Directions route' : 'OSRM fallback route'}
                     </Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="bg-background/95"
+                      type="button"
+                      onClick={handleResetMapView}
+                    >
+                      <RotateCcw className="mr-2 size-4" />
+                      Reset View
+                    </Button>
                     <Button variant="outline" size="sm" className="bg-background/95" asChild>
                       <a
                         href={googleMapsUrl}

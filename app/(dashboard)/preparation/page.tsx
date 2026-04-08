@@ -104,6 +104,17 @@ const initialRequestForm = {
   notes: '',
 }
 
+const getChecklistProgress = (request: PreparationRequest) => {
+  const checklist = request.dispatcherChecklist ?? []
+
+  if (checklist.length === 0) {
+    return 0
+  }
+
+  const completedCount = checklist.filter((item) => item.completed).length
+  return Math.round((completedCount / checklist.length) * 100)
+}
+
 export default function PreparationPage() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
@@ -355,7 +366,7 @@ export default function PreparationPage() {
 
     const nextRequests = await updatePreparationStatusRecord(request.id, {
       status: 'in-dispatch',
-      progress: Math.max(request.progress, 20),
+      progress: getChecklistProgress(request),
       approvalStatus: 'approved',
       approvedByRole: mapUserRoleToBackendRole(currentUser.role),
       approvedByName: `${currentUser.firstName} ${currentUser.lastName}`.trim(),

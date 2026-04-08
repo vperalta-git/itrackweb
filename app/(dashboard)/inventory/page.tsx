@@ -224,6 +224,21 @@ const emptyEditVehicleForm = {
   notes: '',
 }
 
+const bodyColorSwatches: Record<string, string> = {
+  'Valencia Orange': '#d86c1f',
+  'Red Spinel': '#9c2338',
+  'Mercury Silver': '#b0b5bb',
+  'Galena Gray': '#6b7077',
+  'Onyx Black': '#1f2124',
+  'Splash White': '#f7f7f2',
+  'Satin White Pearl': '#f4f2eb',
+  'Eiger Grey': '#7d8086',
+  White: '#ffffff',
+}
+
+const getBodyColorSwatch = (bodyColor: string) =>
+  bodyColorSwatches[bodyColor] ?? '#cbd5e1'
+
 export default function InventoryPage() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
@@ -417,6 +432,21 @@ export default function InventoryPage() {
     {
       accessorKey: 'bodyColor',
       header: 'Body Color',
+      cell: ({ row }) => {
+        const bodyColor = row.getValue('bodyColor') as string
+        const swatchColor = getBodyColorSwatch(bodyColor)
+
+        return (
+          <div className="flex items-center gap-2">
+            <span
+              className="size-3 rounded-full border border-slate-300 ring-1 ring-white/95 shadow-[0_1px_2px_rgba(15,23,42,0.08),0_3px_8px_rgba(15,23,42,0.12)] dark:border-slate-500 dark:ring-slate-950/70 dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),0_3px_8px_rgba(0,0,0,0.28)]"
+              style={{ backgroundColor: swatchColor }}
+              aria-hidden="true"
+            />
+            <span>{bodyColor}</span>
+          </div>
+        )
+      },
     },
     {
       accessorKey: 'variation',

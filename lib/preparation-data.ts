@@ -58,6 +58,19 @@ const estimateTime = (serviceCount: number) => {
   return '3 hours'
 }
 
+const calculatePreparationProgress = (
+  dispatcherChecklist: BackendPreparation['dispatcherChecklist']
+) => {
+  const checklist = dispatcherChecklist ?? []
+
+  if (checklist.length === 0) {
+    return 0
+  }
+
+  const completedCount = checklist.filter((item) => item.completed).length
+  return Math.round((completedCount / checklist.length) * 100)
+}
+
 export function loadPreparationRecords() {
   if (typeof window === 'undefined') return [] as PreparationRequestRecord[]
 
@@ -103,7 +116,7 @@ const mapPreparation = (
     contactNumber: preparation.customerContactNo ?? '',
     status: mapPreparationStatusToUi(preparation.status) as PreparationRequestRecord['status'],
     estimatedTime: estimateTime(serviceLabels.length),
-    progress: preparation.progress ?? 0,
+    progress: calculatePreparationProgress(preparation.dispatcherChecklist),
     notes: preparation.notes ?? '',
     vehicleId,
     requestedServices,
@@ -164,7 +177,7 @@ export async function createPreparationRecord(input: {
       customerContactNo,
       notes: input.notes?.trim() ?? '',
       status: isApprover ? 'in_dispatch' : 'pending',
-      progress: isApprover ? 20 : 0,
+      progress: 0,
       requestedByRole: mapUserRoleToBackendRole(input.currentUser.role),
       requestedByName: `${input.currentUser.firstName} ${input.currentUser.lastName}`.trim(),
       approvalStatus: isApprover ? 'approved' : 'awaiting_approval',

@@ -1,6 +1,7 @@
 'use client'
 
 import type { Role } from '@/lib/rbac'
+import { getSessionUserFullName, getSessionUser } from '@/lib/session'
 
 export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'EXPORT'
 
@@ -24,7 +25,9 @@ const roleDisplayNames: Record<Role, string> = {
 }
 
 export function getAuditActor(role: Role) {
-  return roleDisplayNames[role]
+  const sessionUser = getSessionUser()
+  const fullName = getSessionUserFullName(sessionUser)
+  return fullName || sessionUser?.email || roleDisplayNames[role]
 }
 
 export function getStoredAuditLogs(): AuditLogEntry[] {

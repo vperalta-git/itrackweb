@@ -21,7 +21,7 @@ import { DataTable } from '@/components/data-table'
 import { PageHeader } from '@/components/page-header'
 import { StatusBadge } from '@/components/status-badge'
 import { ConfirmActionDialog } from '@/components/confirm-action-dialog'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -235,7 +235,18 @@ export default function DriverAllocationPage() {
           id: user.id,
           name: `${user.firstName} ${user.lastName}`.trim(),
           phone: user.phone,
+          avatarUrl: user.avatarUrl ?? '',
         })),
+    [users]
+  )
+  const userAvatarByName = React.useMemo(
+    () =>
+      new Map(
+        users.map((user) => [
+          `${user.firstName} ${user.lastName}`.trim(),
+          user.avatarUrl ?? '',
+        ])
+      ),
     [users]
   )
 
@@ -397,6 +408,7 @@ export default function DriverAllocationPage() {
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
           <Avatar className="size-7">
+            <AvatarImage src={userAvatarByName.get(row.original.assignedDriver) || ''} alt={row.original.assignedDriver} />
             <AvatarFallback className="bg-primary/10 text-[10px] text-primary">
               {(row.getValue('assignedDriver') as string)
                 .split(' ')
@@ -629,7 +641,21 @@ export default function DriverAllocationPage() {
                       {selectableDrivers.length > 0 ? (
                         selectableDrivers.map((driver) => (
                           <SelectItem key={driver.id} value={driver.id}>
-                            {driver.name}
+                            <div className="flex items-center gap-2">
+                              <Avatar className="size-6">
+                                <AvatarImage src={driver.avatarUrl} alt={driver.name} />
+                                <AvatarFallback className="bg-primary/10 text-[10px] text-primary">
+                                  {driver.name
+                                    .split(' ')
+                                    .map((name) => name[0])
+                                    .join('')}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="flex flex-col">
+                                <span>{driver.name}</span>
+                                <span className="text-xs text-muted-foreground">{driver.phone}</span>
+                              </div>
+                            </div>
                           </SelectItem>
                         ))
                       ) : (
@@ -950,6 +976,7 @@ export default function DriverAllocationPage() {
                   <h4 className="mb-3 text-sm font-medium">Driver Information</h4>
                   <div className="flex items-center gap-3">
                     <Avatar className="size-10">
+                      <AvatarImage src={userAvatarByName.get(selectedAllocation.assignedDriver) || ''} alt={selectedAllocation.assignedDriver} />
                       <AvatarFallback className="bg-primary/10 text-primary">
                         {selectedAllocation.assignedDriver
                           .split(' ')

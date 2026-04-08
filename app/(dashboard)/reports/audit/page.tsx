@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   AUDIT_LOG_UPDATED_EVENT,
   STORAGE_KEY as AUDIT_LOG_STORAGE_KEY,
@@ -31,6 +31,7 @@ import {
 } from '@/lib/audit-log'
 import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
 import { deriveActivityRecords, fetchReportSnapshot, type DerivedActivityRecord } from '@/lib/report-data'
+import { loadUsers, syncUsersFromBackend, type SystemUser } from '@/lib/user-data'
 
 type AuditTableRecord = {
   id: string
@@ -71,6 +72,7 @@ export default function AuditTrailPage() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
   const [logs, setLogs] = React.useState<AuditTableRecord[]>([])
+  const [users, setUsers] = React.useState<SystemUser[]>(() => loadUsers())
   const [isLoading, setIsLoading] = React.useState(true)
   const [searchQuery, setSearchQuery] = React.useState('')
   const [actionFilter, setActionFilter] = React.useState('all')
@@ -81,6 +83,21 @@ export default function AuditTrailPage() {
       router.replace(buildRolePath(role, 'reports/history'))
     }
   }, [role, router])
+
+  React.useEffect(() => {
+    void syncUsersFromBackend().then(setUsers).catch(() => null)
+  }, [])
+
+  const userAvatarByName = React.useMemo(
+    () =>
+      new Map(
+        users.map((user) => [
+          `${user.firstName} ${user.lastName}`.trim(),
+          user.avatarUrl ?? '',
+        ])
+      ),
+    [users]
+  )
 
   React.useEffect(() => {
     let isMounted = true
@@ -213,6 +230,7 @@ export default function AuditTrailPage() {
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
           <Avatar className="size-6">
+            <AvatarImage src={userAvatarByName.get(row.original.user) || ''} alt={row.original.user} />
             <AvatarFallback className="bg-primary/10 text-[10px] text-primary">
               {row.original.user
                 .split(' ')
