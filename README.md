@@ -263,7 +263,7 @@ Each role has custom:
 - `react-native-reanimated`
 
 ### Maps & Location
-- `react-native-maps@^1.14.1`
+- `Mapbox Static Images API + Mapbox Search/Directions APIs`
 
 ### Styling
 - `nativewind@^4.0.36`

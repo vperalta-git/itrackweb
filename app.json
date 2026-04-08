@@ -24,7 +24,8 @@
         "foregroundImage": "./public/logo-android-adaptive.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.itrack.mobile"
+      "package": "com.itrack.mobile",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./public/icon-light-32x32.png"

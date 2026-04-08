@@ -34,9 +34,9 @@ import {
   saveDriverAllocation,
 } from '@/src/mobile/data/driver-allocation';
 import {
-  reverseGeocodeGoogleMapsLocation,
-  searchGoogleMapsAddresses,
-} from '@/src/mobile/utils/googleMapsGeocoding';
+  reverseGeocodeMapboxLocation,
+  searchMapboxAddresses,
+} from '@/src/mobile/utils/mapboxGeocoding';
 
 type FormErrors = {
   unitId?: string;
@@ -54,6 +54,13 @@ type DriverAllocationFormValues = {
 
 type RouteSelectionMode = 'pickup' | 'destination';
 
+type CuratedLocationPreset = {
+  key: string;
+  label: string;
+  address: string;
+  queries: string[];
+};
+
 const DEFAULT_FORM_VALUES: DriverAllocationFormValues = {
   unitId: null,
   driverId: null,
@@ -67,6 +74,31 @@ const DEFAULT_ROUTE_REGION = {
   latitudeDelta: 0.18,
   longitudeDelta: 0.18,
 };
+
+const CURATED_LOCATION_PRESETS: CuratedLocationPreset[] = [
+  {
+    key: 'laguna-stockyard',
+    label: 'Laguna Stockyard',
+    address:
+      '114 Technology Avenue, Phase 2, Laguna Technopark, Biñan, Laguna 4024',
+    queries: [
+      'Laguna Stockyard 114 Technology Avenue Phase 2 Laguna Technopark Binan Laguna 4024',
+      'Isuzu Philippines Corporation 114 Technology Avenue Phase 2 Laguna Technopark Binan Laguna 4024',
+      '114 Technology Avenue Phase 2 Laguna Technopark Binan Laguna 4024',
+    ],
+  },
+  {
+    key: 'isuzu-pasig',
+    label: 'Isuzu Pasig',
+    address:
+      'E. Rodriguez Jr. Avenue, Corner Calle Industria, Brgy. Bagumbayan, Quezon City 1110',
+    queries: [
+      'Isuzu Pasig E. Rodriguez Jr. Avenue Corner Calle Industria Bagumbayan Quezon City 1110',
+      'E. Rodriguez Jr. Avenue Corner Calle Industria Bagumbayan Quezon City 1110',
+      'Isuzu Pasig Quezon City',
+    ],
+  },
+];
 
 function normalizeSearchValue(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? '';
@@ -105,7 +137,69 @@ function getFallbackLocationMatches(query: string, limit = 5) {
   return DRIVER_ALLOCATION_LOCATION_OPTIONS.filter(
     (location) =>
       normalizeSearchValue(location.label).includes(normalizedQuery) ||
-      normalizeSearchValue(location.hint).includes(normalizedQuery)
+      normalizeSearchValue(location.hint).includes(normalizedQuery) ||
+      normalizeSearchValue(formatLocationDisplay(location)).includes(normalizedQuery)
+  ).slice(0, limit);
+}
+
+function formatLocationDisplay(
+  location: DriverAllocationLocationOption | null | undefined
+) {
+  if (!location) {
+    return '';
+  }
+
+  const normalizedLabel = normalizeSearchValue(location.label);
+  const normalizedHint = normalizeSearchValue(location.hint);
+
+  if (!location.hint || normalizedHint === normalizedLabel) {
+    return location.label;
+  }
+
+  if (normalizedHint.startsWith(normalizedLabel)) {
+    return location.hint;
+  }
+
+  return `${location.label}, ${location.hint}`;
+}
+
+function isCuratedLocationSelected(
+  location: DriverAllocationLocationOption | null,
+  preset: CuratedLocationPreset
+) {
+  if (!location) {
+    return false;
+  }
+
+  return (
+    normalizeSearchValue(location.label) === normalizeSearchValue(preset.label) &&
+    normalizeSearchValue(location.hint) === normalizeSearchValue(preset.address)
+  );
+}
+
+function buildCuratedLocationOption(
+  preset: CuratedLocationPreset,
+  location: Location
+): DriverAllocationLocationOption {
+  return {
+    label: preset.label,
+    value: `curated:${preset.key}`,
+    hint: preset.address,
+    location,
+  };
+}
+
+function getMatchingCuratedLocationPresets(query: string, limit = 2) {
+  const normalizedQuery = normalizeSearchValue(query);
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  return CURATED_LOCATION_PRESETS.filter((preset) =>
+    [preset.label, preset.address, ...preset.queries].some((value) =>
+      normalizeSearchValue(value).includes(normalizedQuery)
+    )
   ).slice(0, limit);
 }
 
@@ -213,12 +307,16 @@ export default function DriverAllocationFormScreen() {
   const [isDestinationSearchLoading, setIsDestinationSearchLoading] =
     useState(false);
   const [isResolvingMapLocation, setIsResolvingMapLocation] = useState(false);
+  const [resolvingPresetKey, setResolvingPresetKey] = useState<string | null>(
+    null
+  );
   const [mapSelectionMode, setMapSelectionMode] =
     useState<RouteSelectionMode>('pickup');
   const [errors, setErrors] = useState<FormErrors>({});
   const pickupSearchRequestRef = useRef(0);
   const destinationSearchRequestRef = useRef(0);
   const mapSelectionRequestRef = useRef(0);
+  const presetSelectionRequestRef = useRef(0);
 
   useEffect(() => {
     let isActive = true;
@@ -257,22 +355,28 @@ export default function DriverAllocationFormScreen() {
     pickupSearchRequestRef.current += 1;
     destinationSearchRequestRef.current += 1;
     mapSelectionRequestRef.current += 1;
+    presetSelectionRequestRef.current += 1;
     setUnitId(initialFormValues.unitId);
     setDriverId(initialFormValues.driverId);
     setPickupId(initialFormValues.pickupId);
     setDestinationId(initialFormValues.destinationId);
     setLocationOptions(DRIVER_ALLOCATION_LOCATION_OPTIONS);
     setPickupSearchValue(
-      findDriverAllocationLocation(initialFormValues.pickupId)?.label ?? ''
+      formatLocationDisplay(
+        findDriverAllocationLocation(initialFormValues.pickupId)
+      )
     );
     setDestinationSearchValue(
-      findDriverAllocationLocation(initialFormValues.destinationId)?.label ?? ''
+      formatLocationDisplay(
+        findDriverAllocationLocation(initialFormValues.destinationId)
+      )
     );
     setPickupSearchResults([]);
     setDestinationSearchResults([]);
     setIsPickupSearchLoading(false);
     setIsDestinationSearchLoading(false);
     setIsResolvingMapLocation(false);
+    setResolvingPresetKey(null);
     setMapSelectionMode(
       initialFormValues.pickupId && !initialFormValues.destinationId
         ? 'destination'
@@ -363,11 +467,11 @@ export default function DriverAllocationFormScreen() {
   const showPickupSearchResults =
     pickupSearchValue.trim().length > 0 &&
     normalizeSearchValue(pickupSearchValue) !==
-      normalizeSearchValue(selectedPickup?.label);
+      normalizeSearchValue(formatLocationDisplay(selectedPickup));
   const showDestinationSearchResults =
     destinationSearchValue.trim().length > 0 &&
     normalizeSearchValue(destinationSearchValue) !==
-      normalizeSearchValue(selectedDestination?.label);
+      normalizeSearchValue(formatLocationDisplay(selectedDestination));
 
   useEffect(() => {
     const trimmedQuery = pickupSearchValue.trim();
@@ -377,7 +481,7 @@ export default function DriverAllocationFormScreen() {
     if (
       !trimmedQuery ||
       normalizeSearchValue(trimmedQuery) ===
-        normalizeSearchValue(selectedPickup?.label)
+        normalizeSearchValue(formatLocationDisplay(selectedPickup))
     ) {
       setPickupSearchResults([]);
       setIsPickupSearchLoading(false);
@@ -387,7 +491,16 @@ export default function DriverAllocationFormScreen() {
     setIsPickupSearchLoading(true);
 
     const timeoutId = setTimeout(async () => {
-      const liveResults = await searchGoogleMapsAddresses(trimmedQuery, 5);
+      const curatedResults = (
+        await Promise.all(
+          getMatchingCuratedLocationPresets(trimmedQuery).map((preset) =>
+            resolveCuratedLocationPreset(preset)
+          )
+        )
+      ).filter(
+        (location): location is DriverAllocationLocationOption => location !== null
+      );
+      const liveResults = await searchMapboxAddresses(trimmedQuery, 5);
 
       if (pickupSearchRequestRef.current !== requestId) {
         return;
@@ -395,6 +508,7 @@ export default function DriverAllocationFormScreen() {
 
       setPickupSearchResults(
         mergeLocationOptions(
+          curatedResults,
           liveResults,
           getFallbackLocationMatches(trimmedQuery, 5)
         ).slice(0, 5)
@@ -405,7 +519,7 @@ export default function DriverAllocationFormScreen() {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [pickupSearchValue, selectedPickup?.label]);
+  }, [pickupSearchValue, selectedPickup]);
 
   useEffect(() => {
     const trimmedQuery = destinationSearchValue.trim();
@@ -415,7 +529,7 @@ export default function DriverAllocationFormScreen() {
     if (
       !trimmedQuery ||
       normalizeSearchValue(trimmedQuery) ===
-        normalizeSearchValue(selectedDestination?.label)
+        normalizeSearchValue(formatLocationDisplay(selectedDestination))
     ) {
       setDestinationSearchResults([]);
       setIsDestinationSearchLoading(false);
@@ -425,7 +539,16 @@ export default function DriverAllocationFormScreen() {
     setIsDestinationSearchLoading(true);
 
     const timeoutId = setTimeout(async () => {
-      const liveResults = await searchGoogleMapsAddresses(trimmedQuery, 5);
+      const curatedResults = (
+        await Promise.all(
+          getMatchingCuratedLocationPresets(trimmedQuery).map((preset) =>
+            resolveCuratedLocationPreset(preset)
+          )
+        )
+      ).filter(
+        (location): location is DriverAllocationLocationOption => location !== null
+      );
+      const liveResults = await searchMapboxAddresses(trimmedQuery, 5);
 
       if (destinationSearchRequestRef.current !== requestId) {
         return;
@@ -433,6 +556,7 @@ export default function DriverAllocationFormScreen() {
 
       setDestinationSearchResults(
         mergeLocationOptions(
+          curatedResults,
           liveResults,
           getFallbackLocationMatches(trimmedQuery, 5)
         ).slice(0, 5)
@@ -443,7 +567,7 @@ export default function DriverAllocationFormScreen() {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [destinationSearchValue, selectedDestination?.label]);
+  }, [destinationSearchValue, selectedDestination]);
 
   const handlePickupSelection = (
     nextPickup: DriverAllocationLocationOption
@@ -451,7 +575,7 @@ export default function DriverAllocationFormScreen() {
     registerDriverAllocationLocationOptions([nextPickup]);
     setLocationOptions((current) => mergeLocationOptions(current, [nextPickup]));
     setPickupId(nextPickup.value);
-    setPickupSearchValue(nextPickup.label);
+    setPickupSearchValue(formatLocationDisplay(nextPickup));
     setPickupSearchResults([]);
     setMapSelectionMode('destination');
 
@@ -477,7 +601,7 @@ export default function DriverAllocationFormScreen() {
   ) => {
     if (pickupId && pickupId === nextDestination.value) {
       setDestinationId(null);
-      setDestinationSearchValue(nextDestination.label);
+      setDestinationSearchValue(formatLocationDisplay(nextDestination));
       setDestinationSearchResults([]);
       setErrors((current) => ({
         ...current,
@@ -491,12 +615,59 @@ export default function DriverAllocationFormScreen() {
       mergeLocationOptions(current, [nextDestination])
     );
     setDestinationId(nextDestination.value);
-    setDestinationSearchValue(nextDestination.label);
+    setDestinationSearchValue(formatLocationDisplay(nextDestination));
     setDestinationSearchResults([]);
     setErrors((current) => ({
       ...current,
       destinationId: undefined,
     }));
+  };
+
+  const resolveCuratedLocationPreset = async (
+    preset: CuratedLocationPreset
+  ) => {
+    for (const query of preset.queries) {
+      const [result] = await searchMapboxAddresses(query, 1);
+
+      if (result) {
+        return buildCuratedLocationOption(preset, result.location);
+      }
+    }
+
+    return null;
+  };
+
+  const handleCuratedLocationSelection = async (
+    mode: RouteSelectionMode,
+    preset: CuratedLocationPreset
+  ) => {
+    const requestId = presetSelectionRequestRef.current + 1;
+    presetSelectionRequestRef.current = requestId;
+    setMapSelectionMode(mode);
+    setResolvingPresetKey(`${mode}:${preset.key}`);
+
+    const resolvedLocation = await resolveCuratedLocationPreset(preset);
+
+    if (presetSelectionRequestRef.current !== requestId) {
+      return;
+    }
+
+    setResolvingPresetKey(null);
+
+    if (!resolvedLocation) {
+      Alert.alert(
+        'Address lookup unavailable',
+        `The app could not resolve ${preset.label} right now. Try searching the full address or tap the map.`
+      );
+      return;
+    }
+
+    if (mode === 'pickup') {
+      handlePickupSelection(resolvedLocation);
+      return;
+    }
+
+    handleDestinationSelection(resolvedLocation);
   };
 
   const handleMapLocationSelection = (
@@ -515,8 +686,7 @@ export default function DriverAllocationFormScreen() {
     mapSelectionRequestRef.current = requestId;
     setIsResolvingMapLocation(true);
 
-    const resolvedLocation =
-      await reverseGeocodeGoogleMapsLocation(location);
+    const resolvedLocation = await reverseGeocodeMapboxLocation(location);
 
     if (mapSelectionRequestRef.current !== requestId) {
       return;
@@ -747,14 +917,14 @@ export default function DriverAllocationFormScreen() {
 
           <Input
             label="Select Pickup"
-            placeholder="Search pickup address"
+            placeholder="Search pickup place or full address"
             value={pickupSearchValue}
             onChangeText={(value) => {
               setPickupSearchValue(value);
               setMapSelectionMode('pickup');
               if (
                 normalizeSearchValue(value) !==
-                normalizeSearchValue(selectedPickup?.label)
+                normalizeSearchValue(formatLocationDisplay(selectedPickup))
               ) {
                 setPickupId(null);
               }
@@ -791,6 +961,53 @@ export default function DriverAllocationFormScreen() {
             }}
             error={errors.pickupId}
           />
+
+          <View style={styles.quickPickBlock}>
+            <Text style={styles.quickPickLabel}>Quick Picks</Text>
+            <View style={styles.quickPickRow}>
+              {CURATED_LOCATION_PRESETS.map((preset) => {
+                const isActive = isCuratedLocationSelected(
+                  selectedPickup,
+                  preset
+                );
+                const isResolving =
+                  resolvingPresetKey === `pickup:${preset.key}`;
+
+                return (
+                  <TouchableOpacity
+                    key={`pickup-preset-${preset.key}`}
+                    style={[
+                      styles.quickPickChip,
+                      isActive && styles.quickPickChipActive,
+                    ]}
+                    activeOpacity={0.85}
+                    disabled={isResolving}
+                    onPress={() => {
+                      void handleCuratedLocationSelection('pickup', preset);
+                    }}
+                  >
+                    <Ionicons
+                      name={isResolving ? 'time-outline' : 'business-outline'}
+                      size={14}
+                      color={
+                        isActive
+                          ? theme.colors.primaryDark
+                          : theme.colors.textSubtle
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.quickPickChipText,
+                        isActive && styles.quickPickChipTextActive,
+                      ]}
+                    >
+                      {preset.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
 
           {showPickupSearchResults ? (
             <View style={styles.searchResults}>
@@ -843,14 +1060,16 @@ export default function DriverAllocationFormScreen() {
 
           <Input
             label="Select Destination"
-            placeholder="Search destination address"
+            placeholder="Search destination place or full address"
             value={destinationSearchValue}
             onChangeText={(value) => {
               setDestinationSearchValue(value);
               setMapSelectionMode('destination');
               if (
                 normalizeSearchValue(value) !==
-                normalizeSearchValue(selectedDestination?.label)
+                normalizeSearchValue(
+                  formatLocationDisplay(selectedDestination)
+                )
               ) {
                 setDestinationId(null);
               }
@@ -887,6 +1106,56 @@ export default function DriverAllocationFormScreen() {
             }}
             error={errors.destinationId}
           />
+
+          <View style={styles.quickPickBlock}>
+            <Text style={styles.quickPickLabel}>Quick Picks</Text>
+            <View style={styles.quickPickRow}>
+              {CURATED_LOCATION_PRESETS.map((preset) => {
+                const isActive = isCuratedLocationSelected(
+                  selectedDestination,
+                  preset
+                );
+                const isResolving =
+                  resolvingPresetKey === `destination:${preset.key}`;
+
+                return (
+                  <TouchableOpacity
+                    key={`destination-preset-${preset.key}`}
+                    style={[
+                      styles.quickPickChip,
+                      isActive && styles.quickPickChipActive,
+                    ]}
+                    activeOpacity={0.85}
+                    disabled={isResolving}
+                    onPress={() => {
+                      void handleCuratedLocationSelection(
+                        'destination',
+                        preset
+                      );
+                    }}
+                  >
+                    <Ionicons
+                      name={isResolving ? 'time-outline' : 'business-outline'}
+                      size={14}
+                      color={
+                        isActive
+                          ? theme.colors.primaryDark
+                          : theme.colors.textSubtle
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.quickPickChipText,
+                        isActive && styles.quickPickChipTextActive,
+                      ]}
+                    >
+                      {preset.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
 
           {showDestinationSearchResults ? (
             <View style={styles.searchResults}>
@@ -943,7 +1212,7 @@ export default function DriverAllocationFormScreen() {
               <Text style={styles.routePreviewTitle}>Route Preview</Text>
               <Text style={styles.routePreviewSubtitle}>
                 {selectedPickup && selectedDestination
-                  ? `${selectedPickup.label} to ${selectedDestination.label}`
+                  ? `${formatLocationDisplay(selectedPickup)} to ${formatLocationDisplay(selectedDestination)}`
                   : mapSelectionMode === 'pickup'
                     ? 'Search or tap the map to set Point A / Pickup'
                     : 'Search or tap the map to set Point B / Destination'}
@@ -986,6 +1255,12 @@ export default function DriverAllocationFormScreen() {
               </Text>
             ) : null}
 
+            {resolvingPresetKey ? (
+              <Text style={styles.mapStatusText}>
+                Resolving the selected quick-pick address on the map...
+              </Text>
+            ) : null}
+
             <MapViewComponent
               key={`allocation-route-map-${pickupId ?? 'none'}-${destinationId ?? 'none'}-${mapSelectionMode}`}
               markers={routeMarkers}
@@ -1012,13 +1287,13 @@ export default function DriverAllocationFormScreen() {
               <View style={styles.routePointPill}>
                 <Text style={styles.routePointLabel}>Point A</Text>
                 <Text style={styles.routePointValue}>
-                  {selectedPickup?.label ?? 'Not selected'}
+                  {formatLocationDisplay(selectedPickup) || 'Not selected'}
                 </Text>
               </View>
               <View style={styles.routePointPill}>
                 <Text style={styles.routePointLabel}>Point B</Text>
                 <Text style={styles.routePointValue}>
-                  {selectedDestination?.label ?? 'Not selected'}
+                  {formatLocationDisplay(selectedDestination) || 'Not selected'}
                 </Text>
               </View>
             </View>
@@ -1110,6 +1385,46 @@ const styles = StyleSheet.create({
   },
   routePreviewHeader: {
     marginBottom: theme.spacing.sm,
+  },
+  quickPickBlock: {
+    marginTop: -8,
+    marginBottom: theme.spacing.base,
+  },
+  quickPickLabel: {
+    marginBottom: theme.spacing.xs,
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.textSubtle,
+    fontFamily: theme.fonts.family.sans,
+  },
+  quickPickRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+  },
+  quickPickChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    borderRadius: theme.radius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surfaceMuted,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+  },
+  quickPickChipActive: {
+    borderColor: theme.colors.primarySurfaceStrong,
+    backgroundColor: theme.colors.primarySurface,
+  },
+  quickPickChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
+  },
+  quickPickChipTextActive: {
+    color: theme.colors.primaryDark,
   },
   searchResults: {
     marginTop: -8,

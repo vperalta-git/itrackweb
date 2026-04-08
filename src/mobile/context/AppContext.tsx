@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 
@@ -62,7 +69,7 @@ const DEFAULT_PUSH_NOTIFICATIONS_STATE: PushNotificationsState = {
 };
 
 const POPUP_AUTO_DISMISS_MS = 4500;
-const NOTIFICATIONS_POLL_INTERVAL_MS = 30000;
+const NOTIFICATIONS_POLL_INTERVAL_MS = 8000;
 
 const logNotificationsError = (context: string, error: unknown) => {
   console.error(`[notifications] ${context}`, error);
@@ -84,6 +91,18 @@ const normalizeNotificationType = (value: unknown): NotificationType => {
   }
 };
 
+const buildPopupNotificationState = (
+  notification: Pick<Notification, 'id' | 'title' | 'message' | 'type'>
+): PopupNotificationState => ({
+  id: notification.id,
+  title: notification.title?.trim() || 'New notification',
+  message:
+    notification.message?.trim() ||
+    'Open notifications to review the latest update.',
+  type: notification.type ?? NotificationType.SYSTEM,
+  notificationId: notification.id,
+});
+
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -100,6 +119,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [popupNotification, setPopupNotification] =
     useState<PopupNotificationState | null>(null);
   const previousUserIdRef = useRef<string | null>(null);
+  const seenNotificationIdsRef = useRef<Set<string>>(new Set());
   const registeredTokenRef = useRef<{
     userId: string;
     token: string;
@@ -110,9 +130,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const unreadCount = notifications.filter((notification) => !notification.read).length;
 
-  const refreshNotifications = async () => {
+  const syncNotificationsState = useCallback(
+    (
+      nextNotifications: Notification[],
+      options?: {
+        surfacePopup?: boolean;
+      }
+    ) => {
+      setNotifications(nextNotifications);
+
+      const previousSeenIds = seenNotificationIdsRef.current;
+      const nextSeenIds = new Set(nextNotifications.map((notification) => notification.id));
+      const newestNotification = nextNotifications.find(
+        (notification) => !previousSeenIds.has(notification.id)
+      );
+
+      seenNotificationIdsRef.current = nextSeenIds;
+
+      if (options?.surfacePopup && newestNotification) {
+        setPopupNotification(buildPopupNotificationState(newestNotification));
+      }
+    },
+    []
+  );
+
+  const refreshNotifications = async (
+    options?: {
+      surfacePopup?: boolean;
+    }
+  ) => {
     if (!user?.id) {
       setNotifications([]);
+      seenNotificationIdsRef.current = new Set();
       return [];
     }
 
@@ -121,7 +170,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const nextNotifications = await loadNotifications(user.id);
 
-      setNotifications(nextNotifications);
+      syncNotificationsState(nextNotifications, {
+        surfacePopup: options?.surfacePopup,
+      });
 
       return nextNotifications;
     } catch (error) {
@@ -305,10 +356,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
             ? content.data.notificationId
             : null;
 
+        const popupId =
+          receivedNotification.request.identifier ||
+          `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+        if (notificationId) {
+          seenNotificationIdsRef.current = new Set([
+            ...seenNotificationIdsRef.current,
+            notificationId,
+          ]);
+        }
+
         setPopupNotification({
-          id:
-            receivedNotification.request.identifier ||
-            `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          id: popupId,
           title,
           message,
           type: normalizeNotificationType(
@@ -384,13 +444,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
 
     if (!currentUserId) {
       setNotifications([]);
+      seenNotificationIdsRef.current = new Set();
       setNotificationsLoading(false);
       setPushNotifications(DEFAULT_PUSH_NOTIFICATIONS_STATE);
       dismissPopupNotification();
       return;
     }
 
-    void refreshNotifications().catch((error) => {
+    void refreshNotifications({ surfacePopup: false }).catch((error) => {
       logNotificationsError('Unable to refresh notifications after sign-in.', error);
     });
     void registerForPushNotifications().catch((error) => {
@@ -409,7 +470,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     const intervalId = setInterval(() => {
       void loadNotifications(user.id)
         .then((nextNotifications) => {
-          setNotifications(nextNotifications);
+          syncNotificationsState(nextNotifications, {
+            surfacePopup: true,
+          });
         })
         .catch(() => {
           return;
@@ -419,7 +482,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => {
       clearInterval(intervalId);
     };
-  }, [user?.id]);
+  }, [syncNotificationsState, user?.id]);
 
   const value: AppContextType = {
     notifications,

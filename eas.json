@@ -3,17 +3,27 @@
     "appVersionSource": "remote"
   },
   "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://i-track-backend-0xpa.onrender.com/api",
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "2c81022f-9e77-4cc2-a286-6278f615d38a",
+        "EXPO_PUBLIC_MAPBOX_STYLE_OWNER": "mapbox",
+        "EXPO_PUBLIC_MAPBOX_STYLE_ID": "streets-v12"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
     "preview": {
       "developmentClient": false,
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://i-track-backend-0xpa.onrender.com/api",
         "EXPO_PUBLIC_EAS_PROJECT_ID": "2c81022f-9e77-4cc2-a286-6278f615d38a",
-        "GOOGLE_MAPS_API_KEY_ANDROID": "AIzaSyC5KgCx8fr7b3KfFph-HgkQ_-G0O6VnZzg",
-        "GOOGLE_MAPS_API_KEY_IOS": "AIzaSyC5KgCx8fr7b3KfFph-HgkQ_-G0O6VnZzg",
-        "GOOGLE_MAPS_DIRECTIONS_API_KEY": "AIzaSyC5KgCx8fr7b3KfFph-HgkQ_-G0O6VnZzg",
-        "GOOGLE_MAPS_GEOCODING_API_KEY": "AIzaSyC5KgCx8fr7b3KfFph-HgkQ_-G0O6VnZzg",
-        "GOOGLE_MAPS_PLACES_API_KEY": "AIzaSyC5KgCx8fr7b3KfFph-HgkQ_-G0O6VnZzg"
+        "EXPO_PUBLIC_MAPBOX_STYLE_OWNER": "mapbox",
+        "EXPO_PUBLIC_MAPBOX_STYLE_ID": "streets-v12"
       },
       "android": {
         "buildType": "apk"
@@ -24,11 +34,8 @@
       "env": {
         "EXPO_PUBLIC_API_URL": "https://i-track-backend-0xpa.onrender.com/api",
         "EXPO_PUBLIC_EAS_PROJECT_ID": "2c81022f-9e77-4cc2-a286-6278f615d38a",
-        "GOOGLE_MAPS_API_KEY_ANDROID": "AIzaSyC5KgCx8fr7b3KfFph-HgkQ_-G0O6VnZzg",
-        "GOOGLE_MAPS_API_KEY_IOS": "AIzaSyC5KgCx8fr7b3KfFph-HgkQ_-G0O6VnZzg",
-        "GOOGLE_MAPS_DIRECTIONS_API_KEY": "AIzaSyC5KgCx8fr7b3KfFph-HgkQ_-G0O6VnZzg",
-        "GOOGLE_MAPS_GEOCODING_API_KEY": "AIzaSyC5KgCx8fr7b3KfFph-HgkQ_-G0O6VnZzg",
-        "GOOGLE_MAPS_PLACES_API_KEY": "AIzaSyC5KgCx8fr7b3KfFph-HgkQ_-G0O6VnZzg"
+        "EXPO_PUBLIC_MAPBOX_STYLE_OWNER": "mapbox",
+        "EXPO_PUBLIC_MAPBOX_STYLE_ID": "streets-v12"
       },
       "android": {
         "buildType": "app-bundle"
