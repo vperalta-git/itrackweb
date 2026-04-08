@@ -8,11 +8,14 @@ import {
   BackendTestDriveBooking,
   BackendUnitAgentAllocation,
   BackendVehicle,
+  formatDateLabel,
+  formatDateTimeLabel,
   formatServiceLabel,
   getDisplayDate,
   getDisplayTime,
   getEntityId,
   getFullName,
+  parseDateValue,
   getRoleLabelFromBackendRole,
 } from '@/lib/backend-helpers'
 
@@ -139,34 +142,9 @@ const vehicleStatusLabels: Record<string, string> = {
   maintenance: 'Pending',
 }
 
-const toDate = (value?: string | null) => {
-  if (!value) return null
-
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date
-}
+const toDate = (value?: string | null) => parseDateValue(value)
 
 const pad = (value: number) => String(value).padStart(2, '0')
-
-export const formatDateTimeLabel = (value?: string | Date | null, empty = 'Pending') => {
-  const date =
-    value instanceof Date ? value : typeof value === 'string' ? toDate(value) : null
-
-  if (!date) return empty
-
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-    date.getHours()
-  )}:${pad(date.getMinutes())}`
-}
-
-const formatDateLabel = (value?: string | Date | null, empty = 'Pending') => {
-  const date =
-    value instanceof Date ? value : typeof value === 'string' ? toDate(value) : null
-
-  if (!date) return empty
-
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
 
 const monthKey = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}`
 

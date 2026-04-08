@@ -12,6 +12,13 @@ export type BackendPopulatedUser = {
   role?: string
   isActive?: boolean
   managerId?: string | BackendPopulatedUser | null
+  lastLogin?: string | null
+  lastLoginAt?: string | null
+  lastSeen?: string | null
+  lastSeenAt?: string | null
+  lastActiveAt?: string | null
+  last_login?: string | null
+  last_login_at?: string | null
   createdAt?: string
   updatedAt?: string
 }
@@ -233,30 +240,74 @@ export function getIsoDate(value?: string | null) {
   return value ? value.slice(0, 10) : ''
 }
 
+export function parseDateValue(value?: string | Date | null) {
+  if (!value) return null
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const normalized =
+    /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+      ? `${trimmed}T00:00:00`
+      : /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(trimmed)
+      ? trimmed.replace(' ', 'T')
+      : trimmed
+
+  const date = new Date(normalized)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+const pad = (value: number) => String(value).padStart(2, '0')
+
+export function formatDateTimeLabel(value?: string | Date | null, empty = 'Pending') {
+  const date = parseDateValue(value)
+  if (!date) return empty
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`
+}
+
+export function formatDateLabel(value?: string | Date | null, empty = 'Pending') {
+  const date = parseDateValue(value)
+  if (!date) return empty
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
 export function getDisplayDate(value?: string | null) {
   if (!value) return ''
+
+  const date = parseDateValue(value)
+  if (!date) return ''
 
   return new Intl.DateTimeFormat('en-PH', {
     month: 'short',
     day: '2-digit',
     year: 'numeric',
-  }).format(new Date(value))
+  }).format(date)
 }
 
 export function getDisplayTime(value: string) {
-  const candidate = value.includes('T') ? value : `1970-01-01T${value}`
+  const candidate = parseDateValue(value.includes('T') ? value : `1970-01-01T${value}`)
+  if (!candidate) return ''
 
   return new Intl.DateTimeFormat('en-PH', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
-  }).format(new Date(candidate))
+  }).format(candidate)
 }
 
 export function getRelativeTime(value?: string | null) {
-  if (!value) return ''
+  const date = parseDateValue(value)
+  if (!date) return ''
 
-  const diffMs = Date.now() - new Date(value).getTime()
+  const diffMs = Date.now() - date.getTime()
   const diffMinutes = Math.max(1, Math.floor(diffMs / 60000))
 
   if (diffMinutes < 60) return `${diffMinutes} min ago`

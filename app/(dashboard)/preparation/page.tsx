@@ -74,6 +74,7 @@ import {
 import { getRoleFromPathname } from '@/lib/rbac'
 import { matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
 import { getSessionUser, mapUserRoleToBackendRole } from '@/lib/session'
+import { formatDateTimeLabel } from '@/lib/backend-helpers'
 import { toast } from 'sonner'
 
 type PreparationRequest = PreparationRequestRecord
@@ -181,14 +182,17 @@ export default function PreparationPage() {
   const selectedChecklist = React.useMemo<ChecklistItem[]>(() => {
     if (!selectedRequest) return []
 
+    const completedAtLabel = formatDateTimeLabel(
+      selectedRequest.readyForReleaseAt ?? selectedRequest.completedAt,
+      ''
+    )
+
     return selectedRequest.dispatcherChecklist.map((item, index) => ({
       id: item.id,
       task: item.label,
       completed: item.completed,
       completedBy: item.completed ? 'Dispatcher' : undefined,
-      completedAt: item.completed
-        ? `${selectedRequest.dateCreated} ${String(9 + index).padStart(2, '0')}:30`
-        : undefined,
+      completedAt: item.completed ? completedAtLabel || selectedRequest.dateCreated : undefined,
     }))
   }, [selectedRequest])
 

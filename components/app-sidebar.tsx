@@ -59,6 +59,10 @@ const mainNavItems: NavConfigItem[] = [
     title: 'Vehicle Stocks',
     url: '/inventory',
     icon: Package,
+    subItems: [
+      { title: 'Stock List', url: '/inventory' },
+      { title: 'Unit Setup', url: '/unit-setup' },
+    ],
   },
   {
     title: 'Vehicle Preparation',
@@ -109,7 +113,12 @@ const roleMainNavItems: Record<Role, typeof mainNavItems> = {
   manager: mainNavItems
     .filter((item) => item.url !== '/allocation/units')
     .map((item) =>
-      item.url === '/allocation/drivers'
+      item.url === '/inventory'
+        ? {
+            ...item,
+            subItems: [{ title: 'Stock List', url: '/inventory' }],
+          }
+        : item.url === '/allocation/drivers'
         ? {
             ...item,
             url: '/allocation/drivers/tracking',
@@ -120,7 +129,12 @@ const roleMainNavItems: Record<Role, typeof mainNavItems> = {
   'sales-agent': mainNavItems
     .filter((item) => item.url !== '/allocation/units')
     .map((item) =>
-      item.url === '/allocation/drivers'
+      item.url === '/inventory'
+        ? {
+            ...item,
+            subItems: [{ title: 'Stock List', url: '/inventory' }],
+          }
+        : item.url === '/allocation/drivers'
         ? {
             ...item,
             url: '/allocation/drivers/tracking',
@@ -255,7 +269,7 @@ export function AppSidebar() {
   const adminItems =
     role === 'admin' || role === 'supervisor'
       ? adminNavItems
-          .filter((item) => item.title === 'User Management')
+          .filter((item) => item.title !== 'Reports')
           .map((item) => ({
             ...item,
             url: withRole(item.url),

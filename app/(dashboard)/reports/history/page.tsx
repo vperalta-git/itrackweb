@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 
 import { PageHeader } from '@/components/page-header'
+import { BodyColorChip } from '@/components/body-color-chip'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -354,9 +355,12 @@ export default function VehicleHistoryPage() {
                           {statusLabels[record.status]}
                         </Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground">
-                        {record.unitName} {record.variation} in {record.bodyColor}
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                        <span>
+                          {record.unitName} {record.variation} in
+                        </span>
+                        <BodyColorChip bodyColor={record.bodyColor} />
+                      </div>
                       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                         <div className="rounded-lg border bg-muted/20 p-3">
                           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -427,9 +431,12 @@ export default function VehicleHistoryPage() {
                         {statusLabels[selectedRecord.status]}
                       </Badge>
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {selectedRecord.unitName} {selectedRecord.variation} in {selectedRecord.bodyColor}
-                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                      <span>
+                        {selectedRecord.unitName} {selectedRecord.variation} in
+                      </span>
+                      <BodyColorChip bodyColor={selectedRecord.bodyColor} />
+                    </div>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[420px]">
                     <div className="rounded-xl border bg-background/90 p-3">
@@ -475,7 +482,12 @@ export default function VehicleHistoryPage() {
                       </div>
                       <div className="rounded-lg bg-muted/20 p-3">
                         <p className="text-xs text-muted-foreground">Body Color</p>
-                        <p className="mt-1 text-sm font-medium">{selectedRecord.bodyColor}</p>
+                        <div className="mt-1">
+                          <BodyColorChip
+                            bodyColor={selectedRecord.bodyColor}
+                            textClassName="text-sm font-medium"
+                          />
+                        </div>
                       </div>
                     </div>
                     <div className="mt-3 rounded-lg bg-muted/20 p-3 text-sm">

@@ -14,6 +14,7 @@ import ReportsPage from '@/app/(dashboard)/reports/page'
 import ReportsVehiclesPage from '@/app/(dashboard)/reports/vehicles/page'
 import SettingsPage from '@/app/(dashboard)/settings/page'
 import TestDrivePage from '@/app/(dashboard)/test-drive/page'
+import UnitSetupPage from '@/app/(dashboard)/unit-setup/page'
 import UsersPage from '@/app/(dashboard)/users/page'
 import { buildRolePath, isValidRole } from '@/lib/rbac'
 import { getServerRouteRole, hasServerSession } from '@/lib/server-session'
@@ -26,6 +27,7 @@ const routeMap: Record<string, ComponentType> = {
   'allocation/drivers': AllocationDriversPage,
   'allocation/drivers/tracking': AllocationDriversTrackingPage,
   users: UsersPage,
+  'unit-setup': UnitSetupPage,
   reports: ReportsPage,
   'reports/vehicles': ReportsVehiclesPage,
   'reports/history': ReportsHistoryPage,

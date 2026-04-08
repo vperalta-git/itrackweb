@@ -49,7 +49,7 @@ export function logAuditEvent(input: Omit<AuditLogEntry, 'id' | 'timestamp'>) {
   const nextEntry: AuditLogEntry = {
     ...input,
     id: `AUD-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    timestamp: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    timestamp: new Date().toISOString(),
   }
 
   const currentLogs = getStoredAuditLogs()

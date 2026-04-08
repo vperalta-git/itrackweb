@@ -29,6 +29,7 @@ import {
   getStoredAuditLogs,
   type AuditLogEntry,
 } from '@/lib/audit-log'
+import { formatDateTimeLabel, parseDateValue } from '@/lib/backend-helpers'
 import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
 import { deriveActivityRecords, fetchReportSnapshot, type DerivedActivityRecord } from '@/lib/report-data'
 import { loadUsers, syncUsersFromBackend, type SystemUser } from '@/lib/user-data'
@@ -64,7 +65,8 @@ const getActionColor = (action: AuditTableRecord['action']) => {
 
 const toAuditTableRecord = (log: AuditLogEntry): AuditTableRecord => ({
   ...log,
-  timestampIso: new Date(log.timestamp.replace(' ', 'T')).toISOString(),
+  timestampIso: parseDateValue(log.timestamp)?.toISOString() ?? new Date(0).toISOString(),
+  timestamp: formatDateTimeLabel(log.timestamp, log.timestamp),
 })
 
 export default function AuditTrailPage() {

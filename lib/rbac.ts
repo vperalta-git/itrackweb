@@ -53,6 +53,7 @@ export const legacyDashboardPaths = [
   '/preparation',
   '/allocation',
   '/users',
+  '/unit-setup',
   '/reports',
   '/settings',
   '/profile',

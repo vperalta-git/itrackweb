@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 
 import { DataTable } from '@/components/data-table'
+import { BodyColorChip } from '@/components/body-color-chip'
 import { PageHeader } from '@/components/page-header'
 import { ConfirmActionDialog } from '@/components/confirm-action-dialog'
 import { Button } from '@/components/ui/button'
@@ -307,6 +308,7 @@ export default function UnitAllocationPage() {
     {
       accessorKey: 'bodyColor',
       header: 'Body Color',
+      cell: ({ row }) => <BodyColorChip bodyColor={row.original.bodyColor} />,
     },
     {
       accessorKey: 'variation',
@@ -629,7 +631,7 @@ export default function UnitAllocationPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Body Color</span>
-                      <span className="font-medium">{selectedAllocation.bodyColor}</span>
+                      <BodyColorChip bodyColor={selectedAllocation.bodyColor} />
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Variation</span>

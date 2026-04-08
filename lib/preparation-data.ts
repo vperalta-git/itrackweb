@@ -4,10 +4,10 @@ import { apiRequest } from '@/lib/api-client'
 import {
   BackendPreparation,
   BackendUnitAgentAllocation,
+  formatDateTimeLabel,
   formatServiceLabel,
   getEntityId,
   getFullName,
-  getIsoDate,
   mapPreparationStatusToUi,
   mapUiPreparationStatusToBackend,
   mapUiServiceLabelToBackend,
@@ -23,6 +23,7 @@ import { mapUserRoleToBackendRole, type SessionUser } from '@/lib/session'
 export interface PreparationRequestRecord {
   id: string
   dateCreated: string
+  dateCreatedIso: string
   conductionNumber: string
   unitName: string
   service: string
@@ -106,7 +107,8 @@ const mapPreparation = (
 
   return {
     id: getEntityId(preparation),
-    dateCreated: getIsoDate(preparation.createdAt),
+    dateCreated: formatDateTimeLabel(preparation.createdAt),
+    dateCreatedIso: preparation.createdAt ?? new Date(0).toISOString(),
     conductionNumber: vehicle?.conductionNumber ?? '',
     unitName: [vehicle?.unitName ?? '', vehicle?.variation ?? ''].join(' ').trim(),
     service: serviceLabels.join(', '),
@@ -142,7 +144,7 @@ export async function syncPreparationRecordsFromBackend() {
 
   const mappedPreparations = preparations
     .map((preparation) => mapPreparation(preparation, unitAllocationByVehicleId))
-    .sort((left, right) => right.dateCreated.localeCompare(left.dateCreated))
+    .sort((left, right) => right.dateCreatedIso.localeCompare(left.dateCreatedIso))
 
   persistPreparationRecords(mappedPreparations)
   return mappedPreparations

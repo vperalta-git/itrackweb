@@ -5,9 +5,11 @@ import {
   BackendPopulatedUser,
   buildEmployeeId,
   getDepartmentFromBackendRole,
+  getDisplayDate,
   getEntityId,
   getFullName,
   getIsoDate,
+  getRelativeTime,
 } from '@/lib/backend-helpers'
 import {
   isValidMobilePhoneNumber,
@@ -37,6 +39,7 @@ export interface SystemUser {
 
 export const USERS_STORAGE_KEY = 'itrack.system.users'
 export const USERS_UPDATED_EVENT = 'users-updated'
+const USER_LAST_LOGIN_STORAGE_KEY = 'itrack.system.user-last-login'
 
 const EMPTY_USERS: SystemUser[] = []
 
@@ -48,6 +51,26 @@ const safeParseUsers = (raw: string | null) => {
   } catch {
     return EMPTY_USERS
   }
+}
+
+const safeParseLastLoginMap = (raw: string | null) => {
+  if (!raw) return {} as Record<string, string>
+
+  try {
+    return JSON.parse(raw) as Record<string, string>
+  } catch {
+    return {} as Record<string, string>
+  }
+}
+
+function loadUserLastLoginMap() {
+  if (typeof window === 'undefined') return {} as Record<string, string>
+  return safeParseLastLoginMap(window.localStorage.getItem(USER_LAST_LOGIN_STORAGE_KEY))
+}
+
+function persistUserLastLoginMap(map: Record<string, string>) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(USER_LAST_LOGIN_STORAGE_KEY, JSON.stringify(map))
 }
 
 export function loadUsers(): SystemUser[] {
@@ -64,6 +87,21 @@ export function persistUsers(users: SystemUser[]) {
 
 export function mapBackendUserToSystemUser(user: BackendPopulatedUser): SystemUser {
   const id = getEntityId(user)
+  const fallbackLastLoginAt = loadUserLastLoginMap()[id] ?? null
+  const lastLoginAt =
+    user.lastLoginAt ??
+    user.last_login_at ??
+    user.lastLogin ??
+    user.last_login ??
+    user.lastSeenAt ??
+    user.lastSeen ??
+    user.lastActiveAt ??
+    fallbackLastLoginAt
+
+  const formattedLastLogin =
+    lastLoginAt && !Number.isNaN(new Date(lastLoginAt).getTime())
+      ? getRelativeTime(lastLoginAt) || getDisplayDate(lastLoginAt)
+      : 'Never'
 
   return {
     id,
@@ -75,7 +113,7 @@ export function mapBackendUserToSystemUser(user: BackendPopulatedUser): SystemUs
     role: mapBackendRoleToUserRole(user.role ?? 'admin'),
     department: getDepartmentFromBackendRole(user.role),
     status: user.isActive === false ? 'inactive' : 'active',
-    lastLogin: 'Never',
+    lastLogin: formattedLastLogin,
     createdAt: getIsoDate(user.createdAt),
     bio: user.bio ?? '',
     avatarUrl: user.avatarUrl ?? null,
@@ -186,5 +224,30 @@ export async function deleteUserRecord(id: string) {
   })
 
   persistUsers(loadUsers().filter((user) => user.id !== id))
+  const nextLastLoginMap = { ...loadUserLastLoginMap() }
+  delete nextLastLoginMap[id]
+  persistUserLastLoginMap(nextLastLoginMap)
   requestWebNotificationRefresh()
+}
+
+export function recordUserLastLogin(userId: string, at = new Date().toISOString()) {
+  if (!userId || typeof window === 'undefined') return
+
+  const nextLastLoginMap = {
+    ...loadUserLastLoginMap(),
+    [userId]: at,
+  }
+
+  persistUserLastLoginMap(nextLastLoginMap)
+
+  const nextUsers = loadUsers().map((user) =>
+    user.id === userId
+      ? {
+          ...user,
+          lastLogin: getRelativeTime(at) || getDisplayDate(at),
+        }
+      : user
+  )
+
+  persistUsers(nextUsers)
 }

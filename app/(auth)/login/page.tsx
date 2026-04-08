@@ -15,7 +15,7 @@ import { apiRequest, ApiError } from '@/lib/api-client'
 import { logAuditEvent } from '@/lib/audit-log'
 import { buildRolePath } from '@/lib/rbac'
 import { mapAuthUserFromBackend, saveSession } from '@/lib/session'
-import { syncUsersFromBackend } from '@/lib/user-data'
+import { recordUserLastLogin, syncUsersFromBackend } from '@/lib/user-data'
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = React.useState(false)
@@ -78,6 +78,8 @@ export default function LoginPage() {
         remember: formData.remember,
         user,
       })
+
+      recordUserLastLogin(user.id)
 
       void syncUsersFromBackend().catch(() => {
         return null
