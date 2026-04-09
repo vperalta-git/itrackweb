@@ -8,3 +8,6 @@
 - Environments: .env.local, .env
 ✓ Ready in 1165ms
 
+  Reload env: .env
+  Reload env: .env.local
+  Reload env: .env.local

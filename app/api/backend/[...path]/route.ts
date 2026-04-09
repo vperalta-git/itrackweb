@@ -46,32 +46,43 @@ async function handleRequest(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> }
 ) {
-  const { path } = await context.params
-  const backendUrl = buildBackendUrl(path, request.nextUrl.searchParams)
-  const headers = buildForwardHeaders(request)
-  const method = request.method.toUpperCase()
-  const shouldIncludeBody = method !== 'GET' && method !== 'HEAD'
+  try {
+    const { path } = await context.params
+    const backendUrl = buildBackendUrl(path, request.nextUrl.searchParams)
+    const headers = buildForwardHeaders(request)
+    const method = request.method.toUpperCase()
+    const shouldIncludeBody = method !== 'GET' && method !== 'HEAD'
 
-  const upstreamResponse = await fetch(backendUrl, {
-    method,
-    headers,
-    body: shouldIncludeBody ? await request.text() : undefined,
-    cache: 'no-store',
-    redirect: 'manual',
-  })
+    const upstreamResponse = await fetch(backendUrl, {
+      method,
+      headers,
+      body: shouldIncludeBody ? await request.text() : undefined,
+      cache: 'no-store',
+      redirect: 'manual',
+    })
 
-  const responseHeaders = new Headers()
+    const responseHeaders = new Headers()
 
-  for (const [key, value] of upstreamResponse.headers.entries()) {
-    if (HOP_BY_HOP_HEADERS.has(key.toLowerCase())) continue
-    responseHeaders.set(key, value)
+    for (const [key, value] of upstreamResponse.headers.entries()) {
+      if (HOP_BY_HOP_HEADERS.has(key.toLowerCase())) continue
+      responseHeaders.set(key, value)
+    }
+
+    return new NextResponse(upstreamResponse.body, {
+      status: upstreamResponse.status,
+      statusText: upstreamResponse.statusText,
+      headers: responseHeaders,
+    })
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          error instanceof Error ? error.message : 'Unable to reach the backend service.',
+      },
+      { status: 502 }
+    )
   }
-
-  return new NextResponse(upstreamResponse.body, {
-    status: upstreamResponse.status,
-    statusText: upstreamResponse.statusText,
-    headers: responseHeaders,
-  })
 }
 
 export { handleRequest as GET }

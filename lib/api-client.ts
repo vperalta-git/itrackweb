@@ -29,6 +29,16 @@ export class ApiError extends Error {
   }
 }
 
+const parseApiResponse = <T,>(rawText: string) => {
+  if (!rawText) return null
+
+  try {
+    return JSON.parse(rawText) as ApiEnvelope<T> | { message?: string }
+  } catch {
+    return { message: rawText }
+  }
+}
+
 const buildUrl = (
   path: string,
   query?: Record<string, string | number | boolean | null | undefined>
@@ -90,7 +100,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}) 
   })
 
   const rawText = await response.text()
-  const parsed = rawText ? (JSON.parse(rawText) as ApiEnvelope<T> | { message?: string }) : null
+  const parsed = parseApiResponse<T>(rawText)
 
   if (!response.ok) {
     throw new ApiError(
@@ -102,5 +112,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}) 
     )
   }
 
-  return (parsed as ApiEnvelope<T>).data
+  if (!parsed || !('data' in parsed)) {
+    throw new Error('The server returned an unexpected response.')
+  }
+
+  return parsed.data
 }
