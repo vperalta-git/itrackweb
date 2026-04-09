@@ -40,8 +40,34 @@ export default function LoginPage() {
     setError('')
     setIsLoading(true)
 
+    let response:
+      | {
+          token: string
+          user: {
+            id?: string
+            _id?: string
+            firstName?: string
+            lastName?: string
+            email?: string
+            phone?: string
+            bio?: string
+            avatarUrl?: string | null
+            role?: string
+            managerId?:
+              | string
+              | {
+                  id?: string
+                  _id?: string
+                  firstName?: string
+                  lastName?: string
+                }
+              | null
+          }
+        }
+      | undefined
+
     try {
-      const response = await apiRequest<{
+      response = await apiRequest<{
         token: string
         user: {
           id?: string
@@ -70,23 +96,50 @@ export default function LoginPage() {
           password: formData.password,
         },
       })
+    } catch (error) {
+      console.error('Login request failed', error)
+      setError(
+        error instanceof ApiError
+          ? error.message
+          : error instanceof TypeError
+          ? `Cannot reach the backend at ${API_BASE_URL}. If you changed the frontend environment on Render, redeploy the frontend and try again.`
+          : error instanceof Error
+          ? error.message
+          : 'Unable to sign in right now.'
+      )
+      setIsLoading(false)
+      return
+    }
 
-      const user = mapAuthUserFromBackend(response.user)
-      const nextSession = {
-        token: response.token,
-        remember: formData.remember,
-        user,
-      }
+    const user = mapAuthUserFromBackend(response.user)
+    const nextSession = {
+      token: response.token,
+      remember: formData.remember,
+      user,
+    }
 
-      if (!user.routeRole) {
-        setError(
-          'This account does not have access to the web dashboard. Use an admin, supervisor, manager, or sales agent account.'
-        )
-        setIsLoading(false)
-        return
-      }
+    if (!user.routeRole) {
+      setError(
+        'This account does not have access to the web dashboard. Use an admin, supervisor, manager, or sales agent account.'
+      )
+      setIsLoading(false)
+      return
+    }
 
+    try {
       await persistServerSession(nextSession)
+    } catch (error) {
+      console.error('Web session bootstrap failed', error)
+      setError(
+        error instanceof Error
+          ? `Sign in succeeded, but the web session could not be started: ${error.message}`
+          : 'Sign in succeeded, but the web session could not be started.'
+      )
+      setIsLoading(false)
+      return
+    }
+
+    try {
       saveSession(nextSession)
 
       recordUserLastLogin(user.id)
@@ -104,14 +157,11 @@ export default function LoginPage() {
 
       window.location.assign(buildRolePath(user.routeRole, 'dashboard'))
     } catch (error) {
+      console.error('Client-side sign-in finalization failed', error)
       setError(
-        error instanceof ApiError
-          ? error.message
-          : error instanceof TypeError
-          ? `Cannot reach the backend at ${API_BASE_URL}. If you just changed the env file, restart the Next.js dev server and try again.`
-          : error instanceof Error
-          ? error.message
-          : 'Unable to sign in right now.'
+        error instanceof Error
+          ? `Sign in succeeded, but the dashboard session could not be finalized: ${error.message}`
+          : 'Sign in succeeded, but the dashboard session could not be finalized.'
       )
       setIsLoading(false)
     }
