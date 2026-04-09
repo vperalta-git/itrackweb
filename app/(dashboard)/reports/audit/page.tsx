@@ -12,6 +12,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@/components/data-table'
 import { PageHeader } from '@/components/page-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -162,6 +163,7 @@ export default function AuditTrailPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [actionFilter, setActionFilter] = React.useState('all')
   const [moduleFilter, setModuleFilter] = React.useState('all')
+  const [searchTerm, setSearchTerm] = React.useState('')
 
   React.useEffect(() => {
     if (role === 'sales-agent' || role === 'manager') {
@@ -261,13 +263,21 @@ export default function AuditTrailPage() {
   )
 
   const filteredLogs = React.useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase()
+
     return logs.filter((log) => {
       const matchesAction = actionFilter === 'all' || log.action === actionFilter
       const matchesModule = moduleFilter === 'all' || log.module === moduleFilter
+      const matchesSearch =
+        normalizedSearch.length === 0 ||
+        [log.user, log.action, log.module, log.description, log.timestamp]
+          .join(' ')
+          .toLowerCase()
+          .includes(normalizedSearch)
 
-      return matchesAction && matchesModule
+      return matchesAction && matchesModule && matchesSearch
     })
-  }, [actionFilter, logs, moduleFilter])
+  }, [actionFilter, logs, moduleFilter, searchTerm])
 
   React.useEffect(() => {
     const handleAuditLogUpdated = () => {
@@ -357,6 +367,14 @@ export default function AuditTrailPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="mb-4">
+            <Input
+              placeholder="Search activity logs"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              className="w-full sm:max-w-sm"
+            />
+          </div>
           <DataTable
             columns={columns}
             data={filteredLogs}
