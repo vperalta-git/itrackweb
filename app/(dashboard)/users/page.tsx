@@ -60,6 +60,7 @@ import {
 import {
   isValidMobilePhoneNumber,
   MOBILE_PHONE_VALIDATION_MESSAGE,
+  normalizeMobilePhoneNumber,
 } from '@/lib/phone'
 import { toast } from 'sonner'
 
@@ -149,6 +150,8 @@ export default function UsersPage() {
     () => users.filter((user) => user.role === 'manager' && user.status === 'active'),
     [users]
   )
+  const isValidAddPhoneNumber =
+    addForm.phone.trim().length === 0 || isValidMobilePhoneNumber(addForm.phone)
 
   const openViewDetails = (user: User) => {
     setSelectedUser(user)
@@ -543,10 +546,18 @@ export default function UsersPage() {
                   placeholder="+63 9XX XXX XXXX"
                   value={addForm.phone}
                   onChange={(event) =>
-                    setAddForm((current) => ({ ...current, phone: event.target.value }))
+                    setAddForm((current) => ({
+                      ...current,
+                      phone: normalizeMobilePhoneNumber(
+                        event.target.value.replace(/[^\d+]/g, '').slice(0, 13)
+                      ),
+                    }))
                   }
                 />
                 <p className="text-xs text-muted-foreground">{MOBILE_PHONE_VALIDATION_MESSAGE}</p>
+                {addForm.phone.trim().length > 0 && !isValidAddPhoneNumber ? (
+                  <p className="text-xs text-destructive">{MOBILE_PHONE_VALIDATION_MESSAGE}</p>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <Label>Role</Label>
@@ -613,6 +624,7 @@ export default function UsersPage() {
                   !addForm.lastName.trim() ||
                   !addForm.email.trim() ||
                   !addForm.phone.trim() ||
+                  !isValidAddPhoneNumber ||
                   (addForm.role === 'sales-agent' && !addForm.managerId)
                 }
               >
