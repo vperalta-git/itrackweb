@@ -6,8 +6,10 @@
 - Local:         http://localhost:3000
 - Network:       http://192.168.254.147:3000
 - Environments: .env.local, .env
-✓ Ready in 1165ms
+✓ Ready in 1000ms
 
-  Reload env: .env
-  Reload env: .env.local
-  Reload env: .env.local
+○ Compiling /api/backend/[...path] ...
+ GET /api/backend/health 200 in 5.2s (next.js: 4.8s, application-code: 363ms)
+ POST /api/backend/auth/login 502 in 9.1s (next.js: 18ms, application-code: 9.0s)
+ POST /api/backend/auth/login 502 in 9.0s (next.js: 4ms, application-code: 9.0s)
+ POST /api/backend/auth/login 502 in 9.0s (next.js: 13ms, application-code: 9.0s)

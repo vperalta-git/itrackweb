@@ -27,6 +27,14 @@ export default function LoginPage() {
   })
   const [error, setError] = React.useState('')
 
+  React.useEffect(() => {
+    void fetch('/api/backend/health', {
+      cache: 'no-store',
+    }).catch(() => {
+      return null
+    })
+  }, [])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
