@@ -39,31 +39,37 @@ const parseApiResponse = <T,>(rawText: string) => {
   }
 }
 
-const buildUrl = (
-  path: string,
+const appendQuery = (
+  url: URL,
   query?: Record<string, string | number | boolean | null | undefined>
 ) => {
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`
-
-  if (typeof window !== 'undefined') {
-    const proxyUrl = new URL(`${FRONTEND_API_PROXY_BASE}${normalizedPath}`, window.location.origin)
-
-    for (const [key, value] of Object.entries(query ?? {})) {
-      if (value === undefined || value === null || value === '') continue
-      proxyUrl.searchParams.set(key, String(value))
-    }
-
-    return proxyUrl.toString()
-  }
-
-  const url = new URL(`${API_BASE_URL}${normalizedPath}`)
-
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value === undefined || value === null || value === '') continue
     url.searchParams.set(key, String(value))
   }
 
-  return url.toString()
+  return url
+}
+
+const buildProxyUrl = (
+  path: string,
+  query?: Record<string, string | number | boolean | null | undefined>
+) => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+
+  const proxyUrl = new URL(`${FRONTEND_API_PROXY_BASE}${normalizedPath}`, window.location.origin)
+
+  return appendQuery(proxyUrl, query).toString()
+}
+
+const buildDirectUrl = (
+  path: string,
+  query?: Record<string, string | number | boolean | null | undefined>
+) => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const url = new URL(`${API_BASE_URL}${normalizedPath}`)
+
+  return appendQuery(url, query).toString()
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}) {
@@ -87,7 +93,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}) 
     headers.set('Content-Type', 'application/json')
   }
 
-  const response = await fetch(buildUrl(path, options.query), {
+  const requestInit: RequestInit = {
     method: options.method ?? 'GET',
     headers,
     body:
@@ -97,7 +103,24 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}) 
         ? options.body
         : JSON.stringify(options.body),
     cache: 'no-store',
-  })
+  }
+
+  let response: Response
+
+  if (typeof window !== 'undefined') {
+    try {
+      response = await fetch(buildProxyUrl(path, options.query), requestInit)
+    } catch (error) {
+      if (!(error instanceof TypeError)) {
+        throw error
+      }
+
+      console.warn('Proxy request failed, retrying against backend directly.', error)
+      response = await fetch(buildDirectUrl(path, options.query), requestInit)
+    }
+  } else {
+    response = await fetch(buildDirectUrl(path, options.query), requestInit)
+  }
 
   const rawText = await response.text()
   const parsed = parseApiResponse<T>(rawText)
