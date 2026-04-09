@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 
 import { PageHeader } from '@/components/page-header'
+import { AssignedAgentDisplay } from '@/components/assigned-agent-display'
 import { BodyColorChip } from '@/components/body-color-chip'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -134,6 +135,14 @@ export default function VehicleHistoryPage() {
 
     return []
   }, [currentUserName, role, sessionUser?.id, users])
+
+  const userAvatarByName = React.useMemo(
+    () =>
+      new Map(
+        users.map((user) => [getFullName(user), user.avatarUrl ?? ''])
+      ),
+    [users]
+  )
 
   const filteredRecords = React.useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase()
@@ -378,7 +387,13 @@ export default function VehicleHistoryPage() {
                           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                             Agent
                           </p>
-                          <p className="mt-1 text-sm font-medium">{record.agentAssigned}</p>
+                          <div className="mt-2">
+                            <AssignedAgentDisplay
+                              agentName={record.agentAssigned}
+                              avatarUrl={userAvatarByName.get(record.agentAssigned) || ''}
+                              avatarClassName="size-7"
+                            />
+                          </div>
                         </div>
                         <div className="rounded-lg border bg-muted/20 p-3">
                           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -506,10 +521,16 @@ export default function VehicleHistoryPage() {
                       <div className="rounded-lg bg-muted/20 p-3">
                         <div className="flex items-start gap-2">
                           <UserRound className="mt-0.5 size-4 text-primary" />
-                          <div>
+                          <div className="min-w-0 flex-1">
                             <p className="text-xs text-muted-foreground">Assigned Agent</p>
-                            <p className="mt-1 text-sm font-medium">{selectedRecord.agentAssigned}</p>
-                            <p className="mt-1 text-xs text-muted-foreground">{selectedRecord.agentAssignedAt}</p>
+                            <div className="mt-2">
+                              <AssignedAgentDisplay
+                                agentName={selectedRecord.agentAssigned}
+                                avatarUrl={userAvatarByName.get(selectedRecord.agentAssigned) || ''}
+                                secondaryText={selectedRecord.agentAssignedAt}
+                                avatarClassName="size-8"
+                              />
+                            </div>
                           </div>
                         </div>
                       </div>

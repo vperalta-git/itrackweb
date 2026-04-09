@@ -49,6 +49,7 @@ import {
 } from '@/lib/inventory-data'
 import { getRoleFromPathname } from '@/lib/rbac'
 import { getScopedRoleData, matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
+import { getSessionUser, getSessionUserFullName } from '@/lib/session'
 import { loadUsers, syncUsersFromBackend, type SystemUser, USERS_UPDATED_EVENT } from '@/lib/user-data'
 
 const statusLabels: Record<InventoryVehicle['status'], string> = {
@@ -89,6 +90,7 @@ export default function DashboardPage() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
   const scope = getScopedRoleData(role)
+  const currentUserName = getSessionUserFullName(getSessionUser())
   const isSalesAgent = role === 'sales-agent'
   const isManager = role === 'manager'
   const isAdminOrSupervisor = role === 'admin' || role === 'supervisor'
@@ -272,15 +274,15 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Dashboard"
-        description={
-          role === 'admin' || role === 'supervisor'
-            ? 'Welcome back! Here&apos;s an overview of Isuzu Pasig inventory.'
-            : role === 'manager'
-            ? `Vehicle analytics for agents under ${scope.managerName}.`
-            : `Vehicle analytics for ${scope.agentName}.`
-        }
+        <PageHeader
+          title="Dashboard"
+          description={
+            role === 'admin' || role === 'supervisor'
+              ? `Welcome back ${currentUserName || 'User'}`
+              : role === 'manager'
+              ? `Vehicle analytics for agents under ${scope.managerName}.`
+              : `Vehicle analytics for ${scope.agentName}.`
+          }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

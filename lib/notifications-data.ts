@@ -62,3 +62,22 @@ export async function clearNotifications(userId: string) {
     body: { userId },
   })
 }
+
+export async function createNotificationRecord(input: {
+  userId: string
+  title: string
+  message: string
+  type?: string
+  data?: Record<string, unknown>
+}) {
+  return apiRequest<BackendNotification>('/notifications', {
+    method: 'POST',
+    body: {
+      userId: input.userId,
+      title: input.title,
+      message: input.message,
+      type: input.type ?? 'system',
+      ...(input.data ? { data: input.data } : {}),
+    },
+  })
+}

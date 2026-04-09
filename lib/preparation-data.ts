@@ -17,8 +17,10 @@ import {
   MOBILE_PHONE_VALIDATION_MESSAGE,
   normalizeMobilePhoneNumber,
 } from '@/lib/phone'
+import { createNotificationRecord } from '@/lib/notifications-data'
 import { requestWebNotificationRefresh } from '@/lib/notification-preferences'
 import { mapUserRoleToBackendRole, type SessionUser } from '@/lib/session'
+import { loadUsers, syncUsersFromBackend, type SystemUser } from '@/lib/user-data'
 
 export interface PreparationRequestRecord {
   id: string
@@ -52,6 +54,7 @@ export interface PreparationRequestRecord {
 
 const storageKey = 'itrack.preparations.records'
 export const PREPARATIONS_UPDATED_EVENT = 'preparations-updated'
+const COMPLETION_NOTIFIED_STORAGE_KEY = 'itrack.preparations.completion-notified'
 
 const estimateTime = (serviceCount: number) => {
   if (serviceCount >= 4) return '1 day'
@@ -89,6 +92,77 @@ export function persistPreparationRecords(records: PreparationRequestRecord[]) {
 
   window.localStorage.setItem(storageKey, JSON.stringify(records))
   window.dispatchEvent(new Event(PREPARATIONS_UPDATED_EVENT))
+}
+
+function loadCompletionNotificationMap() {
+  if (typeof window === 'undefined') return {} as Record<string, string>
+
+  try {
+    return JSON.parse(
+      window.localStorage.getItem(COMPLETION_NOTIFIED_STORAGE_KEY) ?? '{}'
+    ) as Record<string, string>
+  } catch {
+    return {} as Record<string, string>
+  }
+}
+
+function persistCompletionNotificationMap(map: Record<string, string>) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(COMPLETION_NOTIFIED_STORAGE_KEY, JSON.stringify(map))
+}
+
+const isPreparationComplete = (record: PreparationRequestRecord) =>
+  record.approvalStatus === 'approved' &&
+  record.progress >= 100 &&
+  (record.status === 'completed' || record.status === 'ready-for-release')
+
+async function notifyApproversOfCompletedPreparations(records: PreparationRequestRecord[]) {
+  const completionNotificationMap = loadCompletionNotificationMap()
+  const pendingCompletedRecords = records.filter(
+    (record) => isPreparationComplete(record) && !completionNotificationMap[record.id]
+  )
+
+  if (pendingCompletedRecords.length === 0) {
+    return
+  }
+
+  const users =
+    loadUsers().length > 0 ? loadUsers() : await syncUsersFromBackend().catch(() => [] as SystemUser[])
+  const approvers = users.filter(
+    (user) =>
+      user.status === 'active' && (user.role === 'admin' || user.role === 'supervisor')
+  )
+
+  if (approvers.length === 0) {
+    return
+  }
+
+  for (const record of pendingCompletedRecords) {
+    const title = 'Vehicle Preparation Complete'
+    const message = `Preparation for ${record.conductionNumber} is now 100% complete and ready for admin/supervisor review.`
+
+    await Promise.allSettled(
+      approvers.map((user) =>
+        createNotificationRecord({
+          userId: user.id,
+          title,
+          message,
+          type: 'preparation',
+          data: {
+            preparationId: record.id,
+            vehicleId: record.vehicleId,
+            conductionNumber: record.conductionNumber,
+            status: record.status,
+          },
+        })
+      )
+    )
+
+    completionNotificationMap[record.id] = new Date().toISOString()
+  }
+
+  persistCompletionNotificationMap(completionNotificationMap)
+  requestWebNotificationRefresh()
 }
 
 const mapPreparation = (
@@ -147,6 +221,7 @@ export async function syncPreparationRecordsFromBackend() {
     .sort((left, right) => right.dateCreatedIso.localeCompare(left.dateCreatedIso))
 
   persistPreparationRecords(mappedPreparations)
+  await notifyApproversOfCompletedPreparations(mappedPreparations)
   return mappedPreparations
 }
 

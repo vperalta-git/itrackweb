@@ -17,6 +17,7 @@ import {
 
 import { PageHeader } from '@/components/page-header'
 import { SearchableSelect } from '@/components/searchable-select'
+import { AssignedAgentDisplay } from '@/components/assigned-agent-display'
 import { StatusBadge } from '@/components/status-badge'
 import { DataTable } from '@/components/data-table'
 import { ConfirmActionDialog } from '@/components/confirm-action-dialog'
@@ -68,6 +69,7 @@ import {
   subscribeToUnitSetup,
   type UnitSetupRecord,
 } from '@/lib/unit-setup-data'
+import { loadUsers, syncUsersFromBackend } from '@/lib/user-data'
 import { toast } from 'sonner'
 
 const initialAddVehicleForm = {
@@ -178,8 +180,13 @@ export default function InventoryPage() {
   const [statusFilter, setStatusFilter] = React.useState<string>('all')
   const [addVehicleForm, setAddVehicleForm] = React.useState(initialAddVehicleForm)
   const [editVehicleForm, setEditVehicleForm] = React.useState(emptyEditVehicleForm)
+  const [users, setUsers] = React.useState(() => loadUsers())
 
   React.useEffect(() => subscribeToUnitSetup(setUnitSetup), [])
+
+  React.useEffect(() => {
+    void syncUsersFromBackend().then(setUsers).catch(() => null)
+  }, [])
 
   React.useEffect(() => {
     setAddVehicleForm((current) => reconcileVehicleForm(current, unitSetup))
@@ -206,6 +213,14 @@ export default function InventoryPage() {
   const bodyColorOptions = React.useMemo(
     () => getBodyColorOptions(unitSetup, addVehicleForm.unitName, addVehicleForm.variation),
     [addVehicleForm.unitName, addVehicleForm.variation, unitSetup]
+  )
+
+  const userAvatarByName = React.useMemo(
+    () =>
+      new Map(
+        users.map((user) => [`${user.firstName} ${user.lastName}`.trim(), user.avatarUrl ?? ''])
+      ),
+    [users]
   )
 
   const handleConductionNumberChange = (value: string) => {
@@ -405,10 +420,11 @@ export default function InventoryPage() {
       accessorKey: 'assignedAgent',
       header: 'Assigned Agent',
       cell: ({ row }) => (
-        <div>
-          <span className="font-medium">{row.getValue('assignedAgent')}</span>
-          <p className="text-xs text-muted-foreground">{row.original.manager}</p>
-        </div>
+        <AssignedAgentDisplay
+          agentName={row.original.assignedAgent}
+          avatarUrl={userAvatarByName.get(row.original.assignedAgent) || ''}
+          secondaryText={row.original.manager}
+        />
       ),
     },
     {
@@ -992,9 +1008,6 @@ export default function InventoryPage() {
                   <SelectContent>
                     <SelectItem value="available">Available</SelectItem>
                     <SelectItem value="in-stockyard">In Stockyard</SelectItem>
-                    <SelectItem value="in-transit">In Transit</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in-dispatch">In Dispatch</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

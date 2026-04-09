@@ -67,6 +67,41 @@ const toAuditTableRecord = (log: AuditLogEntry): AuditTableRecord => ({
   timestamp: formatDateTimeLabel(log.timestamp, log.timestamp),
 })
 
+const isSyntheticInventoryCreateLog = (log: AuditTableRecord) =>
+  log.user === 'System' &&
+  log.action === 'CREATE' &&
+  log.module === 'Inventory' &&
+  log.description.startsWith('Added vehicle ')
+
+const mergeAuditLogs = (
+  localLogs: AuditTableRecord[],
+  backendLogs: AuditTableRecord[]
+) => {
+  const localInventoryCreateDescriptions = new Set(
+    localLogs
+      .filter(
+        (log) =>
+          log.action === 'CREATE' &&
+          log.module === 'Inventory' &&
+          log.description.startsWith('Added vehicle ')
+      )
+      .map((log) => log.description)
+  )
+
+  return [...localLogs, ...backendLogs]
+    .filter(
+      (log) =>
+        !(
+          isSyntheticInventoryCreateLog(log) &&
+          localInventoryCreateDescriptions.has(log.description)
+        )
+    )
+    .sort(
+      (left, right) =>
+        new Date(right.timestampIso).getTime() - new Date(left.timestampIso).getTime()
+    )
+}
+
 export default function AuditTrailPage() {
   const router = useRouter()
   const pathname = usePathname()
@@ -105,12 +140,7 @@ export default function AuditTrailPage() {
     const mergeLogs = (localLogs: AuditTableRecord[]) => {
       if (!isMounted) return
 
-      setLogs(
-        [...localLogs, ...backendLogsCache].sort(
-          (left, right) =>
-            new Date(right.timestampIso).getTime() - new Date(left.timestampIso).getTime()
-        )
-      )
+      setLogs(mergeAuditLogs(localLogs, backendLogsCache))
     }
 
     const refreshLocalLogs = () => {
@@ -190,10 +220,7 @@ export default function AuditTrailPage() {
         )
         const localLogs = getStoredAuditLogs().map(toAuditTableRecord)
 
-        return [...localLogs, ...backendLogs].sort(
-          (left, right) =>
-            new Date(right.timestampIso).getTime() - new Date(left.timestampIso).getTime()
-        )
+        return mergeAuditLogs(localLogs, backendLogs)
       })
     }
 
