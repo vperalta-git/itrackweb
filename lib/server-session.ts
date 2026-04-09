@@ -2,20 +2,22 @@ import 'server-only'
 
 import { cookies } from 'next/headers'
 
-import {
-  ROUTE_ROLE_COOKIE_NAME,
-  SESSION_COOKIE_NAME,
-} from '@/lib/auth-constants'
-import { isValidRole, type Role } from '@/lib/rbac'
+import { SERVER_SESSION_COOKIE_NAME } from '@/lib/auth-constants'
+import { type Role } from '@/lib/rbac'
+import { verifySignedSessionValue } from '@/lib/server-auth-session'
+
+export async function getServerSession() {
+  const cookieStore = await cookies()
+  const sessionValue = cookieStore.get(SERVER_SESSION_COOKIE_NAME)?.value
+
+  return verifySignedSessionValue(sessionValue)
+}
 
 export async function getServerRouteRole(): Promise<Role | null> {
-  const cookieStore = await cookies()
-  const role = cookieStore.get(ROUTE_ROLE_COOKIE_NAME)?.value
-
-  return role && isValidRole(role) ? role : null
+  const session = await getServerSession()
+  return session?.routeRole ?? null
 }
 
 export async function hasServerSession() {
-  const cookieStore = await cookies()
-  return Boolean(cookieStore.get(SESSION_COOKIE_NAME)?.value)
+  return Boolean(await getServerSession())
 }

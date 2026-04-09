@@ -103,10 +103,12 @@ export default function UnitSetupPage() {
   const [query, setQuery] = React.useState('')
   const [focusedUnitName, setFocusedUnitName] = React.useState('')
   const [expandedUnits, setExpandedUnits] = React.useState<string[]>([])
+  const [currentPage, setCurrentPage] = React.useState(1)
   const [isEditorOpen, setIsEditorOpen] = React.useState(false)
   const [editorState, setEditorState] = React.useState<UnitEditorState>(emptyEditorState)
   const [colorInputs, setColorInputs] = React.useState<Record<number, string>>({})
   const [pendingDelete, setPendingDelete] = React.useState<PendingDeleteState>(null)
+  const unitsPerPage = 6
 
   React.useEffect(() => subscribeToUnitSetup(setUnitSetup), [])
 
@@ -121,6 +123,23 @@ export default function UnitSetupPage() {
       return matchesUnit && matchesSearch(unit, query)
     })
   }, [focusedUnitName, query, sortedUnitSetup])
+
+  const totalPages = Math.max(1, Math.ceil(filteredUnits.length / unitsPerPage))
+
+  const paginatedUnits = React.useMemo(() => {
+    const start = (currentPage - 1) * unitsPerPage
+    return filteredUnits.slice(start, start + unitsPerPage)
+  }, [currentPage, filteredUnits])
+
+  React.useEffect(() => {
+    setCurrentPage(1)
+  }, [query, focusedUnitName])
+
+  React.useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
 
   const totalVariations = React.useMemo(
     () => unitSetup.reduce((count, unit) => count + unit.variations.length, 0),
@@ -471,7 +490,7 @@ export default function UnitSetupPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-0 p-0">
-        <div className="grid grid-cols-[minmax(0,1.6fr)_120px_120px_140px] items-center gap-4 border-y bg-muted/40 px-6 py-3 text-sm font-medium text-muted-foreground">
+        <div className="hidden grid-cols-[minmax(0,1.6fr)_100px_100px_96px] items-center gap-4 border-y bg-muted/40 px-6 py-3 text-sm font-medium text-muted-foreground lg:grid">
           <span>Unit Name</span>
           <span>Variations</span>
           <span>Colors</span>
@@ -482,7 +501,7 @@ export default function UnitSetupPage() {
             No unit setup matches your current filters. Try clearing the search or add a new unit.
           </div>
         ) : (
-          filteredUnits.map((unit) => {
+          paginatedUnits.map((unit) => {
             const totalColors = unit.variations.reduce(
               (count, variation) => count + variation.bodyColors.length,
               0
@@ -491,7 +510,7 @@ export default function UnitSetupPage() {
 
             return (
               <div key={unit.unitName} className="border-b last:border-b-0">
-                <div className="grid grid-cols-[minmax(0,1.6fr)_120px_120px_140px] items-center gap-4 px-6 py-4">
+                <div className="grid gap-4 px-4 py-4 sm:px-6 lg:grid-cols-[minmax(0,1.6fr)_100px_100px_96px] lg:items-center">
                   <button
                     type="button"
                     onClick={() => toggleExpanded(unit.unitName)}
@@ -509,9 +528,21 @@ export default function UnitSetupPage() {
                       </p>
                     </div>
                   </button>
-                  <span className="text-sm font-medium">{unit.variations.length}</span>
-                  <span className="text-sm font-medium">{totalColors}</span>
-                  <div className="flex items-center justify-end">
+                  <div className="grid grid-cols-2 gap-3 sm:max-w-xs lg:contents">
+                    <div className="rounded-lg border bg-muted/20 px-3 py-2 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground lg:hidden">
+                        Variations
+                      </p>
+                      <span className="text-sm font-medium">{unit.variations.length}</span>
+                    </div>
+                    <div className="rounded-lg border bg-muted/20 px-3 py-2 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground lg:hidden">
+                        Colors
+                      </p>
+                      <span className="text-sm font-medium">{totalColors}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-end lg:justify-end">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button type="button" variant="outline" size="icon-sm">
@@ -537,7 +568,7 @@ export default function UnitSetupPage() {
                 </div>
 
                 {isExpanded && (
-                  <div className="space-y-3 bg-muted/20 px-6 py-4">
+                  <div className="space-y-3 bg-muted/20 px-4 py-4 sm:px-6">
                     {unit.variations.map((variation) => (
                       <div
                         key={`${unit.unitName}-${variation.name}`}
@@ -588,6 +619,38 @@ export default function UnitSetupPage() {
             )
           })
         )}
+        {filteredUnits.length > 0 && (
+          <div className="flex flex-col gap-3 border-t px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <p className="text-sm text-muted-foreground">
+              Showing {(currentPage - 1) * unitsPerPage + 1}-
+              {Math.min(currentPage * unitsPerPage, filteredUnits.length)} of {filteredUnits.length}{' '}
+              units
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
         </CardContent>
       </Card>
 
@@ -601,8 +664,11 @@ export default function UnitSetupPage() {
           }
         }}
       >
-        <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
-          <DialogHeader>
+        <DialogContent
+          showCloseButton={false}
+          className="flex max-h-[92vh] max-w-5xl flex-col overflow-hidden p-0"
+        >
+          <DialogHeader className="shrink-0 border-b px-6 pb-4 pt-6">
             <DialogTitle>
               {editorState.originalUnitName ? 'Edit Unit Setup' : 'Add Unit Setup'}
             </DialogTitle>
@@ -611,7 +677,7 @@ export default function UnitSetupPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-6 py-2">
+          <div className="min-h-0 space-y-6 overflow-y-auto px-6 py-5">
             <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
               Changes here update the Unit Name, Variation, and Body Color dropdowns used in stock
               entry.
@@ -802,7 +868,7 @@ export default function UnitSetupPage() {
             </div>
           </div>
 
-          <DialogFooter className="border-t bg-background px-0 pt-4">
+          <DialogFooter className="shrink-0 border-t bg-background px-6 py-4">
             <Button type="button" variant="outline" onClick={() => setIsEditorOpen(false)}>
               Cancel
             </Button>

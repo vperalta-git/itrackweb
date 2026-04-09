@@ -43,6 +43,13 @@ export type BackendRouteStop = {
   longitude: number
 }
 
+export type BackendLiveLocation = {
+  latitude?: number
+  longitude?: number
+  accuracy?: number | null
+  updatedAt?: string | null
+}
+
 export type BackendUnitAgentAllocation = {
   id?: string
   _id?: string
@@ -68,6 +75,7 @@ export type BackendDriverAllocation = {
   startTime?: string | null
   endTime?: string | null
   routeProgress?: number | null
+  currentLocation?: BackendLiveLocation | null
   notes?: string
   createdAt?: string
   updatedAt?: string
@@ -203,19 +211,6 @@ const uiServiceToBackend: Record<string, string> = {
   Painting: 'painting',
   'Rust Proof': 'rust_proof',
   Tinting: 'tinting',
-}
-
-const routeCoordinateMap: Record<string, { latitude: number; longitude: number }> = {
-  'Central Stockyard, Manila': { latitude: 14.5995, longitude: 120.9842 },
-  'Ayala Center, Makati': { latitude: 14.5515, longitude: 121.0246 },
-  'North Hub, Quezon City': { latitude: 14.676, longitude: 121.0437 },
-  'BGC Showroom, Taguig': { latitude: 14.5547, longitude: 121.0244 },
-  'Isuzu Laguna Stockyard': { latitude: 14.2349, longitude: 121.1368 },
-  'Isuzu Pasig': { latitude: 14.575, longitude: 121.085 },
-  'Customer Location, Quezon City': { latitude: 14.676, longitude: 121.0437 },
-  'Customer Location, Mandaluyong': { latitude: 14.5794, longitude: 121.0359 },
-  'Customer Location, Pasig': { latitude: 14.5764, longitude: 121.0851 },
-  'Ready for agent turnover': { latitude: 14.575, longitude: 121.085 },
 }
 
 export function getEntityId(value: unknown): string {
@@ -379,24 +374,5 @@ export function getRoleLabelFromBackendRole(role?: string) {
       return 'Administrator'
     default:
       return userRole.charAt(0).toUpperCase() + userRole.slice(1)
-  }
-}
-
-export function makeRouteStop(label: string): BackendRouteStop {
-  const normalizedLabel = label.trim()
-  const matchedKey = Object.keys(routeCoordinateMap).find(
-    (candidate) => candidate.toLowerCase() === normalizedLabel.toLowerCase()
-  )
-  const coordinates = matchedKey ? routeCoordinateMap[matchedKey] : null
-
-  if (!coordinates) {
-    throw new Error('Please choose a saved pickup and destination location from the list.')
-  }
-
-  return {
-    name: matchedKey ?? normalizedLabel,
-    address: matchedKey ?? normalizedLabel,
-    latitude: coordinates.latitude,
-    longitude: coordinates.longitude,
   }
 }

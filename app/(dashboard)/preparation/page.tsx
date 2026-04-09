@@ -453,7 +453,7 @@ export default function PreparationPage() {
     },
     {
       accessorKey: 'conductionNumber',
-      header: 'Conduction Number',
+      header: 'Conduction No.',
       cell: ({ row }) => (
         <span className="font-medium text-primary">{row.getValue('conductionNumber')}</span>
       ),
@@ -465,7 +465,29 @@ export default function PreparationPage() {
     {
       accessorKey: 'service',
       header: 'Service',
-      cell: ({ row }) => <span className="line-clamp-1">{row.getValue('service')}</span>,
+      meta: {
+        headerClassName: 'w-[22%]',
+        cellClassName: 'align-top',
+      },
+      cell: ({ row }) => {
+        const services = String(row.getValue('service'))
+          .split(',')
+          .map((service) => service.trim())
+          .filter(Boolean)
+
+        return (
+          <div className="flex flex-wrap gap-2">
+            {services.map((service) => (
+              <span
+                key={`${row.original.id}-${service}`}
+                className="inline-flex items-center rounded-full border bg-muted/40 px-2.5 py-1 text-xs font-medium text-foreground"
+              >
+                {service}
+              </span>
+            ))}
+          </div>
+        )
+      },
     },
     {
       accessorKey: 'salesAgent',
@@ -617,8 +639,11 @@ export default function PreparationPage() {
               New Request
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
+          <DialogContent
+            showCloseButton={false}
+            className="flex max-h-[92vh] max-w-2xl flex-col overflow-hidden p-0"
+          >
+            <DialogHeader className="shrink-0 border-b px-6 pb-4 pt-6">
               <DialogTitle>
                 {requestBeingEdited ? 'Edit Preparation Request' : 'New Preparation Request'}
               </DialogTitle>
@@ -628,7 +653,8 @@ export default function PreparationPage() {
                   : 'Create a preparation request and capture the customer details for SMS updates.'}
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
+            <div className="min-h-0 overflow-y-auto px-6 py-5">
+              <div className="grid gap-4">
               <div className="space-y-2">
                 <Label htmlFor="vehicle">Select Vehicle</Label>
                 {requestBeingEdited ? (
@@ -770,7 +796,8 @@ export default function PreparationPage() {
                 />
               </div>
             </div>
-            <DialogFooter>
+            </div>
+            <DialogFooter className="shrink-0 border-t bg-background px-6 py-4">
               <Button variant="outline" onClick={() => handleRequestDialogChange(false)}>
                 Cancel
               </Button>
@@ -874,15 +901,18 @@ export default function PreparationPage() {
       />
 
       <Dialog open={isViewDetailsOpen} onOpenChange={setIsViewDetailsOpen}>
-        <DialogContent className="w-[96vw] max-w-[96vw] sm:!max-w-[1600px] overflow-hidden p-0">
-          <DialogHeader className="border-b border-border px-6 py-5 text-left">
+        <DialogContent
+          showCloseButton={false}
+          className="flex max-h-[92vh] w-[96vw] max-w-[96vw] flex-col overflow-hidden p-0 sm:!max-w-[1600px]"
+        >
+          <DialogHeader className="shrink-0 border-b border-border px-6 py-5 text-left">
             <DialogTitle className="text-xl">Preparation Details</DialogTitle>
             <DialogDescription>
               View and manage preparation checklist.
             </DialogDescription>
           </DialogHeader>
           {selectedRequest && (
-            <div className="flex max-h-[85vh] flex-col">
+            <div className="flex min-h-0 flex-1 flex-col">
               <div className="flex-1 overflow-y-auto px-6 py-6">
                 <div className="space-y-6">
                 <div className="flex flex-col gap-4 rounded-2xl border border-border/70 bg-gradient-to-br from-background to-muted/30 p-5 sm:flex-row sm:items-start sm:justify-between">

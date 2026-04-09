@@ -10,25 +10,27 @@ import PreparationPage from '@/app/(dashboard)/preparation/page'
 import ProfilePage from '@/app/(dashboard)/profile/page'
 import ReportsAuditPage from '@/app/(dashboard)/reports/audit/page'
 import ReportsHistoryPage from '@/app/(dashboard)/reports/history/page'
-import ReportsPage from '@/app/(dashboard)/reports/page'
 import ReportsVehiclesPage from '@/app/(dashboard)/reports/vehicles/page'
 import SettingsPage from '@/app/(dashboard)/settings/page'
 import TestDrivePage from '@/app/(dashboard)/test-drive/page'
 import UnitSetupPage from '@/app/(dashboard)/unit-setup/page'
 import UsersPage from '@/app/(dashboard)/users/page'
-import { buildRolePath, isValidRole } from '@/lib/rbac'
-import { getServerRouteRole, hasServerSession } from '@/lib/server-session'
+import {
+  buildRolePath,
+  getAuthorizedDashboardPath,
+  isValidRole,
+} from '@/lib/rbac'
+import { getServerSession } from '@/lib/server-session'
 
 const routeMap: Record<string, ComponentType> = {
   dashboard: DashboardPage,
-  inventory: InventoryPage,
+  'vehicle-stocks/stock-list': InventoryPage,
   preparation: PreparationPage,
-  'allocation/units': AllocationUnitsPage,
-  'allocation/drivers': AllocationDriversPage,
-  'allocation/drivers/tracking': AllocationDriversTrackingPage,
+  'unit-allocation': AllocationUnitsPage,
+  'driver-allocation/allocation': AllocationDriversPage,
+  'driver-allocation/live-tracking': AllocationDriversTrackingPage,
   users: UsersPage,
-  'unit-setup': UnitSetupPage,
-  reports: ReportsPage,
+  'vehicle-stocks/unit-setup': UnitSetupPage,
   'reports/vehicles': ReportsVehiclesPage,
   'reports/history': ReportsHistoryPage,
   'reports/audit': ReportsAuditPage,
@@ -43,12 +45,10 @@ export default async function RolePage({
   params: Promise<{ role: string; slug?: string[] }>
 }) {
   const { role, slug } = await params
-  const [currentUserRole, sessionExists] = await Promise.all([
-    getServerRouteRole(),
-    hasServerSession(),
-  ])
+  const session = await getServerSession()
+  const currentUserRole = session?.routeRole ?? null
 
-  if (!sessionExists || !currentUserRole) {
+  if (!currentUserRole) {
     redirect('/login')
   }
 
@@ -57,28 +57,21 @@ export default async function RolePage({
   }
 
   if (!slug || slug.length === 0) {
-    redirect(buildRolePath(role, 'dashboard'))
+    redirect(buildRolePath(currentUserRole, 'dashboard'))
   }
 
   const key = slug.join('/')
+  const authorizedPath = getAuthorizedDashboardPath(currentUserRole, key)
 
-  if (key === 'allocation') {
-    redirect(buildRolePath(role, 'allocation/units'))
+  if (role !== currentUserRole) {
+    redirect(buildRolePath(currentUserRole, authorizedPath))
   }
 
-  if (key === 'reports/allocations') {
-    redirect(buildRolePath(role, 'reports/vehicles'))
+  if (authorizedPath !== key) {
+    redirect(buildRolePath(currentUserRole, authorizedPath))
   }
 
-  if (key === 'inventory/add') {
-    redirect(buildRolePath(role, 'inventory'))
-  }
-
-  if (key === 'preparation/new') {
-    redirect(buildRolePath(role, 'preparation'))
-  }
-
-  const PageComponent = routeMap[key]
+  const PageComponent = routeMap[authorizedPath]
 
   if (!PageComponent) {
     notFound()

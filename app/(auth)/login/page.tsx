@@ -14,7 +14,7 @@ import { API_BASE_URL } from '@/lib/api-base-url'
 import { apiRequest, ApiError } from '@/lib/api-client'
 import { logAuditEvent } from '@/lib/audit-log'
 import { buildRolePath } from '@/lib/rbac'
-import { mapAuthUserFromBackend, saveSession } from '@/lib/session'
+import { mapAuthUserFromBackend, persistServerSession, saveSession } from '@/lib/session'
 import { recordUserLastLogin, syncUsersFromBackend } from '@/lib/user-data'
 
 export default function LoginPage() {
@@ -64,6 +64,11 @@ export default function LoginPage() {
       })
 
       const user = mapAuthUserFromBackend(response.user)
+      const nextSession = {
+        token: response.token,
+        remember: formData.remember,
+        user,
+      }
 
       if (!user.routeRole) {
         setError(
@@ -73,11 +78,8 @@ export default function LoginPage() {
         return
       }
 
-      saveSession({
-        token: response.token,
-        remember: formData.remember,
-        user,
-      })
+      await persistServerSession(nextSession)
+      saveSession(nextSession)
 
       recordUserLastLogin(user.id)
 

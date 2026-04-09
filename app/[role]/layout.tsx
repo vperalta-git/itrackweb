@@ -4,7 +4,7 @@ import { AppNavbar } from '@/components/app-navbar'
 import { AppSidebar } from '@/components/app-sidebar'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { buildRolePath, isValidRole } from '@/lib/rbac'
-import { getServerRouteRole, hasServerSession } from '@/lib/server-session'
+import { getServerSession } from '@/lib/server-session'
 
 export default async function RoleLayout({
   children,
@@ -14,16 +14,18 @@ export default async function RoleLayout({
   params: Promise<{ role: string }>
 }) {
   const { role } = await params
-  const [currentUserRole, sessionExists] = await Promise.all([
-    getServerRouteRole(),
-    hasServerSession(),
-  ])
+  const session = await getServerSession()
+  const currentUserRole = session?.routeRole ?? null
 
-  if (!sessionExists || !currentUserRole) {
+  if (!currentUserRole) {
     redirect('/login')
   }
 
   if (!isValidRole(role)) {
+    redirect(buildRolePath(currentUserRole, 'dashboard'))
+  }
+
+  if (role !== currentUserRole) {
     redirect(buildRolePath(currentUserRole, 'dashboard'))
   }
 

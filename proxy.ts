@@ -1,44 +1,62 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 
-import { ROUTE_ROLE_COOKIE_NAME, SESSION_COOKIE_NAME } from '@/lib/auth-constants'
-import { buildRolePath, getCurrentUserRole, isLegacyDashboardPath } from '@/lib/rbac'
+import { SERVER_SESSION_COOKIE_NAME } from '@/lib/auth-constants'
+import {
+  buildRolePath,
+  getAuthorizedDashboardPath,
+  isLegacyDashboardPath,
+  isValidRole,
+} from '@/lib/rbac'
+import { verifySignedSessionValue } from '@/lib/server-auth-session'
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const hasSession = Boolean(request.cookies.get(SESSION_COOKIE_NAME)?.value)
-  const routeRoleCookie = request.cookies.get(ROUTE_ROLE_COOKIE_NAME)?.value
+  const serverSession = await verifySignedSessionValue(
+    request.cookies.get(SERVER_SESSION_COOKIE_NAME)?.value
+  )
+
+  if (pathname === '/login' && serverSession) {
+    return NextResponse.redirect(new URL(buildRolePath(serverSession.routeRole, 'dashboard'), request.url))
+  }
 
   if (isLegacyDashboardPath(pathname)) {
-    if (!hasSession) {
+    if (!serverSession) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
 
     const redirectUrl = request.nextUrl.clone()
-    redirectUrl.pathname = buildRolePath(
-      routeRoleCookie && routeRoleCookie !== ''
-        ? (routeRoleCookie as Parameters<typeof buildRolePath>[0])
-        : getCurrentUserRole(),
-      pathname
-    )
+    redirectUrl.pathname = buildRolePath(serverSession.routeRole, pathname)
     return NextResponse.redirect(redirectUrl)
   }
 
   const [roleSegment, ...restSegments] = pathname.split('/').filter(Boolean)
-  const isRoleRoute = ['admin', 'supervisor', 'manager', 'sales-agent'].includes(roleSegment)
+  const isRoleRoute = isValidRole(roleSegment)
 
-  if (isRoleRoute && !hasSession) {
+  if (isRoleRoute && !serverSession) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  if (
-    isRoleRoute &&
-    routeRoleCookie &&
-    routeRoleCookie !== roleSegment &&
-    ['admin', 'supervisor', 'manager', 'sales-agent'].includes(routeRoleCookie)
-  ) {
+  if (isRoleRoute && serverSession) {
+    const requestedPath = restSegments.join('/')
+    const authorizedPath = getAuthorizedDashboardPath(serverSession.routeRole, requestedPath)
+
+    if (roleSegment !== serverSession.routeRole) {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = buildRolePath(serverSession.routeRole, authorizedPath)
+      return NextResponse.redirect(redirectUrl)
+    }
+
+    if (requestedPath && authorizedPath !== requestedPath) {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = buildRolePath(serverSession.routeRole, authorizedPath)
+      return NextResponse.redirect(redirectUrl)
+    }
+  }
+
+  if (pathname === '/' && serverSession) {
     const redirectUrl = request.nextUrl.clone()
-    redirectUrl.pathname = `/${routeRoleCookie}${restSegments.length ? `/${restSegments.join('/')}` : ''}`
+    redirectUrl.pathname = buildRolePath(serverSession.routeRole, 'dashboard')
     return NextResponse.redirect(redirectUrl)
   }
 
@@ -47,18 +65,23 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    '/',
     '/admin/:path*',
     '/supervisor/:path*',
     '/manager/:path*',
     '/sales-agent/:path*',
     '/dashboard/:path*',
     '/inventory/:path*',
+    '/vehicle-stocks/:path*',
     '/preparation/:path*',
     '/allocation/:path*',
+    '/unit-allocation/:path*',
+    '/driver-allocation/:path*',
     '/users/:path*',
     '/reports/:path*',
     '/settings/:path*',
     '/profile/:path*',
     '/test-drive/:path*',
+    '/login',
   ],
 }

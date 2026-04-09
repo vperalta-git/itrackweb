@@ -57,11 +57,17 @@ interface DataTableProps<TData, TValue> {
   searchPlaceholder?: string
   filterComponent?: React.ReactNode
   toolbarRight?: React.ReactNode
+  tableClassName?: string
   exportConfig?: {
     title: string
     subtitle?: string
     filename?: string
   }
+}
+
+type DataTableColumnMeta = {
+  cellClassName?: string
+  headerClassName?: string
 }
 
 export function DataTable<TData, TValue>({
@@ -71,6 +77,7 @@ export function DataTable<TData, TValue>({
   searchPlaceholder = 'Search...',
   filterComponent,
   toolbarRight,
+  tableClassName,
   exportConfig,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
@@ -165,12 +172,12 @@ export function DataTable<TData, TValue>({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       {/* Toolbar */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-1 items-center gap-2">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           {searchKey && (
-            <div className="relative max-w-sm">
+            <div className="relative w-full sm:max-w-sm">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder={searchPlaceholder}
@@ -178,13 +185,13 @@ export function DataTable<TData, TValue>({
                 onChange={(event) =>
                   table.getColumn(searchKey)?.setFilterValue(event.target.value)
                 }
-                className="pl-9 w-full sm:w-64"
+                className="w-full pl-9"
               />
             </div>
           )}
           {filterComponent}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 xl:justify-end">
           {toolbarRight}
           {exportConfig && (
             <Button
@@ -192,6 +199,7 @@ export function DataTable<TData, TValue>({
               size="sm"
               onClick={() => setIsExportOpen(true)}
               disabled={allFilteredRows.length === 0}
+              className="shrink-0"
             >
               <FileDown className="mr-2 size-4" />
               Export PDF
@@ -199,7 +207,7 @@ export function DataTable<TData, TValue>({
           )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="shrink-0">
                 <SlidersHorizontal className="mr-2 size-4" />
                 Columns
                 <ChevronDown className="ml-2 size-4" />
@@ -229,14 +237,19 @@ export function DataTable<TData, TValue>({
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border bg-card">
-        <Table>
+      <div className="min-w-0 overflow-hidden rounded-xl border bg-card">
+        <Table className={tableClassName}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} className="hover:bg-transparent">
                 {headerGroup.headers.map((header) => {
+                  const meta = header.column.columnDef.meta as DataTableColumnMeta | undefined
+
                   return (
-                    <TableHead key={header.id} className="bg-muted/50 font-semibold">
+                    <TableHead
+                      key={header.id}
+                      className={cn('bg-muted/50 font-semibold', meta?.headerClassName)}
+                    >
                       {header.isPlaceholder
                         ? null
                         : flexRender(
@@ -257,11 +270,14 @@ export function DataTable<TData, TValue>({
                   data-state={row.getIsSelected() && 'selected'}
                   className="hover:bg-muted/50"
                 >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
+                  {row.getVisibleCells().map((cell) => {
+                    const meta = cell.column.columnDef.meta as DataTableColumnMeta | undefined
+
+                    return (
+                    <TableCell key={cell.id} className={meta?.cellClassName}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
-                  ))}
+                  )})}
                 </TableRow>
               ))
             ) : (

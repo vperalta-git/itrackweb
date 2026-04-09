@@ -52,18 +52,33 @@ import {
   subscribeWebNotificationPreferences,
   subscribeWebNotificationRefresh,
 } from '@/lib/notification-preferences'
-import { buildRolePath, getRoleFromPathname, stripRoleFromPathname } from '@/lib/rbac'
-import { clearSession, getRoleLabel, getSessionUser } from '@/lib/session'
+import {
+  buildRolePath,
+  getCanonicalDashboardPath,
+  getRoleFromPathname,
+  stripRoleFromPathname,
+} from '@/lib/rbac'
+import {
+  clearServerSession,
+  clearSession,
+  getRoleLabel,
+  getSessionUser,
+} from '@/lib/session'
 
 // Route title mappings
 const routeTitles: Record<string, string> = {
   dashboard: 'Dashboard',
   inventory: 'Vehicle Stocks',
+  'vehicle-stocks': 'Vehicle Stocks',
+  'stock-list': 'Stock List',
   preparation: 'Vehicle Preparation',
   allocation: 'Allocation',
+  'unit-allocation': 'Unit Allocation',
   units: 'Unit Allocation',
+  'driver-allocation': 'Driver Allocation',
   drivers: 'Driver Allocation',
   tracking: 'Live Tracking',
+  'live-tracking': 'Live Tracking',
   'test-drive': 'Test Drive',
   users: 'User Management',
   reports: 'Reports',
@@ -73,6 +88,31 @@ const routeTitles: Record<string, string> = {
   profile: 'My Profile',
   add: 'Add New',
   new: 'New Request',
+}
+
+type BreadcrumbConfigItem = {
+  title: string
+  href?: string
+}
+
+const routeBreadcrumbs: Record<string, BreadcrumbConfigItem[]> = {
+  '/vehicle-stocks/stock-list': [
+    { title: 'Vehicle Stocks', href: '/vehicle-stocks/stock-list' },
+    { title: 'Stock List' },
+  ],
+  '/vehicle-stocks/unit-setup': [
+    { title: 'Vehicle Stocks', href: '/vehicle-stocks/stock-list' },
+    { title: 'Unit Setup' },
+  ],
+  '/unit-allocation': [{ title: 'Unit Allocation' }],
+  '/driver-allocation/allocation': [
+    { title: 'Driver Allocation', href: '/driver-allocation/allocation' },
+    { title: 'Allocation' },
+  ],
+  '/driver-allocation/live-tracking': [
+    { title: 'Driver Allocation', href: '/driver-allocation/allocation' },
+    { title: 'Live Tracking' },
+  ],
 }
 
 const NOTIFICATION_POLL_INTERVAL_MS = 15000
@@ -110,9 +150,19 @@ const playNotificationChime = async () => {
 }
 
 function generateBreadcrumbs(pathname: string) {
-  const segments = stripRoleFromPathname(pathname).split('/').filter(Boolean)
+  const normalizedPath = getCanonicalDashboardPath(stripRoleFromPathname(pathname)) || '/'
+  const segments = normalizedPath.split('/').filter(Boolean)
   const breadcrumbs: Array<{ title: string; href: string; isLast: boolean }> = []
   const role = getRoleFromPathname(pathname)
+  const configuredBreadcrumbs = routeBreadcrumbs[normalizedPath]
+
+  if (configuredBreadcrumbs) {
+    return configuredBreadcrumbs.map((crumb, index) => ({
+      title: crumb.title,
+      href: buildRolePath(role, crumb.href ?? normalizedPath),
+      isLast: index === configuredBreadcrumbs.length - 1,
+    }))
+  }
 
   let currentPath = ''
   segments.forEach((segment, index) => {
@@ -325,16 +375,16 @@ export function AppNavbar() {
     }
   }
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
     logAuditEvent({
       user: getAuditActor(role),
       action: 'LOGOUT',
       module: 'Authentication',
       description: `${getAuditActor(role)} signed out.`,
     })
+    await clearServerSession().catch(() => null)
     clearSession()
-    router.push('/login')
-    router.refresh()
+    window.location.assign('/login')
   }
 
   const userName =
@@ -364,7 +414,7 @@ export function AppNavbar() {
               </BreadcrumbLink>
             </BreadcrumbItem>
             {breadcrumbs.map((crumb, index) => (
-              <React.Fragment key={crumb.href}>
+              <React.Fragment key={`${crumb.href}-${crumb.title}-${index}`}>
                 <BreadcrumbSeparator />
                 <BreadcrumbItem>
                   {crumb.isLast ? (
@@ -543,8 +593,8 @@ export function AppNavbar() {
       </div>
 
       <Dialog open={isNotificationsOpen} onOpenChange={setIsNotificationsOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[88vh] w-[min(92vw,860px)] max-w-[min(92vw,860px)] flex-col overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b px-6 pb-4 pt-6">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <DialogTitle>Notifications</DialogTitle>
@@ -566,7 +616,8 @@ export function AppNavbar() {
               </div>
             </div>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="min-h-0 overflow-y-auto px-6 py-5">
+            <div className="space-y-3">
             {notifications.length > 0 ? (
               notifications.map((notification) => (
                 <div
@@ -606,6 +657,7 @@ export function AppNavbar() {
                 No notifications to show.
               </div>
             )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

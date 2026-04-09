@@ -209,6 +209,29 @@ export function getSessionUser() {
   return loadSession()?.user ?? null
 }
 
+export async function persistServerSession(session: Pick<AuthSession, 'remember' | 'user'>) {
+  const response = await fetch('/api/auth/session', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      userId: session.user.id,
+      routeRole: session.user.routeRole,
+      remember: session.remember,
+    }),
+    credentials: 'same-origin',
+  })
+
+  if (!response.ok) {
+    const message =
+      (await response.json().catch(() => null))?.message ??
+      'Unable to start the web session.'
+    throw new Error(message)
+  }
+}
+
 export function saveSession(session: AuthSession) {
   if (typeof window === 'undefined') return
 
@@ -221,6 +244,20 @@ export function saveSession(session: AuthSession) {
   }
 
   clearCookie(ROUTE_ROLE_COOKIE_NAME)
+}
+
+export async function clearServerSession() {
+  const response = await fetch('/api/auth/session', {
+    method: 'DELETE',
+    headers: {
+      Accept: 'application/json',
+    },
+    credentials: 'same-origin',
+  })
+
+  if (!response.ok) {
+    throw new Error('Unable to clear the web session.')
+  }
 }
 
 export function clearSession() {

@@ -15,8 +15,11 @@ import {
   Filter,
   Phone,
   Truck,
+  Building2,
+  LoaderCircle,
 } from 'lucide-react'
 
+import { RouteMapFrame } from '@/components/route-map-frame'
 import { DataTable } from '@/components/data-table'
 import { PageHeader } from '@/components/page-header'
 import { StatusBadge } from '@/components/status-badge'
@@ -65,6 +68,14 @@ import {
   loadInventoryVehicles,
   syncInventoryVehiclesFromBackend,
 } from '@/lib/inventory-data'
+import {
+  areRouteStopsEquivalent,
+  formatMapLocationLabel,
+  mapLocationSuggestionToRouteStop,
+  mapRouteStopToLocationSuggestion,
+  searchMapLocations,
+  type MapLocationSuggestion,
+} from '@/lib/map-location'
 import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
 import { exportPdfReport } from '@/lib/export-pdf'
 import { matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
@@ -73,24 +84,76 @@ import { toast } from 'sonner'
 
 type DriverAllocation = DriverAllocationRecord
 
-const initialAssignmentForm = {
-  unitId: '',
-  driverId: '',
-  pickupLocation: '',
-  destination: '',
+type AssignmentFormState = {
+  unitId: string
+  driverId: string
+  pickupQuery: string
+  destinationQuery: string
+  pickupLocation: MapLocationSuggestion | null
+  destinationLocation: MapLocationSuggestion | null
 }
 
-const locationSuggestions = [
-  'Isuzu Laguna Stockyard',
-  'Isuzu Pasig',
-  'Customer Location, Quezon City',
-  'Customer Location, Mandaluyong',
-  'Customer Location, Pasig',
-  'Ready for agent turnover',
+const initialAssignmentForm: AssignmentFormState = {
+  unitId: '',
+  driverId: '',
+  pickupQuery: '',
+  destinationQuery: '',
+  pickupLocation: null,
+  destinationLocation: null,
+}
+
+type CuratedLocationPreset = {
+  key: string
+  label: string
+  address: string
+  queries: string[]
+}
+
+type RouteSelectionMode = 'pickup' | 'destination'
+
+const CURATED_LOCATION_PRESETS: CuratedLocationPreset[] = [
+  {
+    key: 'laguna-stockyard',
+    label: 'Isuzu Laguna Stockyard',
+    address: '114 Technology Avenue, Phase 2, Laguna Technopark, Binan, Laguna 4024',
+    queries: [
+      'Isuzu Laguna Stockyard 114 Technology Avenue Phase 2 Laguna Technopark Binan Laguna 4024',
+      'Laguna Stockyard 114 Technology Avenue Phase 2 Laguna Technopark Binan Laguna 4024',
+      'Isuzu Philippines Corporation 114 Technology Avenue Phase 2 Laguna Technopark Binan Laguna 4024',
+    ],
+  },
+  {
+    key: 'isuzu-pasig',
+    label: 'Isuzu Pasig',
+    address: 'E. Rodriguez Jr. Avenue, Corner Calle Industria, Brgy. Bagumbayan, Quezon City 1110',
+    queries: [
+      'Isuzu Pasig E. Rodriguez Jr. Avenue Corner Calle Industria Bagumbayan Quezon City 1110',
+      'E. Rodriguez Jr. Avenue Corner Calle Industria Bagumbayan Quezon City 1110',
+      'Isuzu Pasig Quezon City',
+    ],
+  },
 ] as const
 
 function normalizeInventoryStatus(status: string) {
   return status.trim().toLowerCase().replace(/\s+/g, '-')
+}
+
+function normalizeSearchValue(value: string | null | undefined) {
+  return value?.trim().toLowerCase() ?? ''
+}
+
+function isCuratedLocationSelected(
+  location: MapLocationSuggestion | null,
+  preset: CuratedLocationPreset
+) {
+  if (!location) {
+    return false
+  }
+
+  return (
+    normalizeSearchValue(location.label) === normalizeSearchValue(preset.label) &&
+    normalizeSearchValue(location.address) === normalizeSearchValue(preset.address)
+  )
 }
 
 export default function DriverAllocationPage() {
@@ -108,6 +171,15 @@ export default function DriverAllocationPage() {
   const [statusFilter, setStatusFilter] = React.useState<string>('all')
   const [managerFilter, setManagerFilter] = React.useState<string>('all')
   const [assignmentForm, setAssignmentForm] = React.useState(initialAssignmentForm)
+  const [pickupSearchResults, setPickupSearchResults] = React.useState<MapLocationSuggestion[]>(
+    []
+  )
+  const [destinationSearchResults, setDestinationSearchResults] = React.useState<
+    MapLocationSuggestion[]
+  >([])
+  const [isPickupSearchLoading, setIsPickupSearchLoading] = React.useState(false)
+  const [isDestinationSearchLoading, setIsDestinationSearchLoading] = React.useState(false)
+  const [resolvingPresetKey, setResolvingPresetKey] = React.useState<string | null>(null)
   const [assignmentBeingEdited, setAssignmentBeingEdited] =
     React.useState<DriverAllocation | null>(null)
   const [allocationToCancel, setAllocationToCancel] =
@@ -184,6 +256,11 @@ export default function DriverAllocationPage() {
     setIsNewAllocationOpen(open)
     if (!open) {
       setAssignmentForm(initialAssignmentForm)
+      setPickupSearchResults([])
+      setDestinationSearchResults([])
+      setIsPickupSearchLoading(false)
+      setIsDestinationSearchLoading(false)
+      setResolvingPresetKey(null)
       setAssignmentBeingEdited(null)
     }
   }
@@ -256,6 +333,90 @@ export default function DriverAllocationPage() {
     [unavailableDriverNames]
   )
 
+  React.useEffect(() => {
+    const trimmedQuery = assignmentForm.pickupQuery.trim()
+    const selectedPickupLabel = formatMapLocationLabel(assignmentForm.pickupLocation)
+
+    if (
+      !trimmedQuery ||
+      normalizeSearchValue(trimmedQuery) === normalizeSearchValue(selectedPickupLabel)
+    ) {
+      setPickupSearchResults([])
+      setIsPickupSearchLoading(false)
+      return
+    }
+
+    let isCancelled = false
+    setIsPickupSearchLoading(true)
+
+    const timeoutId = window.setTimeout(() => {
+      void searchMapLocations(trimmedQuery, 5)
+        .then((results) => {
+          if (isCancelled) {
+            return
+          }
+
+          setPickupSearchResults(results)
+          setIsPickupSearchLoading(false)
+        })
+        .catch(() => {
+          if (isCancelled) {
+            return
+          }
+
+          setPickupSearchResults([])
+          setIsPickupSearchLoading(false)
+        })
+    }, 300)
+
+    return () => {
+      isCancelled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [assignmentForm.pickupLocation, assignmentForm.pickupQuery])
+
+  React.useEffect(() => {
+    const trimmedQuery = assignmentForm.destinationQuery.trim()
+    const selectedDestinationLabel = formatMapLocationLabel(assignmentForm.destinationLocation)
+
+    if (
+      !trimmedQuery ||
+      normalizeSearchValue(trimmedQuery) === normalizeSearchValue(selectedDestinationLabel)
+    ) {
+      setDestinationSearchResults([])
+      setIsDestinationSearchLoading(false)
+      return
+    }
+
+    let isCancelled = false
+    setIsDestinationSearchLoading(true)
+
+    const timeoutId = window.setTimeout(() => {
+      void searchMapLocations(trimmedQuery, 5)
+        .then((results) => {
+          if (isCancelled) {
+            return
+          }
+
+          setDestinationSearchResults(results)
+          setIsDestinationSearchLoading(false)
+        })
+        .catch(() => {
+          if (isCancelled) {
+            return
+          }
+
+          setDestinationSearchResults([])
+          setIsDestinationSearchLoading(false)
+        })
+    }, 300)
+
+    return () => {
+      isCancelled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [assignmentForm.destinationLocation, assignmentForm.destinationQuery])
+
   const openEditAssignment = (allocation: DriverAllocation) => {
     const unitMatch = inventoryVehicles.find(
       (vehicle) => vehicle.conductionNumber === allocation.conductionNumber
@@ -263,16 +424,103 @@ export default function DriverAllocationPage() {
     const driverMatch = drivers.find(
       (driver) => driver.id === allocation.driverId || driver.name === allocation.assignedDriver
     )
+    const pickupLocation = mapRouteStopToLocationSuggestion(
+      allocation.pickupLocationDetails,
+      `pickup-${allocation.id}`
+    )
+    const destinationLocation = mapRouteStopToLocationSuggestion(
+      allocation.destinationLocationDetails,
+      `destination-${allocation.id}`
+    )
 
     setAssignmentBeingEdited(allocation)
     setAssignmentForm({
       unitId: unitMatch?.id ?? '',
       driverId: driverMatch?.id ?? '',
-      pickupLocation: allocation.pickupLocation,
-      destination: allocation.destination,
+      pickupQuery: formatMapLocationLabel(pickupLocation) || allocation.pickupLocation,
+      destinationQuery: formatMapLocationLabel(destinationLocation) || allocation.destination,
+      pickupLocation,
+      destinationLocation,
     })
+    setPickupSearchResults([])
+    setDestinationSearchResults([])
     setIsNewAllocationOpen(true)
   }
+
+  const handlePickupSelection = (location: MapLocationSuggestion) => {
+    setAssignmentForm((current) => ({
+      ...current,
+      pickupQuery: formatMapLocationLabel(location),
+      pickupLocation: location,
+      destinationQuery: areRouteStopsEquivalent(location, current.destinationLocation)
+        ? ''
+        : current.destinationQuery,
+      destinationLocation: areRouteStopsEquivalent(location, current.destinationLocation)
+        ? null
+        : current.destinationLocation,
+    }))
+    setPickupSearchResults([])
+  }
+
+  const handleDestinationSelection = (location: MapLocationSuggestion) => {
+    if (areRouteStopsEquivalent(location, assignmentForm.pickupLocation)) {
+      toast.error('Pickup and destination must be different locations.')
+      return
+    }
+
+    setAssignmentForm((current) => ({
+      ...current,
+      destinationQuery: formatMapLocationLabel(location),
+      destinationLocation: location,
+    }))
+    setDestinationSearchResults([])
+  }
+
+  const resolveCuratedLocationPreset = React.useCallback(
+    async (preset: CuratedLocationPreset) => {
+      for (const query of preset.queries) {
+        const [result] = await searchMapLocations(query, 1)
+
+        if (result) {
+          return {
+            ...result,
+            id: `curated-${preset.key}-${result.id}`,
+            label: preset.label,
+            address: preset.address,
+          } satisfies MapLocationSuggestion
+        }
+      }
+
+      return null
+    },
+    []
+  )
+
+  const handleCuratedLocationSelection = React.useCallback(
+    async (mode: RouteSelectionMode, preset: CuratedLocationPreset) => {
+      const key = `${mode}:${preset.key}`
+      setResolvingPresetKey(key)
+
+      try {
+        const location = await resolveCuratedLocationPreset(preset)
+
+        if (!location) {
+          toast.error(`Unable to resolve ${preset.label} on the map right now.`)
+          return
+        }
+
+        if (mode === 'pickup') {
+          handlePickupSelection(location)
+          return
+        }
+
+        handleDestinationSelection(location)
+      } finally {
+        setResolvingPresetKey((current) => (current === key ? null : current))
+      }
+    },
+    [resolveCuratedLocationPreset, assignmentForm.pickupLocation]
+  )
 
   const createAssignment = async () => {
     const selectedUnit = inventoryVehicles.find((vehicle) => vehicle.id === assignmentForm.unitId)
@@ -281,9 +529,15 @@ export default function DriverAllocationPage() {
     if (
       !selectedUnit ||
       !selectedDriver ||
-      !assignmentForm.pickupLocation.trim() ||
-      !assignmentForm.destination.trim()
+      !assignmentForm.pickupLocation ||
+      !assignmentForm.destinationLocation
     ) {
+      toast.error('Select both pickup and destination from the map search results.')
+      return
+    }
+
+    if (areRouteStopsEquivalent(assignmentForm.pickupLocation, assignmentForm.destinationLocation)) {
+      toast.error('Pickup and destination must be different locations.')
       return
     }
 
@@ -293,8 +547,10 @@ export default function DriverAllocationPage() {
           managerId: null,
           vehicleId: selectedUnit.id,
           driverId: selectedDriver.id,
-          pickupLocation: assignmentForm.pickupLocation.trim(),
-          destination: assignmentForm.destination.trim(),
+          pickupLocation: mapLocationSuggestionToRouteStop(assignmentForm.pickupLocation),
+          destinationLocation: mapLocationSuggestionToRouteStop(
+            assignmentForm.destinationLocation
+          ),
           status: assignmentBeingEdited.status,
         })
 
@@ -318,8 +574,10 @@ export default function DriverAllocationPage() {
         managerId: null,
         vehicleId: selectedUnit.id,
         driverId: selectedDriver.id,
-        pickupLocation: assignmentForm.pickupLocation.trim(),
-        destination: assignmentForm.destination.trim(),
+        pickupLocation: mapLocationSuggestionToRouteStop(assignmentForm.pickupLocation),
+        destinationLocation: mapLocationSuggestionToRouteStop(
+          assignmentForm.destinationLocation
+        ),
       })
 
       setAllocations(nextAllocations)
@@ -506,6 +764,14 @@ export default function DriverAllocationPage() {
     () => Array.from(new Set(allocations.map((allocation) => allocation.manager))),
     [allocations]
   )
+  const showPickupSearchResults =
+    assignmentForm.pickupQuery.trim().length > 0 &&
+    normalizeSearchValue(assignmentForm.pickupQuery) !==
+      normalizeSearchValue(formatMapLocationLabel(assignmentForm.pickupLocation))
+  const showDestinationSearchResults =
+    assignmentForm.destinationQuery.trim().length > 0 &&
+    normalizeSearchValue(assignmentForm.destinationQuery) !==
+      normalizeSearchValue(formatMapLocationLabel(assignmentForm.destinationLocation))
 
   const handleExportPdf = () => {
     logAuditEvent({
@@ -587,8 +853,8 @@ export default function DriverAllocationPage() {
                 New Assignment
               </Button>
             </DialogTrigger>
-          <DialogContent className="w-[96vw] max-w-[96vw] sm:!max-w-[1500px]">
-            <DialogHeader>
+          <DialogContent className="flex max-h-[92vh] w-[50vw] max-w-[50vw] flex-col overflow-hidden p-0 sm:w-[50vw] sm:max-w-[50vw] 2xl:max-w-[1680px]">
+            <DialogHeader className="shrink-0 border-b px-6 pb-4 pt-6">
               <DialogTitle>
                 {assignmentBeingEdited ? 'Edit Driver Assignment' : 'New Driver Assignment'}
               </DialogTitle>
@@ -598,7 +864,8 @@ export default function DriverAllocationPage() {
                   : 'Assign a driver to an eligible vehicle unit. New assignments are sent ASAP and stay pending until the driver accepts in mobile.'}
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-6 py-4">
+            <div className="min-h-0 overflow-y-auto px-6 py-5">
+              <div className="grid gap-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Select Unit</Label>
@@ -668,147 +935,236 @@ export default function DriverAllocationPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-[1.05fr_0.95fr]">
+              <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
                 <div className="space-y-4">
                   <div className="rounded-xl border bg-muted/20 p-4">
-                    <div className="mb-3 flex flex-wrap gap-2">
-                      {locationSuggestions.slice(0, 2).map((location) => (
-                        <Button
-                          key={`pickup-${location}`}
-                          type="button"
-                          variant={
-                            assignmentForm.pickupLocation === location ? 'default' : 'outline'
-                          }
-                          size="sm"
-                          onClick={() =>
-                            setAssignmentForm((current) => ({
-                              ...current,
-                              pickupLocation: location,
-                            }))
-                          }
-                        >
-                          {location.replace('Isuzu ', '').replace(' Stockyard', '')}
-                        </Button>
-                      ))}
-                    </div>
                     <div className="space-y-2">
                       <Label>Pickup Location</Label>
                       <Input
-                        list="pickup-location-options"
-                        placeholder="Search pickup location"
-                        value={assignmentForm.pickupLocation}
+                        placeholder="Search pickup address"
+                        value={assignmentForm.pickupQuery}
                         onChange={(event) =>
                           setAssignmentForm((current) => ({
                             ...current,
-                            pickupLocation: event.target.value,
+                            pickupQuery: event.target.value,
+                            pickupLocation: null,
                           }))
                         }
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Choose a real map result so the saved allocation keeps its exact pickup
+                        coordinates.
+                      </p>
                     </div>
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                        Quick Picks
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {CURATED_LOCATION_PRESETS.map((preset) => {
+                          const isActive = isCuratedLocationSelected(
+                            assignmentForm.pickupLocation,
+                            preset
+                          )
+                          const isResolving = resolvingPresetKey === `pickup:${preset.key}`
+
+                          return (
+                            <button
+                              key={`pickup-preset-${preset.key}`}
+                              type="button"
+                              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                isActive
+                                  ? 'border-primary/30 bg-primary/10 text-primary'
+                                  : 'border-border bg-background text-foreground hover:bg-muted'
+                              }`}
+                              disabled={isResolving}
+                              onClick={() => {
+                                void handleCuratedLocationSelection('pickup', preset)
+                              }}
+                            >
+                              {isResolving ? (
+                                <LoaderCircle className="size-3.5 animate-spin" />
+                              ) : (
+                                <Building2 className="size-3.5" />
+                              )}
+                              <span>{preset.label}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                    {showPickupSearchResults ? (
+                      <div className="mt-3 max-h-56 overflow-y-auto rounded-lg border bg-background">
+                        {isPickupSearchLoading ? (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            Looking up pickup addresses on the map...
+                          </div>
+                        ) : pickupSearchResults.length ? (
+                          pickupSearchResults.map((location) => (
+                            <button
+                              key={`pickup-result-${location.id}`}
+                              type="button"
+                              className="flex w-full items-start justify-between gap-3 border-b px-3 py-3 text-left last:border-b-0 hover:bg-muted/50"
+                              onClick={() => handlePickupSelection(location)}
+                            >
+                              <div className="min-w-0">
+                                <p className="font-medium">{location.label}</p>
+                                <p className="text-xs text-muted-foreground">{location.address}</p>
+                              </div>
+                              <MapPin className="mt-0.5 size-4 shrink-0 text-primary" />
+                            </button>
+                          ))
+                        ) : (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            No pickup locations matched. Try a fuller address.
+                          </div>
+                        )}
+                      </div>
+                    ) : assignmentForm.pickupLocation ? (
+                      <div className="mt-3 rounded-lg border bg-background px-3 py-2 text-sm">
+                        <p className="font-medium text-primary">Pickup selected</p>
+                        <p className="text-muted-foreground">
+                          {formatMapLocationLabel(assignmentForm.pickupLocation)}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="rounded-xl border bg-muted/20 p-4">
-                    <div className="mb-3 flex flex-wrap gap-2">
-                      {locationSuggestions.slice(0, 2).map((location) => (
-                        <Button
-                          key={`destination-${location}`}
-                          type="button"
-                          variant={
-                            assignmentForm.destination === location ? 'default' : 'outline'
-                          }
-                          size="sm"
-                          onClick={() =>
-                            setAssignmentForm((current) => ({
-                              ...current,
-                              destination: location,
-                            }))
-                          }
-                        >
-                          {location.replace('Isuzu ', '').replace(' Stockyard', '')}
-                        </Button>
-                      ))}
-                    </div>
                     <div className="space-y-2">
                       <Label>Drop-off Destination</Label>
                       <Input
-                        list="destination-location-options"
-                        placeholder="Search destination"
-                        value={assignmentForm.destination}
+                        placeholder="Search destination address"
+                        value={assignmentForm.destinationQuery}
                         onChange={(event) =>
                           setAssignmentForm((current) => ({
                             ...current,
-                            destination: event.target.value,
+                            destinationQuery: event.target.value,
+                            destinationLocation: null,
                           }))
                         }
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Destination search uses live map geocoding instead of the old saved list.
+                      </p>
                     </div>
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                        Quick Picks
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {CURATED_LOCATION_PRESETS.map((preset) => {
+                          const isActive = isCuratedLocationSelected(
+                            assignmentForm.destinationLocation,
+                            preset
+                          )
+                          const isResolving = resolvingPresetKey === `destination:${preset.key}`
+
+                          return (
+                            <button
+                              key={`destination-preset-${preset.key}`}
+                              type="button"
+                              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                                isActive
+                                  ? 'border-primary/30 bg-primary/10 text-primary'
+                                  : 'border-border bg-background text-foreground hover:bg-muted'
+                              }`}
+                              disabled={isResolving}
+                              onClick={() => {
+                                void handleCuratedLocationSelection('destination', preset)
+                              }}
+                            >
+                              {isResolving ? (
+                                <LoaderCircle className="size-3.5 animate-spin" />
+                              ) : (
+                                <Building2 className="size-3.5" />
+                              )}
+                              <span>{preset.label}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                    {showDestinationSearchResults ? (
+                      <div className="mt-3 max-h-56 overflow-y-auto rounded-lg border bg-background">
+                        {isDestinationSearchLoading ? (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            Looking up destination addresses on the map...
+                          </div>
+                        ) : destinationSearchResults.length ? (
+                          destinationSearchResults.map((location) => (
+                            <button
+                              key={`destination-result-${location.id}`}
+                              type="button"
+                              className="flex w-full items-start justify-between gap-3 border-b px-3 py-3 text-left last:border-b-0 hover:bg-muted/50"
+                              onClick={() => handleDestinationSelection(location)}
+                            >
+                              <div className="min-w-0">
+                                <p className="font-medium">{location.label}</p>
+                                <p className="text-xs text-muted-foreground">{location.address}</p>
+                              </div>
+                              <MapPin className="mt-0.5 size-4 shrink-0 text-primary" />
+                            </button>
+                          ))
+                        ) : (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            No destination locations matched. Try a fuller address.
+                          </div>
+                        )}
+                      </div>
+                    ) : assignmentForm.destinationLocation ? (
+                      <div className="mt-3 rounded-lg border bg-background px-3 py-2 text-sm">
+                        <p className="font-medium text-primary">Destination selected</p>
+                        <p className="text-muted-foreground">
+                          {formatMapLocationLabel(assignmentForm.destinationLocation)}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label>Route Preview</Label>
                   <div className="flex h-full min-h-[290px] flex-col rounded-xl border bg-muted/10 p-4">
-                    {assignmentForm.pickupLocation && assignmentForm.destination ? (
-                      <>
-                        <div className="relative flex-1 overflow-hidden rounded-xl border bg-[linear-gradient(rgba(191,10,26,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(191,10,26,0.05)_1px,transparent_1px)] bg-[size:22px_22px]">
-                          <svg className="absolute inset-0 h-full w-full">
-                            <path
-                              d="M 20% 75% Q 45% 55%, 80% 28%"
-                              fill="none"
-                              stroke="var(--primary)"
-                              strokeWidth="3"
-                              strokeDasharray="10 6"
-                              opacity="0.8"
-                            />
-                          </svg>
-                          <div className="absolute left-[18%] top-[72%] flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full bg-background px-3 py-1.5 shadow-sm">
-                            <div className="size-2 rounded-full bg-primary" />
-                            <span className="text-xs font-medium">Point A</span>
-                          </div>
-                          <div className="absolute left-[80%] top-[28%] flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full bg-background px-3 py-1.5 shadow-sm">
-                            <div className="size-2 rounded-full bg-success" />
-                            <span className="text-xs font-medium">Point B</span>
-                          </div>
+                    <div className="relative h-[260px] overflow-hidden rounded-xl border bg-background sm:h-[290px]">
+                      <RouteMapFrame
+                        title="Driver allocation route preview"
+                        origin={assignmentForm.pickupLocation}
+                        destination={assignmentForm.destinationLocation}
+                        focus={assignmentForm.destinationLocation ?? assignmentForm.pickupLocation}
+                      />
+                      {!assignmentForm.pickupLocation && !assignmentForm.destinationLocation ? (
+                        <div className="pointer-events-none absolute left-4 top-4 max-w-xs rounded-lg border bg-background/90 px-3 py-2 text-xs text-muted-foreground shadow-sm">
+                          Pan and zoom the map now, then search or select route points when you are
+                          ready.
                         </div>
-                        <div className="mt-4 space-y-2 rounded-lg border bg-background p-3 text-sm">
-                          <p>
-                            <span className="font-semibold text-primary">Pickup:</span>{' '}
-                            {assignmentForm.pickupLocation}
-                          </p>
-                          <p>
-                            <span className="font-semibold text-primary">Destination:</span>{' '}
-                            {assignmentForm.destination}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Route preview placeholder only. Point-to-point directions API will be integrated later.
-                          </p>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed text-center text-sm text-muted-foreground">
-                        Select pickup and drop-off locations to preview the route.
-                      </div>
-                    )}
+                      ) : null}
+                    </div>
+                    <div className="mt-4 space-y-2 rounded-lg border bg-background p-3 text-sm">
+                      <p>
+                        <span className="font-semibold text-primary">Pickup:</span>{' '}
+                        {formatMapLocationLabel(assignmentForm.pickupLocation) || 'Not selected'}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-primary">Destination:</span>{' '}
+                        {formatMapLocationLabel(assignmentForm.destinationLocation) ||
+                          'Not selected'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        The map is interactive by default, so you can drag and zoom even before you
+                        search for a route.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <datalist id="pickup-location-options">
-                {locationSuggestions.map((location) => (
-                  <option key={`pickup-option-${location}`} value={location} />
-                ))}
-              </datalist>
-              <datalist id="destination-location-options">
-                {locationSuggestions.map((location) => (
-                  <option key={`destination-option-${location}`} value={location} />
-                ))}
-              </datalist>
-
               <div className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
                 The assignment will be dispatched immediately after saving. Driver status starts as <span className="font-medium text-foreground">Pending</span> until the driver accepts on mobile.
               </div>
+              </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="shrink-0 border-t bg-background px-6 py-4">
               <Button variant="outline" onClick={() => handleAssignmentDialogChange(false)}>
                 Cancel
               </Button>
@@ -817,8 +1173,8 @@ export default function DriverAllocationPage() {
                 disabled={
                   !assignmentForm.unitId ||
                   !assignmentForm.driverId ||
-                  !assignmentForm.pickupLocation.trim() ||
-                  !assignmentForm.destination.trim()
+                  !assignmentForm.pickupLocation ||
+                  !assignmentForm.destinationLocation
                 }
               >
                 {assignmentBeingEdited ? 'Save Changes' : 'Create Assignment'}

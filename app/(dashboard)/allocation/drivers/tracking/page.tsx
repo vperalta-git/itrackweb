@@ -5,24 +5,24 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   ArrowLeft,
+  ExternalLink,
   Filter,
+  LocateFixed,
   MapPin,
   Navigation,
-  ExternalLink,
   RefreshCw,
   Truck,
-  LocateFixed,
-  RotateCcw,
 } from 'lucide-react'
 
+import { RouteMapFrame } from '@/components/route-map-frame'
 import { PageHeader } from '@/components/page-header'
 import { StatusBadge } from '@/components/status-badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -30,9 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
-import { matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
-import { hasDirectionsApiKey, resolveRoutePolyline, type MapPoint } from '@/lib/map-routes'
+import { getRelativeTime } from '@/lib/backend-helpers'
 import {
   DRIVER_ALLOCATIONS_UPDATED_EVENT,
   DriverAllocationRecord,
@@ -43,6 +41,9 @@ import {
   loadDriverAllocations,
   syncDriverAllocationsFromBackend,
 } from '@/lib/driver-allocation-data'
+import { buildRouteMapEmbedUrl } from '@/lib/map-location'
+import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
+import { matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
 
 type TrackingDriver = {
   id: string
@@ -61,13 +62,8 @@ type TrackingDriver = {
   coordinates: { lat: number; lng: number }
   originCoordinates: { lat: number; lng: number } | null
   destinationCoordinates: { lat: number; lng: number } | null
-}
-
-const DEFAULT_MAP_BOUNDS = {
-  minLatitude: 14.49,
-  maxLatitude: 14.66,
-  minLongitude: 120.95,
-  maxLongitude: 121.15,
+  currentLocationUpdatedAt: string | null
+  hasLiveGps: boolean
 }
 
 function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord): TrackingDriver {
@@ -113,70 +109,21 @@ function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord): Trac
       : originCoordinates ?? destinationCoordinates ?? { lat: 14.575, lng: 121.085 },
     originCoordinates,
     destinationCoordinates,
+    currentLocationUpdatedAt: allocation.currentLocation?.updatedAt ?? null,
+    hasLiveGps: Boolean(allocation.currentLocation),
   }
 }
 
-function getDriverMapBounds(driver: TrackingDriver | null) {
+function getMapPreviewUrl(driver: TrackingDriver | null) {
   if (!driver) {
-    return DEFAULT_MAP_BOUNDS
+    return null
   }
 
-  const points = [
-    driver.originCoordinates,
-    driver.destinationCoordinates,
-    driver.coordinates,
-  ].filter(Boolean) as Array<{ lat: number; lng: number }>
-
-  if (!points.length) {
-    return DEFAULT_MAP_BOUNDS
-  }
-
-  const latitudes = points.map((point) => point.lat)
-  const longitudes = points.map((point) => point.lng)
-  const minLatitude = Math.min(...latitudes)
-  const maxLatitude = Math.max(...latitudes)
-  const minLongitude = Math.min(...longitudes)
-  const maxLongitude = Math.max(...longitudes)
-  const latitudePadding = Math.max((maxLatitude - minLatitude) * 0.35, 0.02)
-  const longitudePadding = Math.max((maxLongitude - minLongitude) * 0.35, 0.02)
-
-  return {
-    minLatitude: minLatitude - latitudePadding,
-    maxLatitude: maxLatitude + latitudePadding,
-    minLongitude: minLongitude - longitudePadding,
-    maxLongitude: maxLongitude + longitudePadding,
-  }
-}
-
-function projectPoint(
-  point: { lat: number; lng: number },
-  bounds: ReturnType<typeof getDriverMapBounds>
-) {
-  const latitudeRange = Math.max(bounds.maxLatitude - bounds.minLatitude, 0.0001)
-  const longitudeRange = Math.max(bounds.maxLongitude - bounds.minLongitude, 0.0001)
-
-  const x = ((point.lng - bounds.minLongitude) / longitudeRange) * 100
-  const y = (1 - (point.lat - bounds.minLatitude) / latitudeRange) * 100
-
-  return {
-    x: Math.min(Math.max(x, 8), 92),
-    y: Math.min(Math.max(y, 8), 92),
-  }
-}
-
-function getGoogleMapsDirectionsUrl(driver: TrackingDriver | null) {
-  if (!driver) {
-    return 'https://www.google.com/maps'
-  }
-
-  const origin = driver.status === 'in-transit' ? driver.coordinates : driver.originCoordinates
-  const destination = driver.destinationCoordinates
-
-  if (!origin || !destination) {
-    return `https://www.google.com/maps/search/?api=1&query=${driver.coordinates.lat},${driver.coordinates.lng}`
-  }
-
-  return `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&travelmode=driving`
+  return buildRouteMapEmbedUrl({
+    origin: driver.originCoordinates,
+    destination: driver.destinationCoordinates,
+    focus: driver.coordinates,
+  })
 }
 
 export default function LiveTrackingPage() {
@@ -187,18 +134,8 @@ export default function LiveTrackingPage() {
   )
   const [searchTerm, setSearchTerm] = React.useState('')
   const [managerFilter, setManagerFilter] = React.useState('all')
-  const [routePolyline, setRoutePolyline] = React.useState<MapPoint[]>([])
   const [isRefreshing, setIsRefreshing] = React.useState(false)
   const [lastUpdatedAt, setLastUpdatedAt] = React.useState<string | null>(null)
-  const [mapOffset, setMapOffset] = React.useState({ x: 0, y: 0 })
-  const [isDraggingMap, setIsDraggingMap] = React.useState(false)
-  const dragStateRef = React.useRef<{
-    pointerId: number
-    startX: number
-    startY: number
-    originX: number
-    originY: number
-  } | null>(null)
 
   React.useEffect(() => {
     const syncAllocations = () => {
@@ -211,9 +148,7 @@ export default function LiveTrackingPage() {
         setDriverAllocations(nextAllocations)
         setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
       })
-      .catch(() => {
-        return null
-      })
+      .catch(() => null)
 
     const pollingInterval = window.setInterval(() => {
       void syncDriverAllocationsFromBackend()
@@ -223,9 +158,7 @@ export default function LiveTrackingPage() {
             new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
           )
         })
-        .catch(() => {
-          return null
-        })
+        .catch(() => null)
     }, 15000)
 
     window.addEventListener(DRIVER_ALLOCATIONS_UPDATED_EVENT, syncAllocations)
@@ -261,14 +194,12 @@ export default function LiveTrackingPage() {
         ? roleScopedDrivers
         : roleScopedDrivers.filter((driver) => driver.manager === managerFilter)
 
-    const searchScopedDrivers = managerScopedDrivers.filter((driver) =>
+    return managerScopedDrivers.filter((driver) =>
       [driver.name, driver.vehicle, driver.stockNumber, driver.salesAgent, driver.manager]
         .join(' ')
         .toLowerCase()
         .includes(searchTerm.trim().toLowerCase())
     )
-
-    return searchScopedDrivers
   }, [activeDrivers, managerFilter, role, searchTerm])
 
   const [selectedDriver, setSelectedDriver] = React.useState<TrackingDriver | null>(null)
@@ -286,124 +217,31 @@ export default function LiveTrackingPage() {
     setSelectedDriver(null)
   }, [scopedDrivers])
 
-  React.useEffect(() => {
-    setMapOffset({ x: 0, y: 0 })
-    setIsDraggingMap(false)
-    dragStateRef.current = null
-  }, [selectedDriver?.id])
-
-  React.useEffect(() => {
-    let isActive = true
-
-    const resolveRoute = async () => {
-      if (!selectedDriver?.destinationCoordinates) {
-        if (isActive) {
-          setRoutePolyline([])
-        }
-        return
-      }
-
-      const routePoints = [selectedDriver.coordinates, selectedDriver.destinationCoordinates]
-      const resolvedRoute = await resolveRoutePolyline(routePoints)
-
-      if (!isActive) {
-        return
-      }
-
-      setRoutePolyline(resolvedRoute && resolvedRoute.length >= 2 ? resolvedRoute : routePoints)
-    }
-
-    void resolveRoute()
-
-    return () => {
-      isActive = false
-    }
-  }, [selectedDriver])
-
-  const googleMapsUrl = React.useMemo(
-    () => getGoogleMapsDirectionsUrl(selectedDriver),
-    [selectedDriver]
-  )
+  const mapPreviewUrl = React.useMemo(() => getMapPreviewUrl(selectedDriver), [selectedDriver])
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
     const nextAllocations = await syncDriverAllocationsFromBackend().catch(() => null)
-    if (nextAllocations && nextAllocations.length >= 0) {
+
+    if (nextAllocations) {
       setDriverAllocations(nextAllocations)
       setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
     }
+
     setIsRefreshing(false)
   }
 
-  const mapBounds = React.useMemo(() => getDriverMapBounds(selectedDriver), [selectedDriver])
-  const originPosition = React.useMemo(
-    () =>
-      selectedDriver?.originCoordinates
-        ? projectPoint(selectedDriver.originCoordinates, mapBounds)
-        : null,
-    [mapBounds, selectedDriver]
-  )
-  const driverPosition = React.useMemo(
-    () => (selectedDriver ? projectPoint(selectedDriver.coordinates, mapBounds) : null),
-    [mapBounds, selectedDriver]
-  )
-  const destinationPosition = React.useMemo(
-    () =>
-      selectedDriver?.destinationCoordinates
-        ? projectPoint(selectedDriver.destinationCoordinates, mapBounds)
-        : null,
-    [mapBounds, selectedDriver]
-  )
-  const routePath = React.useMemo(
-    () =>
-      routePolyline.length >= 2
-        ? routePolyline
-            .map((point) => {
-              const position = projectPoint(point, mapBounds)
-              return `${position.x},${position.y}`
-            })
-            .join(' ')
-        : '',
-    [mapBounds, routePolyline]
-  )
-
-  const handleMapPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    dragStateRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: mapOffset.x,
-      originY: mapOffset.y,
-    }
-    setIsDraggingMap(true)
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-
-  const handleMapPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragStateRef.current || dragStateRef.current.pointerId !== event.pointerId) {
-      return
+  const gpsStatusLabel = React.useMemo(() => {
+    if (selectedDriver?.currentLocationUpdatedAt) {
+      return `GPS updated ${getRelativeTime(selectedDriver.currentLocationUpdatedAt)}`
     }
 
-    const deltaX = event.clientX - dragStateRef.current.startX
-    const deltaY = event.clientY - dragStateRef.current.startY
-
-    setMapOffset({
-      x: dragStateRef.current.originX + deltaX,
-      y: dragStateRef.current.originY + deltaY,
-    })
-  }
-
-  const handleMapPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (dragStateRef.current?.pointerId === event.pointerId) {
-      dragStateRef.current = null
-      setIsDraggingMap(false)
-      event.currentTarget.releasePointerCapture(event.pointerId)
+    if (lastUpdatedAt) {
+      return `Last synced ${lastUpdatedAt}`
     }
-  }
 
-  const handleResetMapView = () => {
-    setMapOffset({ x: 0, y: 0 })
-  }
+    return 'Waiting for first sync'
+  }, [lastUpdatedAt, selectedDriver?.currentLocationUpdatedAt])
 
   return (
     <div className="space-y-6">
@@ -531,150 +369,48 @@ export default function LiveTrackingPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {scopedDrivers.length === 0 || !selectedDriver ? (
-              <div className="flex h-[400px] items-center justify-center rounded-xl border border-dashed text-sm text-muted-foreground">
-                No in-transit routes for your allocation scope.
-              </div>
-            ) : (
-              <>
-                <div
-                  className={`relative h-[400px] w-full overflow-hidden rounded-xl border bg-[radial-gradient(circle_at_top,rgba(239,68,68,0.08),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.98))] ${isDraggingMap ? 'cursor-grabbing' : 'cursor-grab'}`}
-                  onPointerDown={handleMapPointerDown}
-                  onPointerMove={handleMapPointerMove}
-                  onPointerUp={handleMapPointerUp}
-                  onPointerCancel={handleMapPointerUp}
-                  onPointerLeave={handleMapPointerUp}
-                  style={{ touchAction: 'none' }}
-                >
-                  <div
-                    className="absolute inset-0"
-                    style={{
-                      transform: `translate(${mapOffset.x}px, ${mapOffset.y}px)`,
-                      transition: isDraggingMap ? 'none' : 'transform 180ms ease-out',
-                    }}
-                  >
-                    <div className="absolute inset-0 opacity-60">
-                      <div className="absolute inset-x-0 top-[20%] h-px bg-border/80" />
-                      <div className="absolute inset-x-0 top-[40%] h-px bg-border/70" />
-                      <div className="absolute inset-x-0 top-[60%] h-px bg-border/70" />
-                      <div className="absolute inset-x-0 top-[80%] h-px bg-border/80" />
-                      <div className="absolute inset-y-0 left-[20%] w-px bg-border/70" />
-                      <div className="absolute inset-y-0 left-[40%] w-px bg-border/60" />
-                      <div className="absolute inset-y-0 left-[60%] w-px bg-border/60" />
-                      <div className="absolute inset-y-0 left-[80%] w-px bg-border/70" />
-                    </div>
+            <>
+              <div className="relative h-[400px] overflow-hidden rounded-xl border bg-background">
+                <RouteMapFrame
+                  title={
+                    selectedDriver
+                      ? `Live route map for ${selectedDriver.name}`
+                      : 'Default live tracking map view'
+                  }
+                  origin={selectedDriver?.originCoordinates}
+                  destination={selectedDriver?.destinationCoordinates}
+                  focus={selectedDriver?.coordinates}
+                />
 
-                    <svg
-                      className="absolute inset-0 h-full w-full"
-                      viewBox="0 0 100 100"
-                      preserveAspectRatio="none"
-                    >
-                      {routePath ? (
-                        <polyline
-                          points={routePath}
-                          fill="none"
-                          stroke="var(--color-info)"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          opacity="0.9"
-                        />
-                      ) : null}
-                      {routePath ? (
-                        <polyline
-                          points={routePath}
-                          fill="none"
-                          stroke="var(--color-primary)"
-                          strokeWidth="0.7"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeDasharray="2.5 2.5"
-                          opacity="0.95"
-                        />
-                      ) : null}
-                    </svg>
-
-                    {originPosition ? (
-                      <div
-                        className="absolute flex flex-col items-center"
-                        style={{
-                          left: `${originPosition.x}%`,
-                          top: `${originPosition.y}%`,
-                          transform: 'translate(-50%, -100%)',
-                        }}
-                      >
-                        <div className="rounded-full border-2 border-muted-foreground bg-background p-2 shadow-sm">
-                          <MapPin className="size-4 text-muted-foreground" />
-                        </div>
-                        <span className="mt-1 rounded bg-background px-1.5 py-0.5 text-[10px] shadow-sm">
-                          Pickup
-                        </span>
-                      </div>
-                    ) : null}
-
-                    {driverPosition ? (
-                      <div
-                        className="absolute flex flex-col items-center animate-pulse"
-                        style={{
-                          left: `${driverPosition.x}%`,
-                          top: `${driverPosition.y}%`,
-                          transform: 'translate(-50%, -100%)',
-                        }}
-                      >
-                        <div className="rounded-full bg-primary p-2 shadow-lg ring-4 ring-primary/15">
-                          <Truck className="size-5 text-primary-foreground" />
-                        </div>
-                        <span className="mt-1 rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground shadow-sm">
-                          {selectedDriver.name.split(' ')[0]}
-                        </span>
-                      </div>
-                    ) : null}
-
-                    {destinationPosition ? (
-                      <div
-                        className="absolute flex flex-col items-center"
-                        style={{
-                          left: `${destinationPosition.x}%`,
-                          top: `${destinationPosition.y}%`,
-                          transform: 'translate(-50%, -100%)',
-                        }}
-                      >
-                        <div className="rounded-full border-2 border-success bg-success p-2 shadow-sm">
-                          <Navigation className="size-4 text-success-foreground" />
-                        </div>
-                        <span className="mt-1 rounded bg-success px-1.5 py-0.5 text-[10px] text-success-foreground shadow-sm">
-                          Destination
-                        </span>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="absolute right-4 top-4 flex flex-col gap-2">
-                    <Badge variant="secondary" className="justify-center bg-background/95">
-                      {hasDirectionsApiKey() ? 'Google Directions route' : 'OSRM fallback route'}
-                    </Badge>
+                <div className="absolute right-4 top-4 flex flex-col gap-2">
+                  <Badge variant="secondary" className="justify-center bg-background/95">
+                    {selectedDriver
+                      ? selectedDriver.hasLiveGps
+                        ? 'Live GPS position'
+                        : 'Route fallback from dispatch data'
+                      : 'Pan and zoom enabled'}
+                  </Badge>
+                  {selectedDriver && mapPreviewUrl ? (
                     <Button
                       variant="outline"
                       size="sm"
                       className="bg-background/95"
-                      type="button"
-                      onClick={handleResetMapView}
+                      asChild
                     >
-                      <RotateCcw className="mr-2 size-4" />
-                      Reset View
-                    </Button>
-                    <Button variant="outline" size="sm" className="bg-background/95" asChild>
-                      <a
-                        href={googleMapsUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
+                      <a href={mapPreviewUrl} target="_blank" rel="noreferrer">
                         <ExternalLink className="mr-2 size-4" />
-                        Open in Maps
+                        Open Mapbox View
                       </a>
                     </Button>
-                  </div>
+                  ) : null}
+                </div>
 
+                {!selectedDriver ? (
+                  <div className="pointer-events-none absolute left-4 top-4 max-w-xs rounded-lg border bg-background/90 px-3 py-2 text-xs text-muted-foreground shadow-sm">
+                    No in-transit routes are selected right now. The map stays available so you can
+                    move around and zoom before a route comes in.
+                  </div>
+                ) : (
                   <div className="pointer-events-none absolute bottom-4 left-4 right-4">
                     <div className="rounded-lg border bg-background/95 p-4 shadow-lg backdrop-blur">
                       <div className="flex items-start justify-between gap-4">
@@ -712,14 +448,14 @@ export default function LiveTrackingPage() {
                           Driver position: {selectedDriver.coordinates.lat.toFixed(4)},{' '}
                           {selectedDriver.coordinates.lng.toFixed(4)}
                         </span>
-                        <span className="hidden sm:inline">
-                          {lastUpdatedAt ? `Last synced ${lastUpdatedAt}` : 'Waiting for first sync'}
-                        </span>
+                        <span className="hidden sm:inline">{gpsStatusLabel}</span>
                       </div>
                     </div>
                   </div>
-                </div>
+                )}
+              </div>
 
+              {selectedDriver ? (
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
                   <div className="rounded-lg bg-muted/50 p-4">
                     <div className="mb-1 flex items-center gap-2 text-sm text-muted-foreground">
@@ -736,8 +472,8 @@ export default function LiveTrackingPage() {
                     <p className="font-medium">{selectedDriver.destination}</p>
                   </div>
                 </div>
-              </>
-            )}
+              ) : null}
+            </>
           </CardContent>
         </Card>
       </div>

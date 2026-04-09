@@ -3,11 +3,10 @@ export type MapPoint = {
   lng: number
 }
 
-type GoogleDirectionsResponse = {
-  status?: string
+type MapboxDirectionsResponse = {
   routes?: Array<{
-    overview_polyline?: {
-      points?: string
+    geometry?: {
+      coordinates?: [number, number][]
     }
   }>
 }
@@ -55,51 +54,10 @@ function serializePointForRefresh(point: MapPoint) {
 
 function getDirectionsApiKey() {
   return (
-    process.env.NEXT_PUBLIC_GOOGLE_MAPS_DIRECTIONS_API_KEY?.trim() ||
-    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN?.trim() ||
+    process.env.NEXT_PUBLIC_MAPBOX_DIRECTIONS_ACCESS_TOKEN?.trim() ||
     null
   )
-}
-
-function decodePolyline(encoded: string): MapPoint[] {
-  const coordinates: MapPoint[] = []
-  let index = 0
-  let latitude = 0
-  let longitude = 0
-
-  while (index < encoded.length) {
-    let shift = 0
-    let result = 0
-    let byte = 0
-
-    do {
-      byte = encoded.charCodeAt(index++) - 63
-      result |= (byte & 0x1f) << shift
-      shift += 5
-    } while (byte >= 0x20)
-
-    const latitudeDelta = result & 1 ? ~(result >> 1) : result >> 1
-    latitude += latitudeDelta
-
-    shift = 0
-    result = 0
-
-    do {
-      byte = encoded.charCodeAt(index++) - 63
-      result |= (byte & 0x1f) << shift
-      shift += 5
-    } while (byte >= 0x20)
-
-    const longitudeDelta = result & 1 ? ~(result >> 1) : result >> 1
-    longitude += longitudeDelta
-
-    coordinates.push({
-      lat: latitude / 1e5,
-      lng: longitude / 1e5,
-    })
-  }
-
-  return coordinates
 }
 
 export async function resolveRoutePolyline(route: MapPoint[]) {
@@ -108,7 +66,7 @@ export async function resolveRoutePolyline(route: MapPoint[]) {
   }
 
   const apiKey = getDirectionsApiKey()
-  const cacheKey = `${apiKey ?? 'osrm'}:${route.map(serializePointForRefresh).join('|')}`
+  const cacheKey = `${apiKey ? 'mapbox' : 'osrm'}:${route.map(serializePointForRefresh).join('|')}`
   const cached = routeCache.get(cacheKey)
 
   if (cached && cached.expiresAt > Date.now()) {
@@ -134,31 +92,23 @@ export async function resolveRoutePolyline(route: MapPoint[]) {
       }
 
       if (apiKey) {
-        const waypoints = route
-          .slice(1, -1)
-          .slice(0, 23)
-          .map((point) => `via:${serializePoint(point)}`)
-        let directionsUrl =
-          'https://maps.googleapis.com/maps/api/directions/json' +
-          `?origin=${encodeURIComponent(origin)}` +
-          `&destination=${encodeURIComponent(destination)}` +
-          '&mode=driving' +
-          '&departure_time=now' +
-          '&traffic_model=best_guess' +
-          `&key=${encodeURIComponent(apiKey)}`
-
-        if (waypoints.length) {
-          directionsUrl += `&waypoints=${encodeURIComponent(waypoints.join('|'))}`
-        }
+        const mapboxCoordinates = route.map((point) => `${point.lng},${point.lat}`).join(';')
+        const directionsUrl =
+          'https://api.mapbox.com/directions/v5/mapbox/driving/' +
+          `${mapboxCoordinates}` +
+          `?alternatives=false&continue_straight=true&geometries=geojson&overview=full&steps=false&access_token=${encodeURIComponent(apiKey)}`
 
         const directionsResponse = await fetch(directionsUrl)
 
         if (directionsResponse.ok) {
-          const payload = (await directionsResponse.json()) as GoogleDirectionsResponse
-          const encodedPolyline = payload.routes?.[0]?.overview_polyline?.points
+          const payload = (await directionsResponse.json()) as MapboxDirectionsResponse
+          const coordinatesPath = payload.routes?.[0]?.geometry?.coordinates
 
-          if (payload.status === 'OK' && encodedPolyline) {
-            const decodedRoute = decodePolyline(encodedPolyline)
+          if (coordinatesPath?.length) {
+            const decodedRoute = coordinatesPath.map(([lng, lat]) => ({
+              lat,
+              lng,
+            }))
 
             if (decodedRoute.length >= 2) {
               return decodedRoute

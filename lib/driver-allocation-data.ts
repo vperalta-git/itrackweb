@@ -3,12 +3,12 @@
 import { apiRequest } from '@/lib/api-client'
 import {
   BackendDriverAllocation,
+  BackendLiveLocation,
   BackendRouteStop,
   BackendUnitAgentAllocation,
   getEntityId,
   getFullName,
   getIsoDate,
-  makeRouteStop,
   mapAllocationStatusToUi,
   mapUiAllocationStatusToBackend,
 } from '@/lib/backend-helpers'
@@ -35,8 +35,16 @@ export interface DriverAllocationRecord {
   notes?: string
   routeProgress?: number | null
   estimatedDuration?: number | null
+  currentLocation?: DriverAllocationLiveLocation | null
   pickupLocationDetails?: BackendRouteStop | null
   destinationLocationDetails?: BackendRouteStop | null
+}
+
+export interface DriverAllocationLiveLocation {
+  latitude: number
+  longitude: number
+  accuracy?: number | null
+  updatedAt?: string | null
 }
 
 export const DRIVER_ALLOCATIONS_STORAGE_KEY = 'itrack.driver.allocations'
@@ -46,6 +54,17 @@ export const DEFAULT_IN_TRANSIT_PROGRESS = 0.62
 const EARTH_RADIUS_KM = 6371
 
 const toRadians = (value: number) => (value * Math.PI) / 180
+
+const hasValidCoordinates = (
+  value: BackendRouteStop | BackendLiveLocation | null | undefined
+): value is { latitude: number; longitude: number } =>
+  Boolean(
+    value &&
+      typeof value.latitude === 'number' &&
+      typeof value.longitude === 'number' &&
+      Number.isFinite(value.latitude) &&
+      Number.isFinite(value.longitude)
+  )
 
 const EMPTY_DRIVER_ALLOCATIONS: DriverAllocationRecord[] = []
 
@@ -81,6 +100,20 @@ const mapDriverAllocationRecord = (
     allocation.vehicleId && typeof allocation.vehicleId === 'object' ? allocation.vehicleId : null
   const driver =
     allocation.driverId && typeof allocation.driverId === 'object' ? allocation.driverId : null
+  const currentLocationPayload = allocation.currentLocation
+  const currentLocation =
+    currentLocationPayload &&
+    typeof currentLocationPayload.latitude === 'number' &&
+    typeof currentLocationPayload.longitude === 'number' &&
+    Number.isFinite(currentLocationPayload.latitude) &&
+    Number.isFinite(currentLocationPayload.longitude)
+      ? {
+          latitude: currentLocationPayload.latitude,
+          longitude: currentLocationPayload.longitude,
+          accuracy: currentLocationPayload.accuracy ?? null,
+          updatedAt: currentLocationPayload.updatedAt ?? null,
+        }
+      : null
 
   return {
     id: getEntityId(allocation),
@@ -107,6 +140,7 @@ const mapDriverAllocationRecord = (
     notes: allocation.notes ?? '',
     routeProgress: allocation.routeProgress ?? null,
     estimatedDuration: allocation.estimatedDuration ?? null,
+    currentLocation,
     pickupLocationDetails: allocation.pickupLocation ?? null,
     destinationLocationDetails: allocation.destinationLocation ?? null,
   }
@@ -139,8 +173,8 @@ export async function createDriverAllocationRecord(input: {
   managerId?: string | null
   vehicleId: string
   driverId: string
-  pickupLocation: string
-  destination: string
+  pickupLocation: BackendRouteStop
+  destinationLocation: BackendRouteStop
   notes?: string
 }) {
   await apiRequest('/driver-allocations', {
@@ -149,8 +183,8 @@ export async function createDriverAllocationRecord(input: {
       managerId: input.managerId ?? null,
       vehicleId: input.vehicleId,
       driverId: input.driverId,
-      pickupLocation: makeRouteStop(input.pickupLocation),
-      destinationLocation: makeRouteStop(input.destination),
+      pickupLocation: input.pickupLocation,
+      destinationLocation: input.destinationLocation,
       notes: input.notes?.trim() ?? '',
       status: 'pending',
     },
@@ -168,8 +202,8 @@ export async function updateDriverAllocationRecord(
     managerId?: string | null
     vehicleId: string
     driverId: string
-    pickupLocation: string
-    destination: string
+    pickupLocation: BackendRouteStop
+    destinationLocation: BackendRouteStop
     status: DriverAllocationRecord['status']
     notes?: string
   }
@@ -180,8 +214,8 @@ export async function updateDriverAllocationRecord(
       managerId: input.managerId ?? null,
       vehicleId: input.vehicleId,
       driverId: input.driverId,
-      pickupLocation: makeRouteStop(input.pickupLocation),
-      destinationLocation: makeRouteStop(input.destination),
+      pickupLocation: input.pickupLocation,
+      destinationLocation: input.destinationLocation,
       status: mapUiAllocationStatusToBackend(input.status),
       notes: input.notes?.trim() ?? '',
     },
@@ -204,17 +238,67 @@ export async function deleteDriverAllocationRecord(id: string) {
   return nextAllocations
 }
 
+function getDistanceBetweenLocationsKm(
+  origin: { latitude: number; longitude: number },
+  destination: { latitude: number; longitude: number }
+) {
+  const latitudeDelta = toRadians(destination.latitude - origin.latitude)
+  const longitudeDelta = toRadians(destination.longitude - origin.longitude)
+  const originLatitude = toRadians(origin.latitude)
+  const destinationLatitude = toRadians(destination.latitude)
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(originLatitude) *
+      Math.cos(destinationLatitude) *
+      Math.sin(longitudeDelta / 2) ** 2
+
+  return 2 * EARTH_RADIUS_KM * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+}
+
+function getRouteDistanceKm(allocation: DriverAllocationRecord) {
+  const pickup = allocation.pickupLocationDetails
+  const destination = allocation.destinationLocationDetails
+
+  if (!hasValidCoordinates(pickup) || !hasValidCoordinates(destination)) {
+    return null
+  }
+
+  return getDistanceBetweenLocationsKm(pickup, destination)
+}
+
+function getLiveProgress(allocation: DriverAllocationRecord) {
+  const destination = allocation.destinationLocationDetails
+  const currentLocation = allocation.currentLocation
+  const routeDistanceKm = getRouteDistanceKm(allocation)
+
+  if (
+    !hasValidCoordinates(currentLocation) ||
+    !hasValidCoordinates(destination) ||
+    routeDistanceKm === null ||
+    routeDistanceKm <= 0
+  ) {
+    return null
+  }
+
+  const remainingDistanceKm = getDistanceBetweenLocationsKm(currentLocation, destination)
+  return Math.min(Math.max(1 - remainingDistanceKm / routeDistanceKm, 0), 1)
+}
+
 export function getDriverAllocationProgress(allocation: DriverAllocationRecord) {
   switch (allocation.status) {
     case 'pending':
       return 0
     case 'assigned':
       return 0.15
-    case 'in-transit':
-      return Math.min(
-        Math.max(allocation.routeProgress ?? DEFAULT_IN_TRANSIT_PROGRESS, 0),
-        1
-      )
+    case 'in-transit': {
+      const liveProgress = getLiveProgress(allocation)
+
+      if (liveProgress !== null) {
+        return liveProgress
+      }
+
+      return Math.min(Math.max(allocation.routeProgress ?? DEFAULT_IN_TRANSIT_PROGRESS, 0), 1)
+    }
     case 'available':
     case 'completed':
       return 1
@@ -227,7 +311,25 @@ export function getDriverAllocationLiveCoordinates(allocation: DriverAllocationR
   const pickup = allocation.pickupLocationDetails
   const destination = allocation.destinationLocationDetails
 
-  if (!pickup || !destination) {
+  if (allocation.status === 'available' || allocation.status === 'completed') {
+    if (!hasValidCoordinates(destination)) {
+      return null
+    }
+
+    return {
+      latitude: destination.latitude,
+      longitude: destination.longitude,
+    }
+  }
+
+  if (hasValidCoordinates(allocation.currentLocation)) {
+    return {
+      latitude: allocation.currentLocation.latitude,
+      longitude: allocation.currentLocation.longitude,
+    }
+  }
+
+  if (!hasValidCoordinates(pickup) || !hasValidCoordinates(destination)) {
     return null
   }
 
@@ -246,28 +348,20 @@ export function getDriverAllocationRemainingDistanceKm(allocation: DriverAllocat
     return null
   }
 
-  const pickup = allocation.pickupLocationDetails
   const destination = allocation.destinationLocationDetails
+  const currentLocation = allocation.currentLocation
 
-  if (!pickup || !destination) {
+  if (hasValidCoordinates(currentLocation) && hasValidCoordinates(destination)) {
+    return Math.max(getDistanceBetweenLocationsKm(currentLocation, destination), 0)
+  }
+
+  const routeDistanceKm = getRouteDistanceKm(allocation)
+
+  if (routeDistanceKm === null) {
     return null
   }
 
-  const latitudeDelta = toRadians(destination.latitude - pickup.latitude)
-  const longitudeDelta = toRadians(destination.longitude - pickup.longitude)
-  const pickupLatitude = toRadians(pickup.latitude)
-  const destinationLatitude = toRadians(destination.latitude)
-  const haversine =
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(pickupLatitude) *
-      Math.cos(destinationLatitude) *
-      Math.sin(longitudeDelta / 2) ** 2
-  const totalDistanceKm =
-    2 *
-    EARTH_RADIUS_KM *
-    Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
-
-  return Math.max(totalDistanceKm * (1 - getDriverAllocationProgress(allocation)), 0)
+  return Math.max(routeDistanceKm * (1 - getDriverAllocationProgress(allocation)), 0)
 }
 
 export function getDriverAllocationRemainingDistanceLabel(allocation: DriverAllocationRecord) {

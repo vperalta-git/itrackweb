@@ -374,6 +374,10 @@ export default function InventoryPage() {
   const columns: ColumnDef<Vehicle>[] = [
     {
       accessorKey: 'unitName',
+      meta: {
+        headerClassName: 'w-[12%]',
+        cellClassName: 'whitespace-normal break-words align-top',
+      },
       header: ({ column }) => (
         <Button
           variant="ghost"
@@ -388,13 +392,21 @@ export default function InventoryPage() {
     },
     {
       accessorKey: 'conductionNumber',
-      header: 'Conduction Number',
+      meta: {
+        headerClassName: 'w-[12%]',
+        cellClassName: 'whitespace-normal break-words align-top',
+      },
+      header: 'Conduction No.',
       cell: ({ row }) => (
         <span className="font-medium text-primary">{row.getValue('conductionNumber')}</span>
       ),
     },
     {
       accessorKey: 'bodyColor',
+      meta: {
+        headerClassName: 'w-[12%]',
+        cellClassName: 'whitespace-normal break-words align-top',
+      },
       header: 'Body Color',
       cell: ({ row }) => {
         const bodyColor = row.getValue('bodyColor') as string
@@ -414,10 +426,18 @@ export default function InventoryPage() {
     },
     {
       accessorKey: 'variation',
+      meta: {
+        headerClassName: 'w-[22%]',
+        cellClassName: 'whitespace-normal break-words align-top',
+      },
       header: 'Variation',
     },
     {
       accessorKey: 'assignedAgent',
+      meta: {
+        headerClassName: 'w-[18%]',
+        cellClassName: 'whitespace-normal break-words align-top',
+      },
       header: 'Assigned Agent',
       cell: ({ row }) => (
         <AssignedAgentDisplay
@@ -429,6 +449,9 @@ export default function InventoryPage() {
     },
     {
       accessorKey: 'ageInStorage',
+      meta: {
+        headerClassName: 'w-[10%]',
+      },
       header: ({ column }) => (
         <Button
           variant="ghost"
@@ -443,10 +466,16 @@ export default function InventoryPage() {
     },
     {
       accessorKey: 'dateAdded',
+      meta: {
+        headerClassName: 'w-[10%]',
+      },
       header: 'Date Added',
     },
     {
       accessorKey: 'status',
+      meta: {
+        headerClassName: 'w-[10%]',
+      },
       header: 'Status',
       cell: ({ row }) => <StatusBadge status={row.getValue('status')} />,
       filterFn: (row, id, value) => {
@@ -456,6 +485,10 @@ export default function InventoryPage() {
     },
     {
       id: 'actions',
+      meta: {
+        headerClassName: 'w-[4rem]',
+        cellClassName: 'whitespace-nowrap text-right',
+      },
       enableHiding: false,
       cell: ({ row }) => {
         const vehicle = row.original
@@ -796,6 +829,7 @@ export default function InventoryPage() {
       <DataTable
         columns={columns}
         data={filteredVehicles}
+        tableClassName="table-fixed"
         searchKey="conductionNumber"
         searchPlaceholder="Search by conduction number..."
         exportConfig={{
