@@ -100,7 +100,7 @@ export default function LoginPage() {
         error instanceof ApiError
           ? error.message
           : error instanceof TypeError
-          ? `Cannot reach the backend at ${API_BASE_URL}. Make sure the backend server is running.`
+          ? `Cannot reach the backend at ${API_BASE_URL}. If you just changed the env file, restart the Next.js dev server and try again.`
           : 'Unable to sign in right now.'
       )
       setIsLoading(false)
