@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { parseRoutePoints, resolveRouteCoordinates } from '@/lib/server-map-routes'
+import { parseRoutePoints, resolveRouteData } from '@/lib/server-map-routes'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,9 +8,12 @@ export async function GET(request: NextRequest) {
   const points = parseRoutePoints(request.nextUrl.searchParams.get('points'))
 
   if (points.length < 2) {
-    return NextResponse.json({ coordinates: null })
+    return NextResponse.json({ coordinates: null, distanceKm: null })
   }
 
-  const coordinates = await resolveRouteCoordinates(points)
-  return NextResponse.json({ coordinates })
+  const route = await resolveRouteData(points)
+  return NextResponse.json({
+    coordinates: route?.coordinates ?? null,
+    distanceKm: route?.distanceKm ?? null,
+  })
 }

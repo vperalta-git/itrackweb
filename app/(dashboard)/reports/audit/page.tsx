@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { apiRequest } from '@/lib/api-client'
 import {
   AUDIT_LOG_UPDATED_EVENT,
   STORAGE_KEY as AUDIT_LOG_STORAGE_KEY,
@@ -31,6 +32,19 @@ import { formatDateTimeLabel, parseDateValue } from '@/lib/backend-helpers'
 import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
 import { deriveActivityRecords, fetchReportSnapshot, type DerivedActivityRecord } from '@/lib/report-data'
 import { loadUsers, syncUsersFromBackend, type SystemUser } from '@/lib/user-data'
+import { mapBackendRoleToRouteRole } from '@/lib/session'
+
+type AuthEventType = 'login' | 'logout'
+
+type AuthEventApiRecord = {
+  id: string
+  userId?: string | { id?: string; _id?: string } | null
+  name?: string | null
+  email?: string | null
+  role?: string | null
+  eventType: AuthEventType
+  createdAt: string
+}
 
 type AuditTableRecord = {
   id: string
@@ -67,6 +81,40 @@ const toAuditTableRecord = (log: AuditLogEntry): AuditTableRecord => ({
   timestamp: formatDateTimeLabel(log.timestamp, log.timestamp),
 })
 
+const formatAuthRoleLabel = (role?: string | null) => {
+  if (!role) return 'User'
+
+  const mappedRole = mapBackendRoleToRouteRole(role)
+
+  switch (mappedRole) {
+    case 'admin':
+      return 'Administrator'
+    case 'supervisor':
+      return 'Supervisor'
+    case 'manager':
+      return 'Manager'
+    case 'sales-agent':
+      return 'Sales Agent'
+    default:
+      return role.replace(/_/g, ' ')
+  }
+}
+
+const toAuthAuditTableRecord = (record: AuthEventApiRecord): AuditTableRecord => {
+  const userLabel = record.name?.trim() || record.email?.trim() || 'Unknown user'
+  const action = record.eventType === 'login' ? 'LOGIN' : 'LOGOUT'
+
+  return {
+    id: `auth-event-${record.id}`,
+    user: userLabel,
+    action,
+    module: 'Authentication',
+    description: `${record.email ?? userLabel} ${record.eventType === 'login' ? 'signed in' : 'signed out'} as ${formatAuthRoleLabel(record.role)}.`,
+    timestampIso: parseDateValue(record.createdAt)?.toISOString() ?? new Date(0).toISOString(),
+    timestamp: formatDateTimeLabel(record.createdAt, record.createdAt),
+  }
+}
+
 const isSyntheticInventoryCreateLog = (log: AuditTableRecord) =>
   log.user === 'System' &&
   log.action === 'CREATE' &&
@@ -77,8 +125,11 @@ const mergeAuditLogs = (
   localLogs: AuditTableRecord[],
   backendLogs: AuditTableRecord[]
 ) => {
+  const filteredLocalLogs = localLogs.filter(
+    (log) => !(log.module === 'Authentication' && (log.action === 'LOGIN' || log.action === 'LOGOUT'))
+  )
   const localInventoryCreateDescriptions = new Set(
-    localLogs
+    filteredLocalLogs
       .filter(
         (log) =>
           log.action === 'CREATE' &&
@@ -88,7 +139,7 @@ const mergeAuditLogs = (
       .map((log) => log.description)
   )
 
-  return [...localLogs, ...backendLogs]
+  return [...filteredLocalLogs, ...backendLogs]
     .filter(
       (log) =>
         !(
@@ -152,10 +203,16 @@ export default function AuditTrailPage() {
       refreshLocalLogs()
 
       try {
-        const snapshot = await fetchReportSnapshot()
+        const [snapshot, authEvents] = await Promise.all([
+          fetchReportSnapshot(),
+          apiRequest<AuthEventApiRecord[]>('/auth/events').catch(() => []),
+        ])
         if (!isMounted) return
 
-        backendLogsCache = deriveActivityRecords(snapshot)
+        backendLogsCache = [
+          ...authEvents.map(toAuthAuditTableRecord),
+          ...deriveActivityRecords(snapshot),
+        ]
         refreshLocalLogs()
       } catch {
         if (!isMounted) return

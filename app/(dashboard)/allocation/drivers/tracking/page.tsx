@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   ArrowLeft,
+  Car,
   ExternalLink,
   Filter,
   LocateFixed,
@@ -44,6 +45,11 @@ import {
 import { buildRouteMapEmbedUrl } from '@/lib/map-location'
 import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
 import { matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
+
+type LiveRouteMetricsResponse = {
+  coordinates?: [number, number][] | null
+  distanceKm?: number | null
+}
 
 type TrackingDriver = {
   id: string
@@ -136,6 +142,9 @@ export default function LiveTrackingPage() {
   const [managerFilter, setManagerFilter] = React.useState('all')
   const [isRefreshing, setIsRefreshing] = React.useState(false)
   const [lastUpdatedAt, setLastUpdatedAt] = React.useState<string | null>(null)
+  const [selectedDriverRouteDistanceKm, setSelectedDriverRouteDistanceKm] = React.useState<
+    number | null
+  >(null)
 
   React.useEffect(() => {
     const syncAllocations = () => {
@@ -217,7 +226,73 @@ export default function LiveTrackingPage() {
     setSelectedDriver(null)
   }, [scopedDrivers])
 
+  React.useEffect(() => {
+    if (!selectedDriver?.destinationCoordinates) {
+      setSelectedDriverRouteDistanceKm(null)
+      return
+    }
+
+    const routeStart =
+      selectedDriver.hasLiveGps && selectedDriver.coordinates
+        ? selectedDriver.coordinates
+        : selectedDriver.originCoordinates
+
+    if (!routeStart) {
+      setSelectedDriverRouteDistanceKm(null)
+      return
+    }
+
+    let isCancelled = false
+
+    const url = new URL('/api/maps/route', window.location.origin)
+    url.searchParams.set(
+      'points',
+      [
+        `${routeStart.lat.toFixed(6)},${routeStart.lng.toFixed(6)}`,
+        `${selectedDriver.destinationCoordinates.lat.toFixed(6)},${selectedDriver.destinationCoordinates.lng.toFixed(6)}`,
+      ].join(';')
+    )
+
+    void fetch(url, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) {
+          return null
+        }
+
+        const payload = (await response.json()) as LiveRouteMetricsResponse
+        return typeof payload.distanceKm === 'number' && Number.isFinite(payload.distanceKm)
+          ? payload.distanceKm
+          : null
+      })
+      .then((distanceKm) => {
+        if (isCancelled) {
+          return
+        }
+
+        setSelectedDriverRouteDistanceKm(distanceKm)
+      })
+      .catch(() => {
+        if (isCancelled) {
+          return
+        }
+
+        setSelectedDriverRouteDistanceKm(null)
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [selectedDriver])
+
   const mapPreviewUrl = React.useMemo(() => getMapPreviewUrl(selectedDriver), [selectedDriver])
+
+  const selectedDriverDistanceLeft = React.useMemo(() => {
+    if (selectedDriverRouteDistanceKm !== null) {
+      return `${selectedDriverRouteDistanceKm.toFixed(1)} km left`
+    }
+
+    return selectedDriver?.distanceLeft ?? null
+  }, [selectedDriver, selectedDriverRouteDistanceKm])
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
@@ -364,7 +439,7 @@ export default function LiveTrackingPage() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <LocateFixed className="size-5 text-primary" />
+              <Car className="size-5 text-primary" />
               Real-Time Route Map
             </CardTitle>
           </CardHeader>
@@ -380,6 +455,7 @@ export default function LiveTrackingPage() {
                   origin={selectedDriver?.originCoordinates}
                   destination={selectedDriver?.destinationCoordinates}
                   focus={selectedDriver?.coordinates}
+                  routeOrigin={selectedDriver?.hasLiveGps ? selectedDriver.coordinates : undefined}
                 />
 
                 <div className="absolute right-4 top-4 flex flex-col gap-2">
@@ -440,7 +516,7 @@ export default function LiveTrackingPage() {
                         </div>
                         <div>
                           <p className="text-xs text-muted-foreground">Distance Left</p>
-                          <p className="font-semibold">{selectedDriver.distanceLeft}</p>
+                          <p className="font-semibold">{selectedDriverDistanceLeft}</p>
                         </div>
                       </div>
                       <div className="mt-3 flex items-center justify-between gap-4 text-[11px] text-muted-foreground">
@@ -453,6 +529,28 @@ export default function LiveTrackingPage() {
                     </div>
                   </div>
                 )}
+
+                {selectedDriver?.hasLiveGps ? (
+                  <div className="pointer-events-none absolute left-4 top-4 rounded-lg border bg-background/92 px-3 py-2 shadow-sm backdrop-blur">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                      Map Legend
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-foreground">
+                      <div className="flex items-center gap-2">
+                        <span className="size-2.5 rounded-full bg-[#f97316]" />
+                        <span>Pickup</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="size-2.5 rounded-full bg-[#16a34a]" />
+                        <span>Destination</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="size-2.5 rounded-full bg-[#dc2626]" />
+                        <span>Live Vehicle</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {selectedDriver ? (

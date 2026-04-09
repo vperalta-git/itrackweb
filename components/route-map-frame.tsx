@@ -10,6 +10,7 @@ type RouteMapFrameProps = {
   origin?: MapCoordinatesInput | null
   destination?: MapCoordinatesInput | null
   focus?: MapCoordinatesInput | null
+  routeOrigin?: MapCoordinatesInput | null
   className?: string
 }
 
@@ -297,6 +298,7 @@ export function RouteMapFrame({
   origin,
   destination,
   focus,
+  routeOrigin,
   className,
 }: RouteMapFrameProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
@@ -314,14 +316,15 @@ export function RouteMapFrame({
   const normalizedOrigin = React.useMemo(() => normalizePoint(origin), [origin])
   const normalizedDestination = React.useMemo(() => normalizePoint(destination), [destination])
   const normalizedFocus = React.useMemo(() => normalizePoint(focus), [focus])
+  const normalizedRouteOrigin = React.useMemo(() => normalizePoint(routeOrigin), [routeOrigin])
   const routeRequestPoints = React.useMemo(
     () =>
       buildRouteRequestPoints({
-        origin: normalizedOrigin,
+        origin: normalizedRouteOrigin ?? normalizedOrigin,
         destination: normalizedDestination,
         focus: normalizedFocus,
       }),
-    [normalizedDestination, normalizedFocus, normalizedOrigin]
+    [normalizedDestination, normalizedFocus, normalizedOrigin, normalizedRouteOrigin]
   )
 
   React.useEffect(() => {

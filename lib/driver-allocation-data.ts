@@ -52,6 +52,9 @@ export const DRIVER_ALLOCATIONS_UPDATED_EVENT = 'driver-allocations-updated'
 export const DEFAULT_IN_TRANSIT_PROGRESS = 0.62
 
 const EARTH_RADIUS_KM = 6371
+const DEFAULT_URBAN_SPEED_KMH = 28
+const MIN_REALISTIC_SPEED_KMH = 8
+const MAX_REALISTIC_SPEED_KMH = 80
 
 const toRadians = (value: number) => (value * Math.PI) / 180
 
@@ -388,6 +391,37 @@ export function getDriverAllocationEtaLabel(allocation: DriverAllocationRecord) 
 
   if (allocation.status === 'in-transit') {
     const estimatedDuration = allocation.estimatedDuration ?? 25
+    const routeDistanceKm = getRouteDistanceKm(allocation)
+    const remainingDistanceKm = getDriverAllocationRemainingDistanceKm(allocation)
+
+    if (remainingDistanceKm !== null) {
+      const backendImpliedSpeedKmh =
+        routeDistanceKm !== null && routeDistanceKm > 0 && estimatedDuration > 0
+          ? (routeDistanceKm / estimatedDuration) * 60
+          : null
+
+      const effectiveSpeedKmh =
+        backendImpliedSpeedKmh !== null &&
+        backendImpliedSpeedKmh >= MIN_REALISTIC_SPEED_KMH &&
+        backendImpliedSpeedKmh <= MAX_REALISTIC_SPEED_KMH
+          ? backendImpliedSpeedKmh
+          : DEFAULT_URBAN_SPEED_KMH
+
+      const liveRemainingMinutes = Math.max(
+        1,
+        Math.round((remainingDistanceKm / effectiveSpeedKmh) * 60)
+      )
+
+      if (liveRemainingMinutes >= 60) {
+        const hours = Math.floor(liveRemainingMinutes / 60)
+        const minutes = liveRemainingMinutes % 60
+
+        return minutes > 0 ? `${hours} hr ${minutes} mins` : `${hours} hr`
+      }
+
+      return `${liveRemainingMinutes} mins`
+    }
+
     const remainingMinutes = Math.max(
       1,
       Math.round(estimatedDuration * (1 - getDriverAllocationProgress(allocation)))

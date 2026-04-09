@@ -7,6 +7,7 @@ type RouteCoordinates = [number, number][]
 
 type MapboxDirectionsResponse = {
   routes?: Array<{
+    distance?: number
     geometry?: {
       coordinates?: [number, number][]
     }
@@ -16,10 +17,16 @@ type MapboxDirectionsResponse = {
 type OsrmRouteResponse = {
   code?: string
   routes?: Array<{
+    distance?: number
     geometry?: {
       coordinates?: [number, number][]
     }
   }>
+}
+
+type RouteResolution = {
+  coordinates: RouteCoordinates
+  distanceKm: number | null
 }
 
 function getMapboxAccessToken() {
@@ -86,6 +93,36 @@ function normalizeRouteCoordinates(coordinates: unknown): RouteCoordinates | nul
   return normalizedCoordinates.length >= 2 ? normalizedCoordinates : null
 }
 
+function normalizeRouteDistanceKm(distanceMeters: unknown) {
+  if (typeof distanceMeters !== 'number' || !Number.isFinite(distanceMeters) || distanceMeters < 0) {
+    return null
+  }
+
+  return distanceMeters / 1000
+}
+
+function calculatePolylineDistanceKm(coordinates: RouteCoordinates) {
+  let totalDistanceKm = 0
+
+  for (let index = 1; index < coordinates.length; index += 1) {
+    const [previousLongitude, previousLatitude] = coordinates[index - 1]
+    const [nextLongitude, nextLatitude] = coordinates[index]
+    const latitudeDelta = ((nextLatitude - previousLatitude) * Math.PI) / 180
+    const longitudeDelta = ((nextLongitude - previousLongitude) * Math.PI) / 180
+    const previousLatitudeRadians = (previousLatitude * Math.PI) / 180
+    const nextLatitudeRadians = (nextLatitude * Math.PI) / 180
+    const haversine =
+      Math.sin(latitudeDelta / 2) ** 2 +
+      Math.cos(previousLatitudeRadians) *
+        Math.cos(nextLatitudeRadians) *
+        Math.sin(longitudeDelta / 2) ** 2
+
+    totalDistanceKm += 2 * 6371 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+  }
+
+  return totalDistanceKm
+}
+
 async function resolveMapboxRoute(points: RoutePoint[]) {
   const accessToken = getMapboxAccessToken()
 
@@ -111,7 +148,18 @@ async function resolveMapboxRoute(points: RoutePoint[]) {
   }
 
   const payload = (await response.json()) as MapboxDirectionsResponse
-  return normalizeRouteCoordinates(payload.routes?.[0]?.geometry?.coordinates)
+  const coordinates = normalizeRouteCoordinates(payload.routes?.[0]?.geometry?.coordinates)
+
+  if (!coordinates) {
+    return null
+  }
+
+  return {
+    coordinates,
+    distanceKm:
+      normalizeRouteDistanceKm(payload.routes?.[0]?.distance) ??
+      calculatePolylineDistanceKm(coordinates),
+  } satisfies RouteResolution
 }
 
 async function resolveOsrmRoute(points: RoutePoint[]) {
@@ -132,10 +180,21 @@ async function resolveOsrmRoute(points: RoutePoint[]) {
     return null
   }
 
-  return normalizeRouteCoordinates(payload.routes?.[0]?.geometry?.coordinates)
+  const coordinates = normalizeRouteCoordinates(payload.routes?.[0]?.geometry?.coordinates)
+
+  if (!coordinates) {
+    return null
+  }
+
+  return {
+    coordinates,
+    distanceKm:
+      normalizeRouteDistanceKm(payload.routes?.[0]?.distance) ??
+      calculatePolylineDistanceKm(coordinates),
+  } satisfies RouteResolution
 }
 
-export async function resolveRouteCoordinates(points: RoutePoint[]) {
+export async function resolveRouteData(points: RoutePoint[]) {
   if (points.length < 2) {
     return null
   }
@@ -155,4 +214,9 @@ export async function resolveRouteCoordinates(points: RoutePoint[]) {
   } catch {
     return null
   }
+}
+
+export async function resolveRouteCoordinates(points: RoutePoint[]) {
+  const route = await resolveRouteData(points)
+  return route?.coordinates ?? null
 }

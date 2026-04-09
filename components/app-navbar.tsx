@@ -38,6 +38,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
+import { apiRequest } from '@/lib/api-client'
 import { getAuditActor, logAuditEvent } from '@/lib/audit-log'
 import {
   clearNotifications,
@@ -376,6 +377,22 @@ export function AppNavbar() {
   }
 
   const handleSignOut = async () => {
+    try {
+      if (currentUser) {
+        await apiRequest('/auth/logout', {
+          method: 'POST',
+          body: {
+            userId: currentUser.id,
+            name: userName,
+            email: currentUser.email,
+            role: currentUser.backendRole,
+          },
+        })
+      }
+    } catch {
+      // Keep sign-out resilient even if the backend auth event fails.
+    }
+
     logAuditEvent({
       user: getAuditActor(role),
       action: 'LOGOUT',
