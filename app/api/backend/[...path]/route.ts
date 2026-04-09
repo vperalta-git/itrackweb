@@ -5,7 +5,7 @@ import { normalizeApiBaseUrl } from '@/lib/api-base-url'
 export const dynamic = 'force-dynamic'
 
 const RETRYABLE_STATUSES = new Set([502, 503, 504])
-const RETRY_DELAYS_MS = [0, 3000, 6000]
+const RETRY_DELAYS_MS = [0, 5000, 10000, 15000]
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -125,7 +125,7 @@ async function handleRequest(
         {
           success: false,
           message:
-            'The backend service is waking up or temporarily unavailable. Please try again in a few seconds.',
+            `The backend at ${backendUrl.origin} is waking up or temporarily unavailable. Please try again in a few seconds.`,
         },
         { status: upstreamResponse.status }
       )

@@ -1,4 +1,4 @@
-const DEFAULT_BACKEND_ORIGIN = 'https://i-track-backend-s0j1.onrender.com'
+const DEFAULT_BACKEND_ORIGIN = 'https://i-track-backend-0xpa.onrender.com'
 
 export function normalizeApiBaseUrl(rawBaseUrl?: string | null) {
   const trimmed = rawBaseUrl?.trim()
