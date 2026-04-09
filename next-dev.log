@@ -6,8 +6,9 @@
 - Local:         http://localhost:3000
 - Network:       http://192.168.254.147:3000
 - Environments: .env.local, .env
-✓ Ready in 1090ms
+✓ Ready in 1152ms
 
- POST /api/backend/auth/login 503 in 11.9s (next.js: 2.4s, application-code: 9.6s)
- GET /api/backend/health 503 in 12.0s (next.js: 2.4s, application-code: 9.6s)
- GET /api/backend/health 503 in 9.4s (next.js: 14ms, application-code: 9.4s)
+ GET /api/backend/health 200 in 24.4s (next.js: 2.2s, application-code: 22.2s)
+ POST /api/backend/auth/login 200 in 1213ms (next.js: 14ms, application-code: 1199ms)
+ GET /api/backend/health 200 in 652ms (next.js: 327ms, application-code: 326ms)
+ POST /api/backend/auth/login 200 in 1300ms (next.js: 329ms, application-code: 971ms)

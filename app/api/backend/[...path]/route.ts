@@ -30,9 +30,7 @@ function buildBackendUrl(
   pathSegments: string[],
   searchParams: URLSearchParams
 ) {
-  const backendBaseUrl = normalizeApiBaseUrl(
-    process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL
-  )
+  const backendBaseUrl = normalizeApiBaseUrl(process.env.BACKEND_URL)
   const backendUrl = new URL(`${backendBaseUrl}/${pathSegments.join('/')}`)
 
   for (const [key, value] of searchParams.entries()) {
