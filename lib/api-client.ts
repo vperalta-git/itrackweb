@@ -15,6 +15,8 @@ type RequestOptions = {
   query?: Record<string, string | number | boolean | null | undefined>
 }
 
+const FRONTEND_API_PROXY_BASE = '/api/backend'
+
 export class ApiError extends Error {
   status: number
   details: unknown
@@ -32,6 +34,18 @@ const buildUrl = (
   query?: Record<string, string | number | boolean | null | undefined>
 ) => {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
+
+  if (typeof window !== 'undefined') {
+    const proxyUrl = new URL(`${FRONTEND_API_PROXY_BASE}${normalizedPath}`, window.location.origin)
+
+    for (const [key, value] of Object.entries(query ?? {})) {
+      if (value === undefined || value === null || value === '') continue
+      proxyUrl.searchParams.set(key, String(value))
+    }
+
+    return proxyUrl.toString()
+  }
+
   const url = new URL(`${API_BASE_URL}${normalizedPath}`)
 
   for (const [key, value] of Object.entries(query ?? {})) {
