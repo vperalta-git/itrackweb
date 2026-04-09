@@ -48,6 +48,11 @@ interface MapViewProps {
   showClusters?: boolean;
   showScale?: boolean;
   mapChipLabel?: string;
+  legendItems?: Array<{
+    label: string;
+    color: string;
+    iconName?: keyof typeof Ionicons.glyphMap;
+  }>;
 }
 
 type MapboxDirectionsResponse = {
@@ -658,6 +663,7 @@ export const MapViewComponent = ({
   showClusters = false,
   showScale = true,
   mapChipLabel = 'Live Map',
+  legendItems = [],
 }: MapViewProps) => {
   const routesRef = useRef(routes);
   const [layout, setLayout] = useState({ width: 0, height: 0 });
@@ -1142,6 +1148,35 @@ export const MapViewComponent = ({
         <Text style={styles.mapChipText}>{mapChipLabel}</Text>
       </View>
 
+      {legendItems.length ? (
+        <View style={styles.legendCard}>
+          <Text style={styles.legendTitle}>Legend</Text>
+          <View style={styles.legendItems}>
+            {legendItems.map((item) => (
+              <View key={`${item.label}-${item.color}`} style={styles.legendItem}>
+                <View
+                  style={[
+                    styles.legendSwatch,
+                    {
+                      backgroundColor: item.color,
+                    },
+                  ]}
+                >
+                  {item.iconName ? (
+                    <Ionicons
+                      name={item.iconName}
+                      size={10}
+                      color={theme.colors.white}
+                    />
+                  ) : null}
+                </View>
+                <Text style={styles.legendLabel}>{item.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.controlStack}>
         {showScale && mapPoints.length ? (
           <Pressable style={styles.fitButton} onPress={fitToMarkers}>
@@ -1259,6 +1294,47 @@ const styles = StyleSheet.create({
   mapChipText: {
     fontSize: 12,
     fontWeight: '700',
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
+  },
+  legendCard: {
+    position: 'absolute',
+    top: 54,
+    left: theme.spacing.base,
+    borderRadius: theme.radius.lg,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    gap: 6,
+  },
+  legendTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: theme.colors.textSubtle,
+    fontFamily: theme.fonts.family.sans,
+  },
+  legendItems: {
+    gap: 6,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  legendSwatch: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  legendLabel: {
+    fontSize: 11,
+    fontWeight: '600',
     color: theme.colors.text,
     fontFamily: theme.fonts.family.sans,
   },

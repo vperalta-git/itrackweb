@@ -13,7 +13,7 @@ import {
   PageHeader,
   StatusBadge,
 } from '@/src/mobile/components';
-import { theme } from '@/src/mobile/constants/theme';
+import { AppTheme, useTheme } from '@/src/mobile/constants/theme';
 import { useAuth } from '@/src/mobile/context/AuthContext';
 import {
   formatRequestedServices,
@@ -32,6 +32,8 @@ import {
 export default function DispatcherDashboard() {
   const navigation = useNavigation();
   const { user } = useAuth();
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [refreshing, setRefreshing] = useState(false);
   const [pendingPreparations, setPendingPreparations] = useState<
     PreparationRecord[]
@@ -247,7 +249,8 @@ export default function DispatcherDashboard() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: AppTheme) =>
+  StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -367,4 +370,4 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontFamily: theme.fonts.family.sans,
   },
-});
+  });

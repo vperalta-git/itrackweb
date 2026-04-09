@@ -19,6 +19,7 @@ import {
   acceptDriverAllocation,
   completeDriverAllocationTrip,
   findDriverAllocationLocation,
+  formatDriverAllocationEta,
   getDriverAllocationDashboardRecord,
   getDriverAllocationInitialRegion,
   getDriverAllocationLiveLocation,
@@ -26,7 +27,10 @@ import {
   loadDriverAllocations,
   startDriverAllocationTrip,
 } from '@/src/mobile/data/driver-allocation';
-import { useDriverRealtimeLocation } from '@/src/mobile/hooks';
+import {
+  useDriverAllocationLiveRouteMetrics,
+  useDriverRealtimeLocation,
+} from '@/src/mobile/hooks';
 import { AllocationStatus } from '@/src/mobile/types';
 
 type DriverTripStage =
@@ -147,6 +151,10 @@ export default function DriverDashboard() {
         : null,
     [activeAllocation, trackedDriverLocation]
   );
+  const liveMetrics = useDriverAllocationLiveRouteMetrics(
+    activeAllocation,
+    trackedDriverLocation ?? undefined
+  );
   const pickupMarker = useMemo<MarkerData | null>(
     () =>
       pickupLocation
@@ -180,12 +188,14 @@ export default function DriverDashboard() {
             id: `driver-${activeAllocation.id}`,
             location: driverLocation,
             title: activeAllocation.driverName,
-            description: `Current position - ETA ${activeAllocation.eta}`,
+            description: `Current position - ETA ${liveMetrics.etaLabel}${
+              liveMetrics.distanceLabel ? ` - ${liveMetrics.distanceLabel}` : ''
+            }`,
             type: 'driver',
             status: 'active',
           }
         : null,
-    [activeAllocation, driverLocation]
+    [activeAllocation, driverLocation, liveMetrics.distanceLabel, liveMetrics.etaLabel]
   );
   const markers = useMemo(
     () =>
@@ -229,7 +239,6 @@ export default function DriverDashboard() {
           },
     [activeAllocation]
   );
-
   const stageMessage = getStageMessage(tripStage);
   const isWaitingForBooking = tripStage === 'waiting_for_booking';
   const dashboardMapChipLabel = isWaitingForBooking
@@ -240,7 +249,9 @@ export default function DriverDashboard() {
       ? 'Available'
       : tripStage === 'pending_acceptance'
         ? 'Pending'
-        : activeAllocation?.eta ?? 'On Route';
+        : activeAllocation
+          ? liveMetrics.etaLabel ?? formatDriverAllocationEta(activeAllocation)
+          : 'On Route';
   const trackingMetaLabel =
     trackingStatus === 'tracking' && lastUpdatedAt
       ? `Updated ${lastUpdatedAt.toLocaleTimeString('en-US', {
@@ -373,6 +384,27 @@ export default function DriverDashboard() {
         routes={routes}
         initialRegion={initialRegion}
         mapChipLabel={dashboardMapChipLabel}
+        legendItems={
+          isWaitingForBooking
+            ? []
+            : [
+                {
+                  label: 'Pickup',
+                  color: theme.colors.info,
+                  iconName: 'ellipse',
+                },
+                {
+                  label: 'Destination',
+                  color: theme.colors.success,
+                  iconName: 'flag',
+                },
+                {
+                  label: 'Live Vehicle',
+                  color: theme.colors.primary,
+                  iconName: 'car-sport',
+                },
+              ]
+        }
         style={styles.map}
       />
 

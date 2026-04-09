@@ -15,10 +15,12 @@ import {
   type CardActionMenuItem,
   EmptyState,
   FilterSummaryCard,
+  SegmentedControl,
   SearchFiltersBar,
   StatusBadge,
   WorkspaceScaffold,
 } from '@/src/mobile/components';
+import { VehicleUnitSetupPanel } from '@/src/mobile/components/VehicleUnitSetupPanel';
 import { useAuth } from '@/src/mobile/context/AuthContext';
 import {
   getModuleAccess,
@@ -41,6 +43,7 @@ import {
 import { shareExport } from '@/src/mobile/utils/shareExport';
 
 const ITEMS_PER_PAGE = 5;
+type VehicleStocksTab = 'stock_list' | 'unit_setup';
 
 const getStatusFilterAccentColor = (statusFilter: string) => {
   switch (statusFilter) {
@@ -62,6 +65,7 @@ export default function VehiclesScreen() {
   const { user } = useAuth();
   const role = user?.role ?? UserRole.ADMIN;
   const access = getModuleAccess(role, 'vehicleStocks');
+  const [activeTab, setActiveTab] = useState<VehicleStocksTab>('stock_list');
   const [searchValue, setSearchValue] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -293,7 +297,7 @@ export default function VehiclesScreen() {
       title="Vehicle Stocks"
       subtitle="Track inventory readiness, transport movement, and stockyard visibility."
       action={
-        access.canCreate ? (
+        activeTab === 'stock_list' && access.canCreate ? (
           <Button
             title="Add Stock"
             size="small"
@@ -306,56 +310,98 @@ export default function VehiclesScreen() {
               />
             }
           />
+        ) : activeTab === 'unit_setup' && access.canCreate ? (
+          <Button
+            title="Add Unit Setup"
+            size="small"
+            onPress={() => router.push(getRoleRoute(role, 'unit-setup-form') as any)}
+            icon={
+              <Ionicons
+                name="add-outline"
+                size={18}
+                color={theme.colors.white}
+              />
+            }
+          />
         ) : undefined
       }
       toolbar={
-        <SearchFiltersBar
-          searchValue={searchValue}
-          onSearchChange={setSearchValue}
-          searchPlaceholder="Search unit, variation, conduction number, or color"
-          filters={[
-            { label: 'All', value: 'all' },
-            { label: 'Available', value: 'available' },
-            { label: 'In Stockyard', value: 'in_stockyard' },
-            { label: 'In Transit', value: 'in_transit' },
-            { label: 'Maintenance', value: 'maintenance' },
-          ]}
-          activeFilter={statusFilter}
-          onFilterChange={setStatusFilter}
-          onClearFilters={handleClearFilters}
-          actions={
-            access.canExportPdf
-              ? [
-                  {
-                    key: 'export-vehicles',
-                    iconName: 'download-outline',
-                    accessibilityLabel: 'Export vehicle stocks',
-                    onPress: handleExportVehicles,
-                  },
-                ]
-              : undefined
-          }
-        />
+        <View style={styles.toolbarStack}>
+          <SegmentedControl
+            value={activeTab}
+            onChange={(value) => setActiveTab(value as VehicleStocksTab)}
+            options={[
+              { label: 'Stock List', value: 'stock_list' },
+              { label: 'Unit Setup', value: 'unit_setup' },
+            ]}
+          />
+          {activeTab === 'stock_list' ? (
+            <SearchFiltersBar
+              searchValue={searchValue}
+              onSearchChange={setSearchValue}
+              searchPlaceholder="Search unit, variation, conduction number, or color"
+              filters={[
+                { label: 'All', value: 'all' },
+                { label: 'Available', value: 'available' },
+                { label: 'In Stockyard', value: 'in_stockyard' },
+                { label: 'In Transit', value: 'in_transit' },
+                { label: 'Maintenance', value: 'maintenance' },
+              ]}
+              activeFilter={statusFilter}
+              onFilterChange={setStatusFilter}
+              onClearFilters={handleClearFilters}
+              actions={
+                access.canExportPdf
+                  ? [
+                      {
+                        key: 'export-vehicles',
+                        iconName: 'download-outline',
+                        accessibilityLabel: 'Export vehicle stocks',
+                        onPress: handleExportVehicles,
+                      },
+                    ]
+                  : undefined
+              }
+            />
+          ) : null}
+        </View>
       }
       scopeTitle={access.scopeLabel}
       scopeMessage={access.scopeNote}
       refreshing={refreshing}
       onRefresh={handleRefresh}
     >
-      <FilterSummaryCard
-        title="Vehicle View"
-        value={`${filteredVehicles.length} of ${displayVehicles.length} vehicles shown`}
-        iconName="car-sport-outline"
-        items={[
-          {
-            label: 'Status Filter',
-            value: statusFilterLabel,
-            dotColor: getStatusFilterAccentColor(statusFilter),
-          },
-        ]}
-        style={styles.summaryCard}
-      />
+      {activeTab === 'stock_list' ? (
+        <FilterSummaryCard
+          title="Vehicle View"
+          value={`${filteredVehicles.length} of ${displayVehicles.length} vehicles shown`}
+          iconName="car-sport-outline"
+          items={[
+            {
+              label: 'Status Filter',
+              value: statusFilterLabel,
+              dotColor: getStatusFilterAccentColor(statusFilter),
+            },
+          ]}
+          style={styles.summaryCard}
+        />
+      ) : null}
 
+      {activeTab === 'unit_setup' ? (
+        <VehicleUnitSetupPanel
+          canEdit={Boolean(access.canEdit)}
+          canDelete={Boolean(access.canDelete)}
+          onEditPress={(unitName) =>
+            router.push({
+              pathname: getRoleRoute(role, 'unit-setup-form') as any,
+              params: {
+                mode: 'edit',
+                unitName,
+              },
+            })
+          }
+        />
+      ) : (
       <View style={styles.list}>
         {filteredVehicles.length ? (
           paginatedVehicles.map((vehicle) => {
@@ -553,6 +599,7 @@ export default function VehiclesScreen() {
           </View>
         ) : null}
       </View>
+      )}
     </WorkspaceScaffold>
   );
 }
@@ -560,6 +607,9 @@ export default function VehiclesScreen() {
 const styles = StyleSheet.create({
   summaryCard: {
     marginBottom: theme.spacing.lg,
+  },
+  toolbarStack: {
+    gap: theme.spacing.base,
   },
   list: {
     gap: theme.spacing.md,

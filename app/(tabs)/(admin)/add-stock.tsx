@@ -20,6 +20,10 @@ import {
   VEHICLE_STOCK_FORM_STATUS_OPTIONS,
   isVehicleStockFormStatusAllowed,
 } from '@/src/mobile/data/vehicle-stocks';
+import {
+  findUnitSetupRecordByName,
+  getUnitSetupRecords,
+} from '@/src/mobile/data/unit-setup';
 
 type FormErrors = {
   unitName?: string;
@@ -47,152 +51,6 @@ const DEFAULT_FORM_VALUES: StockFormValues = {
   notes: '',
 };
 
-const STOCK_FORM_UNIT_PRESETS = [
-  {
-    unitName: 'Isuzu D-Max',
-    variations: [
-      'Cab and Chassis',
-      'CC Utility Van Dual AC',
-      '4x2 LT MT',
-      '4x4 LT MT',
-      '4x2 LS-A MT',
-      '4x2 LS-A MT Plus',
-      '4x2 LS-A AT',
-      '4x2 LS-A AT Plus',
-      '4x4 LS-A MT',
-      '4x4 LS-A MT Plus',
-      '4x2 LS-E AT',
-      '4x4 LS-E AT',
-      '4x4 Single Cab MT',
-    ],
-    bodyColors: [
-      'Valencia Orange',
-      'Red Spinel',
-      'Mercury Silver',
-      'Galena Gray',
-      'Onyx Black',
-      'Splash White',
-    ],
-  },
-  {
-    unitName: 'Isuzu MU-X',
-    variations: [
-      '1.9L MU-X 4x2 LS AT',
-      '3.0L MU-X 4x2 LS-A AT',
-      '3.0L MU-X 4x2 LS-E AT',
-      '3.0L MU-X 4x4 LS-E AT',
-    ],
-    bodyColors: [
-      'Onyx Black',
-      'Satin White Pearl',
-      'Splash White',
-      'Mercury Silver',
-      'Eiger Grey',
-    ],
-  },
-  {
-    unitName: 'Isuzu Traviz',
-    variations: [
-      'SWB 2.5L 4W 9FT Cab & Chassis',
-      'SWB 2.5L 4W 9FT Utility Van Dual AC',
-      'LWB 2.5L 4W 10FT Cab & Chassis',
-      'LWB 2.5L 4W 10FT Utility Van Dual AC',
-      'LWB 2.5L 4W 10FT Aluminum Van',
-      'LWB 2.5L 4W 10FT Aluminum Van w/ Single AC',
-      'LWB 2.5L 4W 10FT Dropside Body',
-      'LWB 2.5L 4W 10FT Dropside Body w/ Single AC',
-    ],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu QLR Series',
-    variations: [
-      'QLR77 E Tilt 3.0L 4W 10ft 60A Cab & Chassis',
-      'QLR77 E Tilt Utility Van w/o AC',
-      'QLR77 E Non-Tilt 3.0L 4W 10ft 60A Cab & Chassis',
-      'QLR77 E Non-Tilt Utility Van w/o AC',
-      'QLR77 E Non-Tilt Utility Van Dual AC',
-    ],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu NLR Series',
-    variations: [
-      'NLR77 H Tilt 3.0L 4W 14ft 60A',
-      'NLR77 H Jeepney Chassis (135A)',
-      'NLR85 Tilt 3.0L 4W 10ft 90A',
-      'NLR85E Smoother',
-    ],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu NMR Series',
-    variations: [
-      'NMR85H Smoother',
-      'NMR85 H Tilt 3.0L 6W 14ft 80A Non-AC',
-    ],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu NPR Series',
-    variations: ['NPR85 Tilt 3.0L 6W 16ft 90A', 'NPR85 Cabless for Armored'],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu NPS Series',
-    variations: ['NPS75 H 3.0L 6W 16ft 90A'],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu NQR Series',
-    variations: ['NQR75L Smoother', 'NQR75 Tilt 5.2L 6W 18ft 90A'],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu FRR Series',
-    variations: ['FRR90M 6W 20ft 5.2L', 'FRR90M Smoother'],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu FTR Series',
-    variations: ['FTR90M 6W 19ft 5.2L'],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu FVR Series',
-    variations: ['FVR34Q Smoother', 'FVR 34Q 6W 24ft 7.8L w/ ABS'],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu FTS Series',
-    variations: ['FTS34 J', 'FTS34L'],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu FVM Series',
-    variations: [
-      'FVM34T 10W 26ft 7.8L w/ ABS',
-      'FVM34W 10W 32ft 7.8L w/ ABS',
-    ],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu FXM Series',
-    variations: ['FXM60W'],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu GXZ Series',
-    variations: ['GXZ60N'],
-    bodyColors: ['White'],
-  },
-  {
-    unitName: 'Isuzu EXR Series',
-    variations: ['EXR77H 380PS 6W Tractor Head'],
-    bodyColors: ['White'],
-  },
-] as const;
-
 const toSelectOptions = (values: readonly string[]) =>
   values.map((value) => ({
     label: value,
@@ -214,11 +72,6 @@ const appendOptionIfMissing = (
     : [...options, { label: trimmedValue, value: trimmedValue }];
 };
 
-const findStockUnitPreset = (unitName: string) =>
-  STOCK_FORM_UNIT_PRESETS.find(
-    (preset) => preset.unitName.toLowerCase() === unitName.trim().toLowerCase()
-  ) ?? null;
-
 export default function AddStockScreen() {
   const navigation = useNavigation();
   const { mode, vehicleId } = useLocalSearchParams<{
@@ -230,6 +83,9 @@ export default function AddStockScreen() {
   const isEditMode = resolvedMode === 'edit';
   const allowImmediateDismissRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [unitSetupRecords, setUnitSetupRecords] = useState(() =>
+    getUnitSetupRecords()
+  );
   const [editableStockRecord, setEditableStockRecord] = useState(() =>
     isEditMode && resolvedVehicleId
       ? findVehicleStockById(resolvedVehicleId)
@@ -257,21 +113,21 @@ export default function AddStockScreen() {
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<FormErrors>({});
   const selectedUnitPreset = useMemo(
-    () => findStockUnitPreset(unitName),
-    [unitName]
+    () => findUnitSetupRecordByName(unitName),
+    [unitName, unitSetupRecords]
   );
   const unitNameOptions = useMemo(
     () =>
       appendOptionIfMissing(
-        toSelectOptions(STOCK_FORM_UNIT_PRESETS.map((preset) => preset.unitName)),
+        toSelectOptions(unitSetupRecords.map((preset) => preset.unitName)),
         unitName
       ),
-    [unitName]
+    [unitName, unitSetupRecords]
   );
   const variationOptions = useMemo(
     () =>
       appendOptionIfMissing(
-        toSelectOptions(selectedUnitPreset?.variations ?? []),
+        toSelectOptions(selectedUnitPreset?.variations.map((variation) => variation.name) ?? []),
         variation
       ),
     [selectedUnitPreset, variation]
@@ -279,7 +135,13 @@ export default function AddStockScreen() {
   const bodyColorOptions = useMemo(
     () =>
       appendOptionIfMissing(
-        toSelectOptions(selectedUnitPreset?.bodyColors ?? []),
+        toSelectOptions(
+          Array.from(
+            new Set(
+              selectedUnitPreset?.variations.flatMap((variation) => variation.bodyColors) ?? []
+            )
+          )
+        ),
         bodyColor
       ),
     [bodyColor, selectedUnitPreset]
@@ -302,6 +164,7 @@ export default function AddStockScreen() {
       }
 
       if (isActive) {
+        setUnitSetupRecords(getUnitSetupRecords());
         setEditableStockRecord(
           resolvedVehicleId ? findVehicleStockById(resolvedVehicleId) : null
         );
@@ -325,12 +188,14 @@ export default function AddStockScreen() {
 
     try {
       await loadVehicleStocks();
+      setUnitSetupRecords(getUnitSetupRecords());
       setEditableStockRecord(
         isEditMode && resolvedVehicleId
           ? findVehicleStockById(resolvedVehicleId)
           : null
       );
     } catch (error) {
+      setUnitSetupRecords(getUnitSetupRecords());
       setEditableStockRecord(
         isEditMode && resolvedVehicleId
           ? findVehicleStockById(resolvedVehicleId)
@@ -538,11 +403,14 @@ export default function AddStockScreen() {
           options={unitNameOptions}
           onValueChange={(value) => {
             const nextUnitName = String(value);
-            const nextUnitPreset = findStockUnitPreset(nextUnitName);
+            const nextUnitPreset = findUnitSetupRecordByName(nextUnitName);
             const nextVariationOptions: readonly string[] =
-              nextUnitPreset?.variations ?? [];
-            const nextBodyColorOptions: readonly string[] =
-              nextUnitPreset?.bodyColors ?? [];
+              nextUnitPreset?.variations.map((option) => option.name) ?? [];
+            const nextBodyColorOptions: readonly string[] = Array.from(
+              new Set(
+                nextUnitPreset?.variations.flatMap((option) => option.bodyColors) ?? []
+              )
+            );
 
             setUnitName(nextUnitName);
             setVariation((current) =>

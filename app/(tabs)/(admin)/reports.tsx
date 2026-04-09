@@ -90,7 +90,6 @@ type ActivityModule =
   | 'test_drive'
   | 'release_history';
 type ActivityKindFilter = 'all' | ActivityKind;
-type ActivityModuleFilter = 'all_modules' | ActivityModule;
 type ReleaseUnitFilter = 'all_units' | string;
 type ReleasePeriodFilter = 'all_periods' | string;
 
@@ -143,18 +142,6 @@ const ACTIVITY_KIND_FILTERS = [
   { label: 'Login', value: 'login' },
   { label: 'Logout', value: 'logout' },
   { label: 'Deleted', value: 'deleted' },
-] as const;
-
-const ACTIVITY_MODULE_FILTERS = [
-  { label: 'All Modules', value: 'all_modules' },
-  { label: 'Authentication', value: 'authentication' },
-  { label: 'Users', value: 'users' },
-  { label: 'Vehicle Stocks', value: 'vehicle_stocks' },
-  { label: 'Unit Allocations', value: 'unit_allocations' },
-  { label: 'Driver Allocation', value: 'driver_allocation' },
-  { label: 'Preparation', value: 'preparation' },
-  { label: 'Test Drive', value: 'test_drive' },
-  { label: 'Release History', value: 'release_history' },
 ] as const;
 
 const getActivityBadgeStatus = (kind: ActivityKind) => {
@@ -378,8 +365,6 @@ export default function ReportsScreen() {
   const [releaseSearchValue, setReleaseSearchValue] = useState('');
   const [activityKindFilter, setActivityKindFilter] =
     useState<ActivityKindFilter>('all');
-  const [activityModuleFilter, setActivityModuleFilter] =
-    useState<ActivityModuleFilter>('all_modules');
   const [releaseUnitFilter, setReleaseUnitFilter] =
     useState<ReleaseUnitFilter>(ALL_RELEASE_UNITS);
   const [releasePeriodFilter, setReleasePeriodFilter] =
@@ -440,13 +425,10 @@ export default function ReportsScreen() {
           formatActivityTimestamp(record.timestamp).toLowerCase().includes(query);
         const matchesKind =
           activityKindFilter === 'all' || record.kind === activityKindFilter;
-        const matchesModule =
-          activityModuleFilter === 'all_modules' ||
-          record.module === activityModuleFilter;
 
-        return matchesSearch && matchesKind && matchesModule;
+        return matchesSearch && matchesKind;
       }),
-    [activityKindFilter, activityModuleFilter, activityRecords, activitySearchValue]
+    [activityKindFilter, activityRecords, activitySearchValue]
   );
   const activityTotalPages = Math.max(
     1,
@@ -546,12 +528,7 @@ export default function ReportsScreen() {
 
   useEffect(() => {
     setActivityPage(1);
-  }, [
-    activityKindFilter,
-    activityModuleFilter,
-    activitySearchValue,
-    dataVersion,
-  ]);
+  }, [activityKindFilter, activitySearchValue, dataVersion]);
 
   useEffect(() => {
     if (activityPage > activityTotalPages) {
@@ -581,13 +558,6 @@ export default function ReportsScreen() {
             activityKindFilter === 'all'
               ? 'All Entries'
               : ACTIVITY_KIND_LABELS[activityKindFilter],
-        },
-        {
-          label: 'Module Filter',
-          value:
-            activityModuleFilter === 'all_modules'
-              ? 'All Modules'
-              : ACTIVITY_MODULE_LABELS[activityModuleFilter],
         },
         { label: 'Search', value: activitySearchValue || 'None' },
         { label: 'Records', value: String(filteredActivity.length) },
@@ -772,14 +742,6 @@ export default function ReportsScreen() {
                 : activityKindFilter === 'updated'
                   ? theme.colors.info
                   : theme.colors.primary,
-          },
-          {
-            label: 'Module Filter',
-            value:
-              activityModuleFilter === 'all_modules'
-                ? 'All Modules'
-                : ACTIVITY_MODULE_LABELS[activityModuleFilter],
-            dotColor: theme.colors.textSubtle,
           },
           {
             label: 'Data Source',
@@ -1119,18 +1081,9 @@ export default function ReportsScreen() {
               onFilterChange={(value) =>
                 setActivityKindFilter(value as ActivityKindFilter)
               }
-              secondaryFilters={ACTIVITY_MODULE_FILTERS.map((item) => ({
-                label: item.label,
-                value: item.value,
-              }))}
-              activeSecondaryFilter={activityModuleFilter}
-              onSecondaryFilterChange={(value) =>
-                setActivityModuleFilter(value as ActivityModuleFilter)
-              }
               onClearFilters={() => {
                 setActivitySearchValue('');
                 setActivityKindFilter('all');
-                setActivityModuleFilter('all_modules');
               }}
               actions={
                 access.canExportPdf

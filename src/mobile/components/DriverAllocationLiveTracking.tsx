@@ -6,11 +6,13 @@ import { AllocationStatus } from '../types';
 import {
   DRIVER_ALLOCATION_LOCATION_OPTIONS,
   DriverAllocationRecord,
+  formatDriverAllocationEta,
   formatDriverAllocationRemainingDistance,
   formatDriverAllocationStatusLabel,
   getDriverAllocationBadgeStatus,
   getDriverAllocationLiveLocation,
 } from '../data/driver-allocation';
+import { useDriverAllocationLiveRouteMetrics } from '../hooks';
 import { Card } from './Card';
 import { EmptyState } from './EmptyState';
 import { FilterSummaryCard } from './FilterSummaryCard';
@@ -54,6 +56,7 @@ const getLiveTrackingMapPayload = (
   }
 
   const remainingDistanceLabel = formatDriverAllocationRemainingDistance(allocation);
+  const etaLabel = formatDriverAllocationEta(allocation);
 
   return {
     markers: [
@@ -68,7 +71,7 @@ const getLiveTrackingMapPayload = (
         id: `driver-${allocation.id}`,
         location: driverLocation,
         title: allocation.driverName,
-        description: `${allocation.unitName} - ETA ${allocation.eta}${
+        description: `${allocation.unitName} - ETA ${etaLabel}${
           remainingDistanceLabel ? ` - ${remainingDistanceLabel}` : ''
         }`,
         type: 'driver',
@@ -183,6 +186,7 @@ export function DriverAllocationLiveTracking({
       ),
     [selectedAllocation, trackedAllocations]
   );
+  const selectedLiveMetrics = useDriverAllocationLiveRouteMetrics(selectedAllocation);
 
   return (
     <>
@@ -232,6 +236,24 @@ export function DriverAllocationLiveTracking({
               initialRegion={initialRegion}
               style={styles.map}
               showScale
+              mapChipLabel="Realtime Map"
+              legendItems={[
+                {
+                  label: 'Pickup',
+                  color: theme.colors.info,
+                  iconName: 'ellipse',
+                },
+                {
+                  label: 'Destination',
+                  color: theme.colors.success,
+                  iconName: 'flag',
+                },
+                {
+                  label: 'Live Vehicle',
+                  color: theme.colors.primary,
+                  iconName: 'car-sport',
+                },
+              ]}
             />
           </View>
 
@@ -284,9 +306,13 @@ export function DriverAllocationLiveTracking({
                     <Text style={styles.routeText}>
                       {allocation.pickupLabel} to {allocation.destinationLabel}
                     </Text>
-                    {formatDriverAllocationRemainingDistance(allocation) ? (
+                    {(allocation.id === selectedAllocation?.id
+                      ? selectedLiveMetrics.distanceLabel
+                      : formatDriverAllocationRemainingDistance(allocation)) ? (
                       <Text style={styles.routeMeta}>
-                        {formatDriverAllocationRemainingDistance(allocation)}
+                        {allocation.id === selectedAllocation?.id
+                          ? selectedLiveMetrics.distanceLabel
+                          : formatDriverAllocationRemainingDistance(allocation)}
                       </Text>
                     ) : null}
                   </View>
@@ -295,7 +321,11 @@ export function DriverAllocationLiveTracking({
                 <View style={styles.metaRow}>
                   <View style={styles.metaPill}>
                     <Text style={styles.metaLabel}>ETA</Text>
-                    <Text style={styles.metaValue}>{allocation.eta}</Text>
+                    <Text style={styles.metaValue}>
+                      {allocation.id === selectedAllocation?.id
+                        ? selectedLiveMetrics.etaLabel
+                        : formatDriverAllocationEta(allocation)}
+                    </Text>
                   </View>
 
                   <View style={styles.metaPill}>

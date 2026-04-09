@@ -75,6 +75,7 @@ const ADMIN_AREA_ROLES = [
 ] as const;
 const FULL_ADMIN_HIDDEN_SCREENS = [
   'add-stock',
+  'unit-setup-form',
   'vehicle-detail',
   'preparation-form',
   'preparation-detail',
@@ -87,6 +88,7 @@ const FULL_ADMIN_HIDDEN_SCREENS = [
   'release-history-detail',
 ];
 const MANAGER_HIDDEN_SCREENS = [
+  'unit-setup-form',
   'vehicle-detail',
   'preparation-detail',
   'driver-allocation-form',
@@ -96,6 +98,7 @@ const MANAGER_HIDDEN_SCREENS = [
   'release-history-detail',
 ];
 const SALES_AGENT_HIDDEN_SCREENS = [
+  'unit-setup-form',
   'driver-allocation-form',
   'driver-detail',
   'test-drive-detail',
@@ -104,6 +107,7 @@ const SALES_AGENT_HIDDEN_SCREENS = [
 ];
 const ADMIN_AREA_DETAIL_LABELS = [
   ['add-stock', 'Vehicle Stocks'],
+  ['unit-setup-form', 'Vehicle Stocks'],
   ['vehicle-detail', 'Vehicle Stocks'],
   ['preparation-form', 'Vehicle Preparation'],
   ['preparation-detail', 'Vehicle Preparation'],

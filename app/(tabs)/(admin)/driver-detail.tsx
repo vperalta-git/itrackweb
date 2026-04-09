@@ -23,14 +23,18 @@ import {
   deleteDriverAllocation,
   findDriverAllocationLocation,
   findDriverAllocationRecord,
+  formatDriverAllocationEta,
   formatDriverAllocationCreatedDate,
+  formatDriverAllocationRemainingDistance,
   formatDriverAllocationReference,
   formatDriverAllocationStatusLabel,
   getDriverAllocationBadgeStatus,
   getDriverAllocationInitialRegion,
+  getDriverAllocationLiveLocation,
   getDriverAllocationRoute,
   loadDriverAllocations,
 } from '@/src/mobile/data/driver-allocation';
+import { useDriverAllocationLiveRouteMetrics } from '@/src/mobile/hooks';
 import { findVehicleStockById } from '@/src/mobile/data/vehicle-stocks';
 import {
   getModuleAccess,
@@ -39,78 +43,17 @@ import {
 import { AllocationStatus, UserRole } from '@/src/mobile/types';
 import { shareExport } from '@/src/mobile/utils/shareExport';
 
-const DEFAULT_IN_TRANSIT_PROGRESS = 0.62;
-const EARTH_RADIUS_KM = 6371;
-
-const toRadians = (value: number) => (value * Math.PI) / 180;
-
 const getDriverLiveLocation = (
   allocation: ReturnType<typeof findDriverAllocationRecord>
-) => {
-  if (!allocation) {
-    return null;
-  }
-
-  const pickup = findDriverAllocationLocation(allocation.pickupId);
-  const destination = findDriverAllocationLocation(allocation.destinationId);
-
-  if (!pickup || !destination) {
-    return null;
-  }
-
-  const routeProgress = Math.min(
-    Math.max(allocation.routeProgress ?? DEFAULT_IN_TRANSIT_PROGRESS, 0),
-    1
-  );
-
-  return {
-    latitude:
-      pickup.location.latitude +
-      (destination.location.latitude - pickup.location.latitude) * routeProgress,
-    longitude:
-      pickup.location.longitude +
-      (destination.location.longitude - pickup.location.longitude) * routeProgress,
-  };
-};
+) => (allocation ? getDriverAllocationLiveLocation(allocation) : null);
 
 const formatRemainingDistanceValue = (
   allocation: ReturnType<typeof findDriverAllocationRecord>
 ) => {
-  if (!allocation || allocation.status !== AllocationStatus.IN_TRANSIT) {
-    return null;
-  }
-
-  const pickup = findDriverAllocationLocation(allocation.pickupId);
-  const destination = findDriverAllocationLocation(allocation.destinationId);
-
-  if (!pickup || !destination) {
-    return null;
-  }
-
-  const latitudeDelta = toRadians(
-    destination.location.latitude - pickup.location.latitude
-  );
-  const longitudeDelta = toRadians(
-    destination.location.longitude - pickup.location.longitude
-  );
-  const pickupLatitude = toRadians(pickup.location.latitude);
-  const destinationLatitude = toRadians(destination.location.latitude);
-  const haversine =
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(pickupLatitude) *
-      Math.cos(destinationLatitude) *
-      Math.sin(longitudeDelta / 2) ** 2;
-  const totalDistanceKm =
-    2 *
-    EARTH_RADIUS_KM *
-    Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
-  const routeProgress = Math.min(
-    Math.max(allocation.routeProgress ?? DEFAULT_IN_TRANSIT_PROGRESS, 0),
-    1
-  );
-  const remainingDistanceKm = Math.max(totalDistanceKm * (1 - routeProgress), 0);
-
-  return `${remainingDistanceKm.toFixed(1)} km`;
+  const remainingDistanceLabel = allocation
+    ? formatDriverAllocationRemainingDistance(allocation)
+    : null;
+  return remainingDistanceLabel?.replace(' left', '') ?? null;
 };
 
 export default function DriverDetailScreen() {
@@ -170,6 +113,10 @@ export default function DriverDetailScreen() {
     () => getDriverLiveLocation(allocation),
     [allocation]
   );
+  const liveMetrics = useDriverAllocationLiveRouteMetrics(
+    allocation,
+    driverLiveLocation ?? undefined
+  );
   const routeMarkers = useMemo(() => {
     const markers = [];
 
@@ -198,14 +145,16 @@ export default function DriverDetailScreen() {
         id: 'driver-live-point',
         location: driverLiveLocation,
         title: allocation.driverName,
-        description: `Live position - ETA ${allocation.eta}`,
+        description: `Live position - ETA ${liveMetrics.etaLabel}${
+          liveMetrics.distanceLabel ? ` - ${liveMetrics.distanceLabel}` : ''
+        }`,
         type: 'driver' as const,
         status: 'active',
       });
     }
 
     return markers;
-  }, [allocation?.driverName, allocation?.eta, allocation?.status, destination, driverLiveLocation, pickup]);
+  }, [allocation?.driverName, allocation?.status, destination, driverLiveLocation, liveMetrics.distanceLabel, liveMetrics.etaLabel, pickup]);
   const routePreview = useMemo(
     () => {
       if (
@@ -265,7 +214,9 @@ export default function DriverDetailScreen() {
     );
   }
 
-  const remainingDistanceValue = formatRemainingDistanceValue(allocation);
+  const remainingDistanceValue =
+    liveMetrics.distanceLabel?.replace(' left', '') ??
+    formatRemainingDistanceValue(allocation);
   const linkedVehicle = findVehicleStockById(allocation.unitId);
 
   const handleExportAllocation = async () => {
@@ -282,7 +233,10 @@ export default function DriverDetailScreen() {
           label: 'Status',
           value: formatDriverAllocationStatusLabel(allocation.status),
         },
-        { label: 'ETA', value: allocation.eta },
+        {
+          label: 'ETA',
+          value: liveMetrics.etaLabel ?? formatDriverAllocationEta(allocation),
+        },
       ],
       columns: [
         {
@@ -320,7 +274,10 @@ export default function DriverDetailScreen() {
           header: 'Status',
           value: (record) => formatDriverAllocationStatusLabel(record.status),
         },
-        { header: 'ETA', value: (record) => record.eta },
+        {
+          header: 'ETA',
+          value: (record) => formatDriverAllocationEta(record),
+        },
       ],
       rows: [allocation],
       errorMessage: 'The driver allocation record could not be exported right now.',
@@ -400,7 +357,9 @@ export default function DriverDetailScreen() {
             </View>
             <View style={styles.metricTile}>
               <Text style={styles.metricLabel}>ETA</Text>
-              <Text style={styles.metricValue}>{allocation.eta}</Text>
+              <Text style={styles.metricValue}>
+                {liveMetrics.etaLabel ?? formatDriverAllocationEta(allocation)}
+              </Text>
             </View>
             {remainingDistanceValue ? (
               <View style={styles.metricTile}>
@@ -441,6 +400,24 @@ export default function DriverDetailScreen() {
               markers={routeMarkers}
               routes={routePreview}
               initialRegion={initialRegion}
+              mapChipLabel="Live Allocation Map"
+              legendItems={[
+                {
+                  label: 'Pickup',
+                  color: theme.colors.info,
+                  iconName: 'ellipse',
+                },
+                {
+                  label: 'Destination',
+                  color: theme.colors.success,
+                  iconName: 'flag',
+                },
+                {
+                  label: 'Live Vehicle',
+                  color: theme.colors.primary,
+                  iconName: 'car-sport',
+                },
+              ]}
               style={styles.map}
             />
           </View>

@@ -16,7 +16,7 @@ import {
   ProgressBar,
   StatusBadge,
 } from '@/src/mobile/components';
-import { theme } from '@/src/mobile/constants/theme';
+import { AppTheme, useTheme } from '@/src/mobile/constants/theme';
 import { useAuth } from '@/src/mobile/context/AuthContext';
 import {
   formatRequestedServices,
@@ -37,6 +37,8 @@ import { PreparationStatus } from '@/src/mobile/types';
 export default function ChecklistScreen() {
   const navigation = useNavigation();
   const { user } = useAuth();
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const { preparationId } = useLocalSearchParams<{
     preparationId?: string | string[];
   }>();
@@ -420,7 +422,8 @@ export default function ChecklistScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: AppTheme) =>
+  StyleSheet.create({
   backButton: {
     width: 42,
     height: 42,
@@ -585,4 +588,4 @@ const styles = StyleSheet.create({
     color: theme.colors.textSubtle,
     textDecorationLine: 'line-through',
   },
-});
+  });

@@ -62,6 +62,7 @@ export interface DriverAllocationRecord {
   destinationLabel: string;
   eta: string;
   routeProgress?: number;
+  estimatedDuration?: number | null;
   currentLocation?: DriverAllocationLiveLocation | null;
   actualDuration?: number | null;
   status: AllocationStatus;
@@ -137,6 +138,9 @@ const COMPLETED_ALLOCATION_STATUSES = new Set<AllocationStatus>([
 const DEFAULT_IN_TRANSIT_PROGRESS = 0.62;
 const TRIP_START_PROGRESS = 0.18;
 const EARTH_RADIUS_KM = 6371;
+const DEFAULT_URBAN_SPEED_KMH = 28;
+const MIN_REALISTIC_SPEED_KMH = 8;
+const MAX_REALISTIC_SPEED_KMH = 80;
 
 export const DRIVER_ALLOCATION_DRIVER_OPTIONS: DriverAllocationDriverOption[] = [];
 export const DRIVER_ALLOCATION_MANAGER_OPTIONS: DriverAllocationManagerOption[] = [];
@@ -277,6 +281,7 @@ const mapDriverAllocationRecord = (
         ? 'Completed'
         : `${record.estimatedDuration ?? 25} mins`,
     routeProgress: record.routeProgress ?? undefined,
+    estimatedDuration: record.estimatedDuration ?? null,
     currentLocation: record.currentLocation
       ? {
           latitude: record.currentLocation.latitude,
@@ -375,22 +380,9 @@ export const getDriverAllocationRouteDistanceKm = (
     return null;
   }
 
-  const latitudeDelta = toRadians(destination.location.latitude - pickup.location.latitude);
-  const longitudeDelta = toRadians(
-    destination.location.longitude - pickup.location.longitude
-  );
-  const pickupLatitude = toRadians(pickup.location.latitude);
-  const destinationLatitude = toRadians(destination.location.latitude);
-  const haversine =
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(pickupLatitude) *
-      Math.cos(destinationLatitude) *
-      Math.sin(longitudeDelta / 2) ** 2;
-
-  return (
-    2 *
-    EARTH_RADIUS_KM *
-    Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
+  return getDistanceBetweenLocationsKm(
+    pickup.location,
+    destination.location
   );
 };
 
@@ -457,15 +449,81 @@ export const getDriverAllocationRemainingDistanceKm = (
 };
 
 export const formatDriverAllocationRemainingDistance = (
-  allocation: DriverAllocationRecord
+  allocation: DriverAllocationRecord,
+  remainingDistanceKmOverride?: number | null
 ) => {
-  const remainingDistanceKm = getDriverAllocationRemainingDistanceKm(allocation);
+  const remainingDistanceKm =
+    remainingDistanceKmOverride ?? getDriverAllocationRemainingDistanceKm(allocation);
 
   if (remainingDistanceKm === null) {
     return null;
   }
 
   return `${remainingDistanceKm.toFixed(1)} km left`;
+};
+
+export const formatDriverAllocationEta = (
+  allocation: DriverAllocationRecord,
+  remainingDistanceKmOverride?: number | null
+) => {
+  if (allocation.status === AllocationStatus.PENDING) {
+    return 'Awaiting driver acceptance';
+  }
+
+  if (allocation.status === AllocationStatus.ASSIGNED) {
+    return 'Driver accepted assignment';
+  }
+
+  if (
+    allocation.status === AllocationStatus.COMPLETED ||
+    allocation.status === AllocationStatus.DELIVERED
+  ) {
+    return 'Completed';
+  }
+
+  if (allocation.status !== AllocationStatus.IN_TRANSIT) {
+    return allocation.eta;
+  }
+
+  const estimatedDuration = allocation.estimatedDuration ?? 25;
+  const routeDistanceKm = getDriverAllocationRouteDistanceKm(allocation);
+  const remainingDistanceKm =
+    remainingDistanceKmOverride ?? getDriverAllocationRemainingDistanceKm(allocation);
+
+  if (remainingDistanceKm !== null) {
+    const backendImpliedSpeedKmh =
+      routeDistanceKm !== null && routeDistanceKm > 0 && estimatedDuration > 0
+        ? (routeDistanceKm / estimatedDuration) * 60
+        : null;
+
+    const effectiveSpeedKmh =
+      backendImpliedSpeedKmh !== null &&
+      backendImpliedSpeedKmh >= MIN_REALISTIC_SPEED_KMH &&
+      backendImpliedSpeedKmh <= MAX_REALISTIC_SPEED_KMH
+        ? backendImpliedSpeedKmh
+        : DEFAULT_URBAN_SPEED_KMH;
+
+    const liveRemainingMinutes = Math.max(
+      1,
+      Math.round((remainingDistanceKm / effectiveSpeedKmh) * 60)
+    );
+
+    if (liveRemainingMinutes >= 60) {
+      const hours = Math.floor(liveRemainingMinutes / 60);
+      const minutes = liveRemainingMinutes % 60;
+
+      return minutes > 0 ? `${hours} hr ${minutes} mins` : `${hours} hr`;
+    }
+
+    return `${liveRemainingMinutes} mins`;
+  }
+
+  const remainingMinutes = Math.max(
+    1,
+    Math.round(estimatedDuration * (1 - getDriverAllocationTravelProgress(allocation)))
+  );
+
+  return `${remainingMinutes} mins`;
 };
 
 export const getDriverAllocationLiveLocation = (

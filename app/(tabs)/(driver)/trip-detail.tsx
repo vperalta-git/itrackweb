@@ -15,6 +15,7 @@ import { theme } from '@/src/mobile/constants/theme';
 import {
   findDriverAllocationLocation,
   findDriverAllocationRecord,
+  formatDriverAllocationEta,
   formatDriverAllocationRemainingDistance,
   formatDriverAllocationStatusLabel,
   getDriverAllocationBadgeStatus,
@@ -23,7 +24,10 @@ import {
   getDriverAllocationRoute,
   getDriverAllocationRouteDistanceKm,
 } from '@/src/mobile/data/driver-allocation';
-import { useDriverRealtimeLocation } from '@/src/mobile/hooks';
+import {
+  useDriverAllocationLiveRouteMetrics,
+  useDriverRealtimeLocation,
+} from '@/src/mobile/hooks';
 import { AllocationStatus } from '@/src/mobile/types';
 
 export default function TripDetailScreen() {
@@ -52,6 +56,10 @@ export default function TripDetailScreen() {
         : null,
     [trackedDriverLocation, trip]
   );
+  const liveMetrics = useDriverAllocationLiveRouteMetrics(
+    trip,
+    trackedDriverLocation ?? undefined
+  );
   const markers = useMemo(() => {
     if (!trip || !pickupLocation || !destinationLocation) {
       return [];
@@ -71,7 +79,9 @@ export default function TripDetailScreen() {
               id: `driver-${trip.id}`,
               location: driverLocation,
               title: trip.driverName,
-              description: `Current ETA ${trip.eta}`,
+              description: `Current ETA ${liveMetrics.etaLabel}${
+                liveMetrics.distanceLabel ? ` - ${liveMetrics.distanceLabel}` : ''
+              }`,
               type: 'driver' as const,
               status: 'active' as const,
             },
@@ -85,11 +95,20 @@ export default function TripDetailScreen() {
         type: 'destination' as const,
       },
     ];
-  }, [destinationLocation, driverLocation, pickupLocation, trip]);
+  }, [destinationLocation, driverLocation, liveMetrics.distanceLabel, liveMetrics.etaLabel, pickupLocation, trip]);
   const routes = useMemo(
-    () =>
-      trip ? getDriverAllocationRoute(trip.pickupId, trip.destinationId) : [],
-    [trip]
+    () => {
+      if (
+        trip?.status === AllocationStatus.IN_TRANSIT &&
+        driverLocation &&
+        destinationLocation
+      ) {
+        return [[driverLocation, destinationLocation.location]];
+      }
+
+      return trip ? getDriverAllocationRoute(trip.pickupId, trip.destinationId) : [];
+    },
+    [destinationLocation, driverLocation, trip]
   );
 
   if (!trip) {
@@ -176,6 +195,24 @@ export default function TripDetailScreen() {
               latitudeDelta: 0.05,
               longitudeDelta: 0.05,
             }}
+            mapChipLabel="Live Trip Map"
+            legendItems={[
+              {
+                label: 'Pickup',
+                color: theme.colors.info,
+                iconName: 'ellipse',
+              },
+              {
+                label: 'Destination',
+                color: theme.colors.success,
+                iconName: 'flag',
+              },
+              {
+                label: 'Live Vehicle',
+                color: theme.colors.primary,
+                iconName: 'car-sport',
+              },
+            ]}
             style={styles.map}
           />
         ) : null}
@@ -206,12 +243,14 @@ export default function TripDetailScreen() {
             },
             {
               label: 'ETA',
-              value: trip.eta,
+              value: liveMetrics.etaLabel ?? formatDriverAllocationEta(trip),
             },
             {
               label: 'Remaining Distance',
               value:
-                formatDriverAllocationRemainingDistance(trip) ?? 'Not available',
+                liveMetrics.distanceLabel ??
+                formatDriverAllocationRemainingDistance(trip) ??
+                'Not available',
             },
             {
               label: 'Live GPS',

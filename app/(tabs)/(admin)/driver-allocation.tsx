@@ -28,10 +28,11 @@ import {
   DRIVER_ALLOCATION_MANAGER_OPTIONS,
   DriverAllocationRecord,
   deleteDriverAllocation,
+  formatDriverAllocationEta,
   formatDriverAllocationCreatedDate,
   formatDriverAllocationReference,
+  formatDriverAllocationRemainingDistance,
   formatDriverAllocationStatusLabel,
-  findDriverAllocationLocation,
   getDriverAllocations,
   getDriverAllocationBadgeStatus,
   getDriverAllocationStatusAccentColor,
@@ -48,48 +49,10 @@ import { AllocationStatus, UserRole } from '@/src/mobile/types';
 import { shareExport } from '@/src/mobile/utils/shareExport';
 
 const ITEMS_PER_PAGE = 5;
-const DEFAULT_IN_TRANSIT_PROGRESS = 0.62;
-const EARTH_RADIUS_KM = 6371;
 type DriverAllocationTab = 'allocations' | 'live_tracking';
 
-const toRadians = (value: number) => (value * Math.PI) / 180;
-
 const formatRemainingDistanceLabel = (allocation: DriverAllocationRecord) => {
-  if (allocation.status !== AllocationStatus.IN_TRANSIT) {
-    return null;
-  }
-
-  const pickup = findDriverAllocationLocation(allocation.pickupId);
-  const destination = findDriverAllocationLocation(allocation.destinationId);
-
-  if (!pickup || !destination) {
-    return null;
-  }
-
-  const latitudeDelta = toRadians(
-    destination.location.latitude - pickup.location.latitude
-  );
-  const longitudeDelta = toRadians(
-    destination.location.longitude - pickup.location.longitude
-  );
-  const pickupLatitude = toRadians(pickup.location.latitude);
-  const destinationLatitude = toRadians(destination.location.latitude);
-  const haversine =
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(pickupLatitude) *
-      Math.cos(destinationLatitude) *
-      Math.sin(longitudeDelta / 2) ** 2;
-  const totalDistanceKm =
-    2 *
-    EARTH_RADIUS_KM *
-    Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
-  const routeProgress = Math.min(
-    Math.max(allocation.routeProgress ?? DEFAULT_IN_TRANSIT_PROGRESS, 0),
-    1
-  );
-  const remainingDistanceKm = Math.max(totalDistanceKm * (1 - routeProgress), 0);
-
-  return `${remainingDistanceKm.toFixed(1)} km left`;
+  return formatDriverAllocationRemainingDistance(allocation);
 };
 
 const getStatusFilterAccentColor = (statusFilter: string) => {
@@ -357,7 +320,7 @@ export default function DriverAllocationScreen() {
           value: (allocation) =>
             formatDriverAllocationStatusLabel(allocation.status),
         },
-        { header: 'ETA', value: (allocation) => allocation.eta },
+        { header: 'ETA', value: (allocation) => formatDriverAllocationEta(allocation) },
         {
           header: 'Remaining Distance',
           value: (allocation) => formatRemainingDistanceLabel(allocation) ?? '-',
@@ -672,7 +635,9 @@ export default function DriverAllocationScreen() {
 
                   <View style={styles.metricCard}>
                     <Text style={styles.metricLabel}>ETA</Text>
-                    <Text style={styles.metricValue}>{allocation.eta}</Text>
+                    <Text style={styles.metricValue}>
+                      {formatDriverAllocationEta(allocation)}
+                    </Text>
                   </View>
 
                   <View style={styles.metricCard}>

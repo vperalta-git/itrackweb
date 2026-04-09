@@ -195,17 +195,21 @@ const parsePreparationDate = (value?: Date | string | null) => {
 const toApiDateString = (value?: Date | string | null, fallback = new Date()) =>
   (parsePreparationDate(value) ?? fallback).toISOString();
 
+const toPreparationVehicleOption = (
+  vehicle: ReturnType<typeof getVehicleStocks>[number]
+): PreparationVehicleOption => ({
+  id: vehicle.id,
+  unitName: vehicle.unitName,
+  variation: vehicle.variation,
+  conductionNumber: vehicle.conductionNumber,
+  bodyColor: vehicle.bodyColor,
+  status: vehicle.status,
+});
+
 const setVehicleOptions = () => {
   const vehicles = getVehicleStocks()
     .filter((vehicle) => vehicle.status === VehicleStatus.AVAILABLE)
-    .map((vehicle) => ({
-      id: vehicle.id,
-      unitName: vehicle.unitName,
-      variation: vehicle.variation,
-      conductionNumber: vehicle.conductionNumber,
-      bodyColor: vehicle.bodyColor,
-      status: vehicle.status,
-    }));
+    .map(toPreparationVehicleOption);
 
   PREPARATION_VEHICLE_OPTIONS.splice(0, PREPARATION_VEHICLE_OPTIONS.length, ...vehicles);
 };
@@ -359,8 +363,22 @@ const sortPreparationRecords = (
 
 const findPreparationVehicleById = (
   vehicleId: string | null
-): PreparationVehicleOption | null =>
-  PREPARATION_VEHICLE_OPTIONS.find((vehicle) => vehicle.id === vehicleId) ?? null;
+): PreparationVehicleOption | null => {
+  if (!vehicleId) {
+    return null;
+  }
+
+  const availableVehicleOption =
+    PREPARATION_VEHICLE_OPTIONS.find((vehicle) => vehicle.id === vehicleId) ?? null;
+
+  if (availableVehicleOption) {
+    return availableVehicleOption;
+  }
+
+  const anyVehicleRecord = getVehicleStocks().find((vehicle) => vehicle.id === vehicleId);
+
+  return anyVehicleRecord ? toPreparationVehicleOption(anyVehicleRecord) : null;
+};
 
 const buildDispatcherScopeMatcher = (
   dispatcherId?: string | null

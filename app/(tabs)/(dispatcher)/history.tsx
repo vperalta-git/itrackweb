@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -11,7 +11,7 @@ import {
   PageHeader,
   StatusBadge,
 } from '@/src/mobile/components';
-import { theme } from '@/src/mobile/constants/theme';
+import { AppTheme, useTheme } from '@/src/mobile/constants/theme';
 import { useAuth } from '@/src/mobile/context/AuthContext';
 import { useNavigation } from 'expo-router';
 import {
@@ -20,30 +20,58 @@ import {
   getPreparationBadgeStatus,
   getPreparationRecordCompletionLabel,
   getPreparationStatusLabel,
+  loadPreparationRecords,
   PreparationRecord,
 } from '@/src/mobile/data/preparation';
 
 export default function HistoryScreen() {
   const navigation = useNavigation();
   const { user } = useAuth();
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const [refreshing, setRefreshing] = useState(false);
   const [history, setHistory] = useState<PreparationRecord[]>(() =>
     getCompletedDispatcherPreparations(user?.id)
   );
 
   useEffect(() => {
-    const refreshHistory = () => {
-      setHistory(getCompletedDispatcherPreparations(user?.id));
+    let isActive = true;
+
+    const refreshHistory = async () => {
+      try {
+        await loadPreparationRecords();
+      } finally {
+        if (isActive) {
+          setHistory(getCompletedDispatcherPreparations(user?.id));
+        }
+      }
     };
 
-    refreshHistory();
+    refreshHistory().catch(() => undefined);
 
-    const unsubscribe = navigation.addListener('focus', refreshHistory);
+    const unsubscribe = navigation.addListener('focus', () => {
+      refreshHistory().catch(() => undefined);
+    });
 
-    return unsubscribe;
+    return () => {
+      isActive = false;
+      unsubscribe();
+    };
   }, [navigation, user?.id]);
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+
+    try {
+      await loadPreparationRecords();
+    } finally {
+      setHistory(getCompletedDispatcherPreparations(user?.id));
+      setRefreshing(false);
+    }
+  };
+
   return (
-    <AppScreen>
+    <AppScreen refreshing={refreshing} onRefresh={handleRefresh}>
       <PageHeader
         eyebrow="Dispatcher"
         title="Dispatch History"
@@ -90,7 +118,8 @@ export default function HistoryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: AppTheme) =>
+  StyleSheet.create({
   list: {
     gap: theme.spacing.md,
   },
@@ -137,4 +166,4 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontFamily: theme.fonts.family.sans,
   },
-});
+  });

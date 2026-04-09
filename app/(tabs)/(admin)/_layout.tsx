@@ -18,6 +18,13 @@ export default function AdminLayout() {
         }}
       />
       <Stack.Screen
+        name="unit-setup-form"
+        options={{
+          presentation: 'modal',
+          animation: 'slide_from_bottom',
+        }}
+      />
+      <Stack.Screen
         name="vehicle-detail"
         options={{
           presentation: 'modal',
