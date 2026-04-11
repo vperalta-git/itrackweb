@@ -9,6 +9,7 @@ const RETRY_DELAYS_MS = [0, 5000, 10000, 15000]
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
+  'content-encoding',
   'content-length',
   'host',
   'keep-alive',
