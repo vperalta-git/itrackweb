@@ -853,7 +853,7 @@ export default function DriverAllocationPage() {
                 New Assignment
               </Button>
             </DialogTrigger>
-          <DialogContent className="flex max-h-[92vh] w-[50vw] max-w-[50vw] flex-col overflow-hidden p-0 sm:w-[50vw] sm:max-w-[50vw] 2xl:max-w-[1680px]">
+          <DialogContent className="flex max-h-[92vh] w-[92vw] max-w-[1120px] flex-col overflow-hidden p-0 sm:w-[92vw] sm:max-w-[1120px] 2xl:max-w-[1280px]">
             <DialogHeader className="shrink-0 border-b px-6 pb-4 pt-6">
               <DialogTitle>
                 {assignmentBeingEdited ? 'Edit Driver Assignment' : 'New Driver Assignment'}
@@ -866,74 +866,76 @@ export default function DriverAllocationPage() {
             </DialogHeader>
             <div className="min-h-0 overflow-y-auto px-6 py-5">
               <div className="grid gap-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Select Unit</Label>
-                  <Select
-                    value={assignmentForm.unitId}
-                    onValueChange={(value) =>
-                      setAssignmentForm((current) => ({ ...current, unitId: value }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Choose a unit" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {selectableUnits.length > 0 ? (
-                        selectableUnits.map((unit) => (
-                          <SelectItem key={unit.id} value={unit.id}>
-                            {unit.conductionNumber} - {unit.unitName} {unit.variation}
-                          </SelectItem>
-                        ))
-                      ) : (
-                        <div className="px-2 py-3 text-sm text-muted-foreground">
-                          No stockyard units available.
-                        </div>
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Select Driver</Label>
-                  <Select
-                    value={assignmentForm.driverId}
-                    onValueChange={(value) =>
-                      setAssignmentForm((current) => ({ ...current, driverId: value }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Choose a driver" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {selectableDrivers.length > 0 ? (
-                        selectableDrivers.map((driver) => (
-                          <SelectItem key={driver.id} value={driver.id}>
-                            <div className="flex items-center gap-2">
-                              <Avatar className="size-6">
-                                <AvatarImage src={driver.avatarUrl} alt={driver.name} />
-                                <AvatarFallback className="bg-primary/10 text-[10px] text-primary">
-                                  {driver.name
-                                    .split(' ')
-                                    .map((name) => name[0])
-                                    .join('')}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div className="flex flex-col">
-                                <span>{driver.name}</span>
-                                <span className="text-xs text-muted-foreground">{driver.phone}</span>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="min-w-0 space-y-2">
+                    <Label>Select Unit</Label>
+                    <Select
+                      value={assignmentForm.unitId}
+                      onValueChange={(value) =>
+                        setAssignmentForm((current) => ({ ...current, unitId: value }))
+                      }
+                    >
+                      <SelectTrigger className="w-full min-w-0">
+                        <SelectValue className="min-w-0 truncate" placeholder="Choose a unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {selectableUnits.length > 0 ? (
+                          selectableUnits.map((unit) => (
+                            <SelectItem key={unit.id} value={unit.id}>
+                              {unit.conductionNumber} - {unit.unitName} {unit.variation}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <div className="px-2 py-3 text-sm text-muted-foreground">
+                            No stockyard units available.
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="min-w-0 space-y-2">
+                    <Label>Select Driver</Label>
+                    <Select
+                      value={assignmentForm.driverId}
+                      onValueChange={(value) =>
+                        setAssignmentForm((current) => ({ ...current, driverId: value }))
+                      }
+                    >
+                      <SelectTrigger className="h-auto min-h-9 w-full min-w-0">
+                        <SelectValue className="min-w-0 truncate" placeholder="Choose a driver" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {selectableDrivers.length > 0 ? (
+                          selectableDrivers.map((driver) => (
+                            <SelectItem key={driver.id} value={driver.id}>
+                              <div className="flex items-center gap-2">
+                                <Avatar className="size-6">
+                                  <AvatarImage src={driver.avatarUrl} alt={driver.name} />
+                                  <AvatarFallback className="bg-primary/10 text-[10px] text-primary">
+                                    {driver.name
+                                      .split(' ')
+                                      .map((name) => name[0])
+                                      .join('')}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="flex flex-col">
+                                  <span>{driver.name}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {driver.phone}
+                                  </span>
+                                </div>
                               </div>
-                            </div>
-                          </SelectItem>
-                        ))
-                      ) : (
-                        <div className="px-2 py-3 text-sm text-muted-foreground">
-                          No active drivers available.
-                        </div>
-                      )}
-                    </SelectContent>
-                  </Select>
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <div className="px-2 py-3 text-sm text-muted-foreground">
+                            No active drivers available.
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
 
               <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
                 <div className="space-y-4">
