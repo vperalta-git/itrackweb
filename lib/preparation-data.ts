@@ -329,6 +329,22 @@ export async function updatePreparationStatusRecord(
     readyForReleaseAt?: string | null
   }
 ) {
+  console.log('[Preparation][Frontend] Updating preparation status.', {
+    id,
+    status: input.status,
+    progress: input.progress,
+    approvalStatus: input.approvalStatus ?? null,
+    completedAt: input.completedAt ?? null,
+    readyForReleaseAt: input.readyForReleaseAt ?? null,
+  })
+
+  if (input.status === 'completed') {
+    console.log('[Preparation][Frontend] SMS handoff to backend is being triggered by this status update.', {
+      id,
+      status: input.status,
+    })
+  }
+
   await apiRequest(`/preparations/${id}`, {
     method: 'PATCH',
     body: {
@@ -344,6 +360,16 @@ export async function updatePreparationStatusRecord(
   })
 
   const nextRecords = await syncPreparationRecordsFromBackend()
+  console.log('[Preparation][Frontend] Preparation status update completed.', {
+    id,
+    status: input.status,
+    recordsCount: nextRecords.length,
+  })
+  if (input.status === 'completed') {
+    console.log('[Preparation][Frontend] Backend accepted the update. SMS processing should now be running in the backend logs.', {
+      id,
+    })
+  }
   requestWebNotificationRefresh()
   return nextRecords
 }
