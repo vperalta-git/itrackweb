@@ -108,6 +108,13 @@ async function handleRequest(
     const headers = buildForwardHeaders(request)
     const method = request.method.toUpperCase()
     const shouldIncludeBody = method !== 'GET' && method !== 'HEAD'
+    const requestPath = `/${path.join('/')}`
+
+    console.log('[BackendProxy] Forwarding request to backend.', {
+      method,
+      requestPath,
+      backendUrl: backendUrl.toString(),
+    })
 
     const upstreamResponse = await fetchBackendWithRetries(backendUrl, {
       method,
@@ -115,6 +122,13 @@ async function handleRequest(
       body: shouldIncludeBody ? await request.text() : undefined,
       cache: 'no-store',
       redirect: 'manual',
+    })
+
+    console.log('[BackendProxy] Backend response received.', {
+      method,
+      requestPath,
+      status: upstreamResponse.status,
+      ok: upstreamResponse.ok,
     })
 
     const contentType = upstreamResponse.headers.get('content-type') ?? ''
@@ -143,6 +157,10 @@ async function handleRequest(
       headers: responseHeaders,
     })
   } catch (error) {
+    console.error('[BackendProxy] Backend request failed.', {
+      error: error instanceof Error ? error.message : 'Unable to reach the backend service.',
+    })
+
     return NextResponse.json(
       {
         success: false,

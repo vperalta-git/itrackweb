@@ -414,11 +414,32 @@ export default function PreparationPage() {
   const handleReadyForRelease = async () => {
     if (!requestToReadyForRelease) return
 
+    console.log('[Preparation][Frontend] Confirm Ready for Release clicked.', {
+      id: requestToReadyForRelease.id,
+      conductionNumber: requestToReadyForRelease.conductionNumber,
+      customerName: requestToReadyForRelease.customerName,
+      contactNumber: requestToReadyForRelease.contactNumber,
+      currentStatus: requestToReadyForRelease.status,
+    })
+    console.log('[Preparation][Frontend] SMS should be sent by the backend after this confirmation succeeds.', {
+      id: requestToReadyForRelease.id,
+      contactNumber: requestToReadyForRelease.contactNumber,
+    })
+
     const nextRequests = await updatePreparationStatusRecord(requestToReadyForRelease.id, {
       status: 'completed',
       progress: 100,
       completedAt: requestToReadyForRelease.readyForReleaseAt ?? new Date().toISOString(),
       readyForReleaseAt: new Date().toISOString(),
+    })
+
+    console.log('[Preparation][Frontend] Ready for Release flow completed in UI.', {
+      id: requestToReadyForRelease.id,
+      nextStatus: 'completed',
+      recordsCount: nextRequests.length,
+    })
+    console.log('[Preparation][Frontend] Check backend terminal logs for the live Fortmed send attempt.', {
+      id: requestToReadyForRelease.id,
     })
 
     setRequests(nextRequests)
@@ -431,7 +452,7 @@ export default function PreparationPage() {
       description: `Marked vehicle ${requestToReadyForRelease.conductionNumber} as completed for release.`,
     })
     toast.success(
-      `Vehicle marked as completed. SMS notification sent to ${requestToReadyForRelease.customerName} at ${requestToReadyForRelease.contactNumber}.`
+      `Vehicle marked as completed. SMS notification is now being processed for ${requestToReadyForRelease.customerName} at ${requestToReadyForRelease.contactNumber}.`
     )
     setRequestToReadyForRelease(null)
   }
