@@ -7,7 +7,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://i-track-backend-0xpa.onrender.com/api",
+        "EXPO_PUBLIC_API_URL": "https://i-track-backend-b72a.onrender.com",
         "EXPO_PUBLIC_EAS_PROJECT_ID": "2c81022f-9e77-4cc2-a286-6278f615d38a",
         "EXPO_PUBLIC_MAPBOX_STYLE_OWNER": "mapbox",
         "EXPO_PUBLIC_MAPBOX_STYLE_ID": "streets-v12"
@@ -20,7 +20,7 @@
       "developmentClient": false,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://i-track-backend-0xpa.onrender.com/api",
+        "EXPO_PUBLIC_API_URL": "https://i-track-backend-b72a.onrender.com",
         "EXPO_PUBLIC_EAS_PROJECT_ID": "2c81022f-9e77-4cc2-a286-6278f615d38a",
         "EXPO_PUBLIC_MAPBOX_STYLE_OWNER": "mapbox",
         "EXPO_PUBLIC_MAPBOX_STYLE_ID": "streets-v12"
@@ -32,7 +32,7 @@
     "production": {
       "developmentClient": false,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://i-track-backend-0xpa.onrender.com/api",
+        "EXPO_PUBLIC_API_URL": "https://i-track-backend-b72a.onrender.com",
         "EXPO_PUBLIC_EAS_PROJECT_ID": "2c81022f-9e77-4cc2-a286-6278f615d38a",
         "EXPO_PUBLIC_MAPBOX_STYLE_OWNER": "mapbox",
         "EXPO_PUBLIC_MAPBOX_STYLE_ID": "streets-v12"

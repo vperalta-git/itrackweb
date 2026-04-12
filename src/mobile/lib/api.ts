@@ -1,16 +1,34 @@
 import axios from 'axios';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 const DEFAULT_LOCAL_ANDROID_API_URL = 'http://10.0.2.2:4000/api';
 const DEFAULT_LOCAL_API_URL = 'http://localhost:4000/api';
 const DEFAULT_PRODUCTION_API_URL =
-  'https://i-track-backend-0xpa.onrender.com/api';
+  'https://i-track-backend-b72a.onrender.com/api';
+
+const normalizeApiBaseUrl = (rawUrl: string) => {
+  const normalizedUrl = rawUrl.trim().replace(/\/+$/, '');
+
+  return normalizedUrl.endsWith('/api')
+    ? normalizedUrl
+    : `${normalizedUrl}/api`;
+};
 
 const resolveBaseUrl = () => {
-  const configuredUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
+  const configuredUrlCandidates = [
+    process.env.EXPO_PUBLIC_API_URL,
+    Constants.expoConfig?.extra?.apiUrl,
+    Constants.expoConfig?.extra?.expoPublicApiUrl,
+    Constants.manifest2?.extra?.expoClient?.extra?.apiUrl,
+    Constants.manifest2?.extra?.apiUrl,
+  ];
+  const configuredUrl = configuredUrlCandidates.find(
+    (value) => typeof value === 'string' && value.trim()
+  );
 
   if (configuredUrl) {
-    return configuredUrl;
+    return normalizeApiBaseUrl(configuredUrl);
   }
 
   if (__DEV__) {
@@ -24,8 +42,10 @@ const resolveBaseUrl = () => {
   return DEFAULT_PRODUCTION_API_URL;
 };
 
+export const API_BASE_URL = resolveBaseUrl();
+
 export const api = axios.create({
-  baseURL: resolveBaseUrl(),
+  baseURL: API_BASE_URL,
   timeout: 15000,
 });
 

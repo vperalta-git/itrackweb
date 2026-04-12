@@ -18,11 +18,13 @@ const easProjectId =
   process.env.EAS_PROJECT_ID ||
   baseConfig.extra?.expoPushProjectId ||
   baseConfig.extra?.eas?.projectId;
+const apiUrl = process.env.EXPO_PUBLIC_API_URL || baseConfig.extra?.apiUrl || null;
 
 module.exports = {
   ...baseConfig,
   extra: {
     ...(baseConfig.extra ?? {}),
+    apiUrl,
     expoPushProjectId: easProjectId ?? null,
     eas: {
       ...((baseConfig.extra ?? {}).eas ?? {}),
