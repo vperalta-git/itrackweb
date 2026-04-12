@@ -6,6 +6,7 @@ const DEFAULT_LOCAL_ANDROID_API_URL = 'http://10.0.2.2:4000/api';
 const DEFAULT_LOCAL_API_URL = 'http://localhost:4000/api';
 const DEFAULT_PRODUCTION_API_URL =
   'https://i-track-backend-b72a.onrender.com/api';
+const API_TIMEOUT_MS = 45000;
 
 const normalizeApiBaseUrl = (rawUrl: string) => {
   const normalizedUrl = rawUrl.trim().replace(/\/+$/, '');
@@ -46,7 +47,7 @@ export const API_BASE_URL = resolveBaseUrl();
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000,
+  timeout: API_TIMEOUT_MS,
 });
 
 export const setApiAuthToken = (token: string | null) => {
@@ -81,6 +82,14 @@ export const getApiErrorMessage = (
   fallbackMessage = 'Something went wrong. Please try again.'
 ) => {
   if (axios.isAxiosError<{ message?: string; details?: string[] }>(error)) {
+    if (error.code === 'ECONNABORTED') {
+      return `The server took too long to respond. If the backend is hosted on Render, it may still be waking up. Please try again in a few moments.`;
+    }
+
+    if (error.code === 'ERR_NETWORK') {
+      return `The app could not reach the backend at ${API_BASE_URL}. Check that the deployed backend is running and accessible from your phone.`;
+    }
+
     const responseMessage = error.response?.data?.message?.trim();
     const responseDetail = error.response?.data?.details?.find((item) =>
       String(item ?? '').trim()
