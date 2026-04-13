@@ -104,9 +104,14 @@ export type BackendPreparation = {
     id: string
     label: string
     completed: boolean
+    completedAt?: string | null
   }>
+  inDispatchAt?: string | null
   completedAt?: string | null
   readyForReleaseAt?: string | null
+  predictedTotalMinutes?: number | null
+  predictedRemainingMinutes?: number | null
+  predictionGeneratedAt?: string | null
   createdAt?: string
   updatedAt?: string
 }
@@ -175,16 +180,16 @@ const uiAllocationStatusMap: Record<string, string> = {
 const preparationStatusMap: Record<string, string> = {
   pending: 'pending',
   in_dispatch: 'in-dispatch',
-  completed: 'ready-for-release',
-  ready_for_release: 'completed',
+  completed: 'completed',
+  ready_for_release: 'ready-for-release',
   rejected: 'rejected',
 }
 
 const uiPreparationStatusMap: Record<string, string> = {
   pending: 'pending',
   'in-dispatch': 'in_dispatch',
-  completed: 'ready_for_release',
-  'ready-for-release': 'completed',
+  completed: 'completed',
+  'ready-for-release': 'ready_for_release',
   rejected: 'rejected',
 }
 

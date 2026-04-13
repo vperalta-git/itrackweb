@@ -43,12 +43,17 @@ export interface PreparationRequestRecord {
   approvalStatus: string
   requestedByName: string
   requestedByRole: string
+  inDispatchAt?: string
   completedAt?: string
   readyForReleaseAt?: string
+  predictedTotalMinutes?: number
+  predictedRemainingMinutes?: number
+  predictionGeneratedAt?: string
   dispatcherChecklist: Array<{
     id: string
     label: string
     completed: boolean
+    completedAt?: string
   }>
 }
 
@@ -56,7 +61,40 @@ const storageKey = 'itrack.preparations.records'
 export const PREPARATIONS_UPDATED_EVENT = 'preparations-updated'
 const COMPLETION_NOTIFIED_STORAGE_KEY = 'itrack.preparations.completion-notified'
 
-const estimateTime = (serviceCount: number) => {
+const formatMinutesAsEta = (minutes?: number | null) => {
+  if (!Number.isFinite(minutes) || minutes === null || minutes === undefined) {
+    return ''
+  }
+
+  const rounded = Math.max(0, Math.round(minutes))
+  const days = Math.floor(rounded / (60 * 24))
+  const hours = Math.floor((rounded % (60 * 24)) / 60)
+  const mins = rounded % 60
+  const parts = [
+    days > 0 ? `${days} day${days === 1 ? '' : 's'}` : '',
+    hours > 0 ? `${hours} hr${hours === 1 ? '' : 's'}` : '',
+    mins > 0 ? `${mins} min${mins === 1 ? '' : 's'}` : '',
+  ].filter(Boolean)
+
+  return parts.length > 0 ? parts.join(' ') : '0 min'
+}
+
+const getEstimatedTimeLabel = (preparation: BackendPreparation, serviceCount: number) => {
+  const predictedRemainingMinutes = preparation.predictedRemainingMinutes ?? undefined
+  const predictedTotalMinutes = preparation.predictedTotalMinutes ?? undefined
+
+  if (
+    predictedRemainingMinutes !== undefined &&
+    predictedRemainingMinutes !== null &&
+    ['in_dispatch', 'completed'].includes(preparation.status ?? '')
+  ) {
+    return `${formatMinutesAsEta(predictedRemainingMinutes)} remaining`
+  }
+
+  if (predictedTotalMinutes !== undefined && predictedTotalMinutes !== null) {
+    return formatMinutesAsEta(predictedTotalMinutes)
+  }
+
   if (serviceCount >= 4) return '1 day'
   if (serviceCount >= 2) return '5 hours'
   return '3 hours'
@@ -179,7 +217,7 @@ const mapPreparation = (
   const customRequests = preparation.customRequests ?? []
   const serviceLabels = [...requestedServices.map(formatServiceLabel), ...customRequests]
 
-  return {
+  const mappedPreparation = {
     id: getEntityId(preparation),
     dateCreated: formatDateTimeLabel(preparation.createdAt),
     dateCreatedIso: preparation.createdAt ?? new Date(0).toISOString(),
@@ -191,7 +229,7 @@ const mapPreparation = (
     customerName: preparation.customerName ?? '',
     contactNumber: preparation.customerContactNo ?? '',
     status: mapPreparationStatusToUi(preparation.status) as PreparationRequestRecord['status'],
-    estimatedTime: estimateTime(serviceLabels.length),
+    estimatedTime: getEstimatedTimeLabel(preparation, serviceLabels.length),
     progress: calculatePreparationProgress(preparation.dispatcherChecklist),
     notes: preparation.notes ?? '',
     vehicleId,
@@ -200,10 +238,29 @@ const mapPreparation = (
     approvalStatus: preparation.approvalStatus ?? 'awaiting_approval',
     requestedByName: preparation.requestedByName ?? '',
     requestedByRole: preparation.requestedByRole ?? '',
+    inDispatchAt: preparation.inDispatchAt ?? undefined,
     completedAt: preparation.completedAt ?? undefined,
     readyForReleaseAt: preparation.readyForReleaseAt ?? undefined,
-    dispatcherChecklist: preparation.dispatcherChecklist ?? [],
+    predictedTotalMinutes: preparation.predictedTotalMinutes ?? undefined,
+    predictedRemainingMinutes: preparation.predictedRemainingMinutes ?? undefined,
+    predictionGeneratedAt: preparation.predictionGeneratedAt ?? undefined,
+    dispatcherChecklist:
+      preparation.dispatcherChecklist?.map((item) => ({
+        ...item,
+        completedAt: item.completedAt ?? undefined,
+      })) ?? [],
   }
+
+  console.log('[Preparation ETA][Frontend] Preparation mapped from backend.', {
+    preparationId: mappedPreparation.id,
+    backendStatus: preparation.status ?? null,
+    uiStatus: mappedPreparation.status,
+    estimatedTime: mappedPreparation.estimatedTime,
+    predictedTotalMinutes: mappedPreparation.predictedTotalMinutes ?? null,
+    predictedRemainingMinutes: mappedPreparation.predictedRemainingMinutes ?? null,
+  })
+
+  return mappedPreparation
 }
 
 export async function syncPreparationRecordsFromBackend() {
@@ -219,6 +276,22 @@ export async function syncPreparationRecordsFromBackend() {
   const mappedPreparations = preparations
     .map((preparation) => mapPreparation(preparation, unitAllocationByVehicleId))
     .sort((left, right) => right.dateCreatedIso.localeCompare(left.dateCreatedIso))
+
+  console.log('[Preparation ETA][Frontend] Preparation sync completed.', {
+    totalPreparations: mappedPreparations.length,
+    etaReadyPreparations: mappedPreparations.filter(
+      (record) =>
+        record.predictedTotalMinutes !== undefined ||
+        record.predictedRemainingMinutes !== undefined
+    ).length,
+    preview: mappedPreparations.slice(0, 5).map((record) => ({
+      id: record.id,
+      status: record.status,
+      estimatedTime: record.estimatedTime,
+      predictedTotalMinutes: record.predictedTotalMinutes ?? null,
+      predictedRemainingMinutes: record.predictedRemainingMinutes ?? null,
+    })),
+  })
 
   persistPreparationRecords(mappedPreparations)
   await notifyApproversOfCompletedPreparations(mappedPreparations)
@@ -272,6 +345,18 @@ export async function createPreparationRecord(input: {
   })
 
   const nextRecords = await syncPreparationRecordsFromBackend()
+  console.log('[Preparation ETA][Frontend] Create preparation flow refreshed ETA values.', {
+    recordsCount: nextRecords.length,
+    latestPreparation: nextRecords[0]
+      ? {
+          id: nextRecords[0].id,
+          status: nextRecords[0].status,
+          estimatedTime: nextRecords[0].estimatedTime,
+          predictedTotalMinutes: nextRecords[0].predictedTotalMinutes ?? null,
+          predictedRemainingMinutes: nextRecords[0].predictedRemainingMinutes ?? null,
+        }
+      : null,
+  })
   requestWebNotificationRefresh()
   return nextRecords
 }
@@ -312,6 +397,19 @@ export async function updatePreparationRecord(
   })
 
   const nextRecords = await syncPreparationRecordsFromBackend()
+  console.log('[Preparation ETA][Frontend] Update preparation flow refreshed ETA values.', {
+    preparationId: id,
+    record: nextRecords.find((record) => record.id === id)
+      ? {
+          status: nextRecords.find((record) => record.id === id)?.status,
+          estimatedTime: nextRecords.find((record) => record.id === id)?.estimatedTime,
+          predictedTotalMinutes:
+            nextRecords.find((record) => record.id === id)?.predictedTotalMinutes ?? null,
+          predictedRemainingMinutes:
+            nextRecords.find((record) => record.id === id)?.predictedRemainingMinutes ?? null,
+        }
+      : null,
+  })
   requestWebNotificationRefresh()
   return nextRecords
 }
@@ -338,7 +436,7 @@ export async function updatePreparationStatusRecord(
     readyForReleaseAt: input.readyForReleaseAt ?? null,
   })
 
-  if (input.status === 'completed') {
+  if (input.status === 'ready-for-release') {
     console.log('[Preparation][Frontend] SMS handoff to backend is being triggered by this status update.', {
       id,
       status: input.status,
@@ -365,7 +463,20 @@ export async function updatePreparationStatusRecord(
     status: input.status,
     recordsCount: nextRecords.length,
   })
-  if (input.status === 'completed') {
+  console.log('[Preparation ETA][Frontend] Status update refreshed ETA values.', {
+    preparationId: id,
+    record: nextRecords.find((record) => record.id === id)
+      ? {
+          status: nextRecords.find((record) => record.id === id)?.status,
+          estimatedTime: nextRecords.find((record) => record.id === id)?.estimatedTime,
+          predictedTotalMinutes:
+            nextRecords.find((record) => record.id === id)?.predictedTotalMinutes ?? null,
+          predictedRemainingMinutes:
+            nextRecords.find((record) => record.id === id)?.predictedRemainingMinutes ?? null,
+        }
+      : null,
+  })
+  if (input.status === 'ready-for-release') {
     console.log('[Preparation][Frontend] Backend accepted the update. SMS processing should now be running in the backend logs.', {
       id,
     })
