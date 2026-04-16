@@ -609,7 +609,7 @@ export default function PreparationPage() {
                   </DropdownMenuItem>
                 </>
               )}
-              {request.status === 'completed' && (
+              {request.status === 'ready-for-release' && (
                 <DropdownMenuItem onClick={() => setRequestToReadyForRelease(request)}>
                   <Clock className="mr-2 size-4" />
                   Ready for Release
@@ -1083,7 +1083,7 @@ export default function PreparationPage() {
 
               <div className="border-t border-border bg-background px-6 py-4">
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                  {selectedRequest.status === 'completed' && (
+                  {selectedRequest.status === 'ready-for-release' && (
                     <Button
                       onClick={() => setRequestToReadyForRelease(selectedRequest)}
                     >
