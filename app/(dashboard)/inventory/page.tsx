@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { ColumnDef } from '@tanstack/react-table'
+import { ColumnDef, type Column } from '@tanstack/react-table'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -104,6 +104,25 @@ const bodyColorSwatches: Record<string, string> = {
 
 const getBodyColorSwatch = (bodyColor: string) =>
   bodyColorSwatches[bodyColor] ?? '#cbd5e1'
+
+function SortableColumnHeader<TData, TValue>({
+  column,
+  label,
+}: {
+  column: Column<TData, TValue>
+  label: string
+}) {
+  return (
+    <Button
+      variant="ghost"
+      onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+      className="h-auto w-full min-w-0 shrink justify-start gap-1 whitespace-normal px-0 py-0 text-left font-semibold leading-tight hover:bg-transparent hover:text-foreground"
+    >
+      <span className="min-w-0 whitespace-normal">{label}</span>
+      <ArrowUpDown className="size-3.5 shrink-0" />
+    </Button>
+  )
+}
 
 function findUnitConfig(unitSetup: UnitSetupRecord[], unitName: string) {
   return unitSetup.find((unit) => unit.unitName === unitName) ?? null
@@ -379,14 +398,7 @@ export default function InventoryPage() {
         cellClassName: 'whitespace-normal break-words align-top',
       },
       header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          className="-ml-4"
-        >
-          Unit Name
-          <ArrowUpDown className="ml-2 size-4" />
-        </Button>
+        <SortableColumnHeader column={column} label="Unit Name" />
       ),
       cell: ({ row }) => <span className="font-medium">{row.getValue('unitName')}</span>,
     },
@@ -453,14 +465,7 @@ export default function InventoryPage() {
         headerClassName: 'w-[10%]',
       },
       header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          className="-ml-4"
-        >
-          Age (In Storage)
-          <ArrowUpDown className="ml-2 size-4" />
-        </Button>
+        <SortableColumnHeader column={column} label="Age (In Storage)" />
       ),
       cell: ({ row }) => `${row.getValue('ageInStorage')} days`,
     },
@@ -829,7 +834,7 @@ export default function InventoryPage() {
       <DataTable
         columns={columns}
         data={filteredVehicles}
-        tableClassName="table-fixed"
+        tableClassName="min-w-[1180px] table-fixed"
         searchKey="conductionNumber"
         searchPlaceholder="Search by conduction number..."
         exportConfig={{
