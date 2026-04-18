@@ -144,13 +144,6 @@ const getMinutesBetween = (start?: string, end?: number) => {
   return diffMs > 0 ? Math.round(diffMs / 60000) : 0
 }
 
-const formatTimeOfDay = (timestamp: number) =>
-  new Intl.DateTimeFormat('en-PH', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).format(new Date(timestamp))
-
 const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => {
   const elapsedMinutes = getMinutesBetween(request.inDispatchAt, now)
   const totalMinutes =
@@ -166,19 +159,12 @@ const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => 
       : fallbackRemaining
 
   if (request.status === 'in-dispatch' && elapsedMinutes !== null) {
-    const finishAt =
-      remainingMinutes !== null
-        ? now + remainingMinutes * 60 * 1000
-        : totalMinutes !== null
-          ? now + Math.max(totalMinutes - elapsedMinutes, 0) * 60 * 1000
-          : null
-
     return {
       headline:
         remainingMinutes !== null
           ? `${formatDurationLabel(remainingMinutes)} remaining`
           : request.estimatedTime,
-      supporting: `Running for ${formatDurationLabel(elapsedMinutes)}${finishAt ? ` | finishes around ${formatTimeOfDay(finishAt)}` : ''}`,
+      supporting: null,
     }
   }
 
@@ -189,14 +175,14 @@ const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => 
     if (actualMinutes !== null) {
       return {
         headline: request.estimatedTime,
-        supporting: `Ran for ${formatDurationLabel(actualMinutes)}`,
+        supporting: null,
       }
     }
   }
 
   return {
     headline: request.estimatedTime,
-    supporting: totalMinutes !== null ? `Estimated total ${formatDurationLabel(totalMinutes)}` : null,
+    supporting: null,
   }
 }
 
