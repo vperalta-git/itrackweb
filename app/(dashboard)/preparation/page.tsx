@@ -116,6 +116,37 @@ const getChecklistProgress = (request: PreparationRequest) => {
   return Math.round((completedCount / checklist.length) * 100)
 }
 
+const getRunningProgress = (request: PreparationRequest, now = Date.now()) => {
+  const checklistProgress = getChecklistProgress(request)
+
+  if (request.status === 'completed' || request.status === 'ready-for-release') {
+    return 100
+  }
+
+  if (request.status !== 'in-dispatch') {
+    return checklistProgress
+  }
+
+  const elapsedMinutes = getMinutesBetween(request.inDispatchAt, now)
+  const totalMinutes =
+    typeof request.predictedTotalMinutes === 'number' && Number.isFinite(request.predictedTotalMinutes)
+      ? Math.max(1, Math.round(request.predictedTotalMinutes))
+      : null
+
+  if (elapsedMinutes === null || totalMinutes === null) {
+    return checklistProgress
+  }
+
+  const timeProgress = Math.round((Math.max(elapsedMinutes, 0) / totalMinutes) * 100)
+  const combinedProgress = Math.max(checklistProgress, timeProgress)
+
+  if (checklistProgress >= 100) {
+    return 100
+  }
+
+  return Math.min(combinedProgress, 99)
+}
+
 const formatDurationLabel = (totalMinutes: number) => {
   const roundedMinutes = Math.max(0, Math.round(totalMinutes))
   const hours = Math.floor(roundedMinutes / 60)
@@ -287,8 +318,8 @@ export default function PreparationPage() {
     [liveNow, selectedRequest]
   )
   const selectedRequestProgress = React.useMemo(
-    () => (selectedRequest ? getChecklistProgress(selectedRequest) : 0),
-    [selectedRequest]
+    () => (selectedRequest ? getRunningProgress(selectedRequest, liveNow) : 0),
+    [liveNow, selectedRequest]
   )
 
   const handleRequestDialogChange = (open: boolean) => {
@@ -629,7 +660,7 @@ export default function PreparationPage() {
       header: 'Estimated Time',
       cell: ({ row }) => {
         const timing = getLiveTimingDetails(row.original, liveNow)
-        const progress = getChecklistProgress(row.original)
+        const progress = getRunningProgress(row.original, liveNow)
 
         return (
           <div className="min-w-[220px] space-y-1.5">
@@ -744,7 +775,7 @@ export default function PreparationPage() {
         { header: 'Contact Number', value: (row) => row.contactNumber },
         { header: 'Status', value: (row) => row.status },
         { header: 'Estimated Time', value: (row) => row.estimatedTime },
-        { header: 'Progress', value: (row) => `${getChecklistProgress(row)}%` },
+        { header: 'Progress', value: (row) => `${getRunningProgress(row, liveNow)}%` },
       ],
       rows: filteredRequests,
     })
