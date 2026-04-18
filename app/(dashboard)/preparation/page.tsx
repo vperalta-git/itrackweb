@@ -116,6 +116,90 @@ const getChecklistProgress = (request: PreparationRequest) => {
   return Math.round((completedCount / checklist.length) * 100)
 }
 
+const formatDurationLabel = (totalMinutes: number) => {
+  const roundedMinutes = Math.max(0, Math.round(totalMinutes))
+  const hours = Math.floor(roundedMinutes / 60)
+  const minutes = roundedMinutes % 60
+
+  if (hours <= 0) {
+    return `${minutes} min`
+  }
+
+  if (minutes <= 0) {
+    return `${hours} hr${hours === 1 ? '' : 's'}`
+  }
+
+  return `${hours} hr${hours === 1 ? '' : 's'} ${minutes} min`
+}
+
+const getMinutesBetween = (start?: string, end?: number) => {
+  if (!start) return null
+
+  const startTime = new Date(start).getTime()
+  if (Number.isNaN(startTime)) return null
+
+  const endTime = end ?? Date.now()
+  const diffMs = endTime - startTime
+
+  return diffMs > 0 ? Math.round(diffMs / 60000) : 0
+}
+
+const formatTimeOfDay = (timestamp: number) =>
+  new Intl.DateTimeFormat('en-PH', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(new Date(timestamp))
+
+const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => {
+  const elapsedMinutes = getMinutesBetween(request.inDispatchAt, now)
+  const totalMinutes =
+    typeof request.predictedTotalMinutes === 'number' && Number.isFinite(request.predictedTotalMinutes)
+      ? Math.max(0, Math.round(request.predictedTotalMinutes))
+      : null
+  const fallbackRemaining =
+    elapsedMinutes !== null && totalMinutes !== null ? Math.max(totalMinutes - elapsedMinutes, 0) : null
+  const remainingMinutes =
+    typeof request.predictedRemainingMinutes === 'number' &&
+    Number.isFinite(request.predictedRemainingMinutes)
+      ? Math.max(0, Math.round(request.predictedRemainingMinutes))
+      : fallbackRemaining
+
+  if (request.status === 'in-dispatch' && elapsedMinutes !== null) {
+    const finishAt =
+      remainingMinutes !== null
+        ? now + remainingMinutes * 60 * 1000
+        : totalMinutes !== null
+          ? now + Math.max(totalMinutes - elapsedMinutes, 0) * 60 * 1000
+          : null
+
+    return {
+      headline:
+        remainingMinutes !== null
+          ? `${formatDurationLabel(remainingMinutes)} remaining`
+          : request.estimatedTime,
+      supporting: `Running for ${formatDurationLabel(elapsedMinutes)}${finishAt ? ` | finishes around ${formatTimeOfDay(finishAt)}` : ''}`,
+    }
+  }
+
+  if ((request.status === 'completed' || request.status === 'ready-for-release') && request.inDispatchAt) {
+    const finishedAt = request.readyForReleaseAt ?? request.completedAt
+    const actualMinutes = finishedAt ? getMinutesBetween(request.inDispatchAt, new Date(finishedAt).getTime()) : elapsedMinutes
+
+    if (actualMinutes !== null) {
+      return {
+        headline: request.estimatedTime,
+        supporting: `Ran for ${formatDurationLabel(actualMinutes)}`,
+      }
+    }
+  }
+
+  return {
+    headline: request.estimatedTime,
+    supporting: totalMinutes !== null ? `Estimated total ${formatDurationLabel(totalMinutes)}` : null,
+  }
+}
+
 export default function PreparationPage() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
@@ -133,6 +217,15 @@ export default function PreparationPage() {
   const [requestToDelete, setRequestToDelete] = React.useState<PreparationRequest | null>(null)
   const [requestToReadyForRelease, setRequestToReadyForRelease] =
     React.useState<PreparationRequest | null>(null)
+  const [liveNow, setLiveNow] = React.useState(() => Date.now())
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => {
+      setLiveNow(Date.now())
+    }, 30000)
+
+    return () => window.clearInterval(timer)
+  }, [])
 
   React.useEffect(() => {
     void Promise.all([
@@ -202,6 +295,11 @@ export default function PreparationPage() {
         : undefined,
     }))
   }, [selectedRequest])
+
+  const selectedRequestTiming = React.useMemo(
+    () => (selectedRequest ? getLiveTimingDetails(selectedRequest, liveNow) : null),
+    [liveNow, selectedRequest]
+  )
 
   const handleRequestDialogChange = (open: boolean) => {
     setIsNewRequestOpen(open)
@@ -539,15 +637,22 @@ export default function PreparationPage() {
     {
       accessorKey: 'estimatedTime',
       header: 'Estimated Time',
-      cell: ({ row }) => (
-        <div className="min-w-[160px] space-y-1">
-          <div className="text-sm font-medium">{row.getValue('estimatedTime')}</div>
-          <div className="flex items-center gap-2">
-            <Progress value={row.original.progress} className="h-2 flex-1" />
-            <span className="w-9 text-xs text-muted-foreground">{row.original.progress}%</span>
+      cell: ({ row }) => {
+        const timing = getLiveTimingDetails(row.original, liveNow)
+
+        return (
+          <div className="min-w-[220px] space-y-1.5">
+            <div className="text-sm font-medium">{timing.headline}</div>
+            {timing.supporting && (
+              <div className="text-xs text-muted-foreground">{timing.supporting}</div>
+            )}
+            <div className="flex items-center gap-2">
+              <Progress value={row.original.progress} className="h-2 flex-1" />
+              <span className="w-9 text-xs text-muted-foreground">{row.original.progress}%</span>
+            </div>
           </div>
-        </div>
-      ),
+        )
+      },
     },
     {
       id: 'actions',
@@ -952,14 +1057,21 @@ export default function PreparationPage() {
                       {selectedRequest.conductionNumber}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {selectedRequest.unitName} • {selectedRequest.service}
+                      {selectedRequest.unitName} | {selectedRequest.service}
                     </div>
                   </div>
                   <div className="space-y-3 sm:min-w-56">
                     <div className="flex items-center justify-between gap-3">
                       <StatusBadge status={selectedRequest.status} />
-                      <span className="text-sm font-medium">{selectedRequest.estimatedTime}</span>
+                      <span className="text-right text-sm font-medium">
+                        {selectedRequestTiming?.headline ?? selectedRequest.estimatedTime}
+                      </span>
                     </div>
+                    {selectedRequestTiming?.supporting && (
+                      <div className="text-right text-xs text-muted-foreground">
+                        {selectedRequestTiming.supporting}
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Progress</span>
@@ -1003,8 +1115,18 @@ export default function PreparationPage() {
                         </div>
                         <div className="flex justify-between gap-4 text-sm">
                           <span className="text-muted-foreground">Estimated Time</span>
-                          <span className="font-medium">{selectedRequest.estimatedTime}</span>
+                          <span className="text-right font-medium">
+                            {selectedRequestTiming?.headline ?? selectedRequest.estimatedTime}
+                          </span>
                         </div>
+                        {selectedRequestTiming?.supporting && (
+                          <div className="flex justify-between gap-4 text-sm">
+                            <span className="text-muted-foreground">Runtime</span>
+                            <span className="text-right text-muted-foreground">
+                              {selectedRequestTiming.supporting}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
