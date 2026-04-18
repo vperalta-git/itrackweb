@@ -286,6 +286,10 @@ export default function PreparationPage() {
     () => (selectedRequest ? getLiveTimingDetails(selectedRequest, liveNow) : null),
     [liveNow, selectedRequest]
   )
+  const selectedRequestProgress = React.useMemo(
+    () => (selectedRequest ? getChecklistProgress(selectedRequest) : 0),
+    [selectedRequest]
+  )
 
   const handleRequestDialogChange = (open: boolean) => {
     setIsNewRequestOpen(open)
@@ -484,7 +488,7 @@ export default function PreparationPage() {
 
     const nextRequests = await updatePreparationStatusRecord(request.id, {
       status: 'rejected',
-      progress: request.progress,
+      progress: getChecklistProgress(request),
       approvalStatus: 'rejected',
       approvedByRole: mapUserRoleToBackendRole(currentUser.role),
       approvedByName: `${currentUser.firstName} ${currentUser.lastName}`.trim(),
@@ -625,6 +629,7 @@ export default function PreparationPage() {
       header: 'Estimated Time',
       cell: ({ row }) => {
         const timing = getLiveTimingDetails(row.original, liveNow)
+        const progress = getChecklistProgress(row.original)
 
         return (
           <div className="min-w-[220px] space-y-1.5">
@@ -633,8 +638,8 @@ export default function PreparationPage() {
               <div className="text-xs text-muted-foreground">{timing.supporting}</div>
             )}
             <div className="flex items-center gap-2">
-              <Progress value={row.original.progress} className="h-2 flex-1" />
-              <span className="w-9 text-xs text-muted-foreground">{row.original.progress}%</span>
+              <Progress value={progress} className="h-2 flex-1" />
+              <span className="w-9 text-xs text-muted-foreground">{progress}%</span>
             </div>
           </div>
         )
@@ -739,7 +744,7 @@ export default function PreparationPage() {
         { header: 'Contact Number', value: (row) => row.contactNumber },
         { header: 'Status', value: (row) => row.status },
         { header: 'Estimated Time', value: (row) => row.estimatedTime },
-        { header: 'Progress', value: (row) => `${row.progress}%` },
+        { header: 'Progress', value: (row) => `${getChecklistProgress(row)}%` },
       ],
       rows: filteredRequests,
     })
@@ -1061,9 +1066,9 @@ export default function PreparationPage() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Progress</span>
-                        <span className="font-medium">{selectedRequest.progress}%</span>
+                        <span className="font-medium">{selectedRequestProgress}%</span>
                       </div>
-                      <Progress value={selectedRequest.progress} className="h-2.5" />
+                      <Progress value={selectedRequestProgress} className="h-2.5" />
                     </div>
                   </div>
                 </div>
