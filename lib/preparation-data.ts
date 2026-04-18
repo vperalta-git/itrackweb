@@ -79,6 +79,45 @@ const formatMinutesAsEta = (minutes?: number | null) => {
   return parts.length > 0 ? parts.join(' ') : '0 min'
 }
 
+export const getPreparationEtaElapsedMinutes = (
+  inDispatchAt?: string | null,
+  now = Date.now()
+) => {
+  if (!inDispatchAt) {
+    return null
+  }
+
+  const startedAt = new Date(inDispatchAt).getTime()
+
+  if (Number.isNaN(startedAt)) {
+    return null
+  }
+
+  return Math.max(0, Math.round((now - startedAt) / 60000))
+}
+
+export const getPreparationEtaRunPercentage = (
+  predictedTotalMinutes?: number | null,
+  inDispatchAt?: string | null,
+  now = Date.now()
+) => {
+  if (
+    predictedTotalMinutes === undefined ||
+    predictedTotalMinutes === null ||
+    predictedTotalMinutes <= 0
+  ) {
+    return null
+  }
+
+  const elapsedMinutes = getPreparationEtaElapsedMinutes(inDispatchAt, now)
+
+  if (elapsedMinutes === null) {
+    return null
+  }
+
+  return Math.max(0, Math.min(100, Math.round((elapsedMinutes / predictedTotalMinutes) * 100)))
+}
+
 const getEstimatedTimeLabel = (preparation: BackendPreparation, serviceCount: number) => {
   const predictedRemainingMinutes = preparation.predictedRemainingMinutes ?? undefined
   const predictedTotalMinutes = preparation.predictedTotalMinutes ?? undefined

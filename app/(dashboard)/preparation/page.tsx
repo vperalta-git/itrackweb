@@ -61,6 +61,8 @@ import {
 import {
   createPreparationRecord,
   deletePreparationRecord,
+  getPreparationEtaElapsedMinutes,
+  getPreparationEtaRunPercentage,
   loadPreparationRecords,
   PreparationRequestRecord,
   syncPreparationRecordsFromBackend,
@@ -133,6 +135,7 @@ export default function PreparationPage() {
   const [requestToDelete, setRequestToDelete] = React.useState<PreparationRequest | null>(null)
   const [requestToReadyForRelease, setRequestToReadyForRelease] =
     React.useState<PreparationRequest | null>(null)
+  const [etaNow, setEtaNow] = React.useState(() => Date.now())
 
   React.useEffect(() => {
     void Promise.all([
@@ -157,6 +160,26 @@ export default function PreparationPage() {
         return null
       })
   }, [])
+
+  React.useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setEtaNow(Date.now())
+    }, 60_000)
+
+    return () => window.clearInterval(intervalId)
+  }, [])
+
+  const getEtaRuntime = React.useCallback(
+    (request: PreparationRequest) => ({
+      etaRunPercentage: getPreparationEtaRunPercentage(
+        request.predictedTotalMinutes,
+        request.inDispatchAt,
+        etaNow
+      ),
+      elapsedMinutes: getPreparationEtaElapsedMinutes(request.inDispatchAt, etaNow),
+    }),
+    [etaNow]
+  )
 
   const scopedRequests = React.useMemo(
     () =>
@@ -539,15 +562,30 @@ export default function PreparationPage() {
     {
       accessorKey: 'estimatedTime',
       header: 'Estimated Time',
-      cell: ({ row }) => (
-        <div className="min-w-[160px] space-y-1">
-          <div className="text-sm font-medium">{row.getValue('estimatedTime')}</div>
-          <div className="flex items-center gap-2">
-            <Progress value={row.original.progress} className="h-2 flex-1" />
-            <span className="w-9 text-xs text-muted-foreground">{row.original.progress}%</span>
+      cell: ({ row }) => {
+        const { etaRunPercentage, elapsedMinutes } = getEtaRuntime(row.original)
+
+        return (
+          <div className="min-w-[190px] space-y-2">
+            <div className="text-sm font-medium">{row.getValue('estimatedTime')}</div>
+            {etaRunPercentage !== null && elapsedMinutes !== null ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                  <span>ETA run</span>
+                  <span>
+                    {etaRunPercentage}% • {elapsedMinutes} min elapsed
+                  </span>
+                </div>
+                <Progress value={etaRunPercentage} className="h-2" />
+              </div>
+            ) : null}
+            <div className="flex items-center gap-2">
+              <Progress value={row.original.progress} className="h-2 flex-1" />
+              <span className="w-9 text-xs text-muted-foreground">{row.original.progress}%</span>
+            </div>
           </div>
-        </div>
-      ),
+        )
+      },
     },
     {
       id: 'actions',
@@ -628,6 +666,29 @@ export default function PreparationPage() {
     return scopedRequests.filter((r) => r.status === statusFilter)
   }, [scopedRequests, statusFilter])
 
+  const etaEligibleRequests = React.useMemo(
+    () =>
+      scopedRequests.filter(
+        (request) =>
+          request.predictedTotalMinutes !== undefined &&
+          request.predictedTotalMinutes !== null &&
+          Boolean(request.inDispatchAt)
+      ),
+    [scopedRequests]
+  )
+
+  const averageEtaRunPercentage = React.useMemo(() => {
+    const percentages = etaEligibleRequests
+      .map((request) => getEtaRuntime(request).etaRunPercentage)
+      .filter((value): value is number => value !== null)
+
+    if (percentages.length === 0) {
+      return null
+    }
+
+    return Math.round(percentages.reduce((sum, value) => sum + value, 0) / percentages.length)
+  }, [etaEligibleRequests, getEtaRuntime])
+
   const handleExportPdf = () => {
     logAuditEvent({
       user: getAuditActor(role),
@@ -648,6 +709,16 @@ export default function PreparationPage() {
         { header: 'Contact Number', value: (row) => row.contactNumber },
         { header: 'Status', value: (row) => row.status },
         { header: 'Estimated Time', value: (row) => row.estimatedTime },
+        {
+          header: 'ETA Run',
+          value: (row) => {
+            const etaRunPercentage = getPreparationEtaRunPercentage(
+              row.predictedTotalMinutes,
+              row.inDispatchAt
+            )
+            return etaRunPercentage === null ? 'N/A' : `${etaRunPercentage}%`
+          },
+        },
         { header: 'Progress', value: (row) => `${row.progress}%` },
       ],
       rows: filteredRequests,
@@ -898,6 +969,31 @@ export default function PreparationPage() {
         </Card>
       </div>
 
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            Estimated Time Run
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <div className="text-2xl font-bold text-primary">
+                {averageEtaRunPercentage !== null ? `${averageEtaRunPercentage}%` : 'N/A'}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Average estimated-time usage across {etaEligibleRequests.length} tracked request
+                {etaEligibleRequests.length === 1 ? '' : 's'}.
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Measured from `in dispatch` start up to the AI-estimated total time.
+            </p>
+          </div>
+          <Progress value={averageEtaRunPercentage ?? 0} className="h-3" />
+        </CardContent>
+      </Card>
+
       <DataTable
         columns={columns}
         data={filteredRequests}
@@ -956,6 +1052,26 @@ export default function PreparationPage() {
                     </div>
                   </div>
                   <div className="space-y-3 sm:min-w-56">
+                    {(() => {
+                      const { etaRunPercentage, elapsedMinutes } = getEtaRuntime(selectedRequest)
+
+                      if (etaRunPercentage === null || elapsedMinutes === null) {
+                        return null
+                      }
+
+                      return (
+                        <div className="space-y-2 rounded-2xl border border-border/60 bg-background/80 p-3">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">ETA Run</span>
+                            <span className="font-medium">{etaRunPercentage}%</span>
+                          </div>
+                          <Progress value={etaRunPercentage} className="h-2.5" />
+                          <p className="text-xs text-muted-foreground">
+                            {elapsedMinutes} min elapsed since dispatch started.
+                          </p>
+                        </div>
+                      )
+                    })()}
                     <div className="flex items-center justify-between gap-3">
                       <StatusBadge status={selectedRequest.status} />
                       <span className="text-sm font-medium">{selectedRequest.estimatedTime}</span>
