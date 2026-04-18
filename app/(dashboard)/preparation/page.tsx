@@ -193,7 +193,7 @@ const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => 
     return {
       headline:
         remainingMinutes !== null
-          ? `${formatDurationLabel(remainingMinutes)} remaining`
+          ? `${formatDurationLabel(remainingMinutes)}`
           : request.estimatedTime,
       supporting: null,
     }
