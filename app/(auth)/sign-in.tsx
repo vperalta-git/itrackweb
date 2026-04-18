@@ -9,6 +9,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '@/src/mobile/context/AuthContext';
+import { getApiErrorMessage } from '@/src/mobile/lib/api';
 import { getDefaultRouteForRole } from '@/src/mobile/navigation/access';
 import FormValidator from '@/src/mobile/utils/validation';
 import { useForm } from '@/src/mobile/hooks/useForm';
@@ -54,8 +55,9 @@ export default function SignInScreen() {
         const signedInUser = await login(values.email.trim(), values.password);
         router.replace(getDefaultRouteForRole(signedInUser.role) as any);
       } catch (error) {
-        void error;
-        setSubmitError('Invalid email or password. Please try again.');
+        setSubmitError(
+          getApiErrorMessage(error, 'Invalid email or password. Please try again.')
+        );
       }
     },
   });

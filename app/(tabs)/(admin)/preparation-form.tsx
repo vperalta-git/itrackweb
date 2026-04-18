@@ -24,7 +24,6 @@ import {
   getPreparationRecordById,
   getPreparationStatusLabel,
   isPreparationEditable,
-  isPreparationCustomerContactInUse,
   loadPreparationRecords,
   savePreparationRecord,
 } from '@/src/mobile/data/preparation';
@@ -376,10 +375,6 @@ export default function PreparationFormScreen() {
       nextErrors.customerContactNo = 'Enter the customer contact number.';
     } else if (!isValidMobilePhoneNumber(customerContactNo)) {
       nextErrors.customerContactNo = MOBILE_PHONE_VALIDATION_MESSAGE;
-    } else if (
-      isPreparationCustomerContactInUse(customerContactNo, editableRecord?.id)
-    ) {
-      nextErrors.customerContactNo = 'Customer contact number already exists.';
     }
 
     setErrors(nextErrors);

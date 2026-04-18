@@ -8,10 +8,7 @@ import {
 import { api, getApiErrorMessage, getResponseData } from '../lib/api';
 import { getVehicleStocks, loadVehicleStocks } from './vehicle-stocks';
 import { toDate } from './shared';
-import {
-  areMobilePhoneNumbersEqual,
-  normalizeMobilePhoneNumber,
-} from '../utils/phone';
+import { normalizeMobilePhoneNumber } from '../utils/phone';
 
 export type DispatcherChecklistStep = {
   id: string;
@@ -464,19 +461,6 @@ export const getPreparationVehicleById = (
   vehicleId: string
 ): PreparationVehicleOption | null =>
   findPreparationVehicleById(vehicleId);
-
-export const isPreparationCustomerContactInUse = (
-  phone: string,
-  excludePreparationId?: string | null
-) => {
-  const normalizedPhoneNumber = normalizeMobilePhoneNumber(phone);
-
-  return preparationRecords.some(
-    (record) =>
-      record.id !== excludePreparationId &&
-      areMobilePhoneNumbersEqual(record.customerContactNo, normalizedPhoneNumber)
-  );
-};
 
 export const canAutoApprovePreparationForRole = (role: UserRole) =>
   role === UserRole.ADMIN || role === UserRole.SUPERVISOR;

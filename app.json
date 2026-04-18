@@ -42,6 +42,7 @@
       ]
     ],
     "extra": {
+      "apiUrl": "https://i-track-backend-b72a.onrender.com",
       "expoPushProjectId": "2c81022f-9e77-4cc2-a286-6278f615d38a",
       "eas": {
         "projectId": "2c81022f-9e77-4cc2-a286-6278f615d38a"

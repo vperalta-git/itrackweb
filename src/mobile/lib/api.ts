@@ -8,6 +8,11 @@ const DEFAULT_PRODUCTION_API_URL =
   'https://i-track-backend-b72a.onrender.com/api';
 const API_TIMEOUT_MS = 45000;
 
+type ApiConfigExtra = {
+  apiUrl?: unknown;
+  expoPublicApiUrl?: unknown;
+};
+
 const normalizeApiBaseUrl = (rawUrl: string) => {
   const normalizedUrl = rawUrl.trim().replace(/\/+$/, '');
 
@@ -17,12 +22,22 @@ const normalizeApiBaseUrl = (rawUrl: string) => {
 };
 
 const resolveBaseUrl = () => {
+  const expoConfigExtra = Constants.expoConfig?.extra as
+    | ApiConfigExtra
+    | undefined;
+  const manifestExtra = Constants.manifest2?.extra as
+    | (ApiConfigExtra & {
+        expoClient?: {
+          extra?: ApiConfigExtra;
+        };
+      })
+    | undefined;
   const configuredUrlCandidates = [
     process.env.EXPO_PUBLIC_API_URL,
-    Constants.expoConfig?.extra?.apiUrl,
-    Constants.expoConfig?.extra?.expoPublicApiUrl,
-    Constants.manifest2?.extra?.expoClient?.extra?.apiUrl,
-    Constants.manifest2?.extra?.apiUrl,
+    expoConfigExtra?.apiUrl,
+    expoConfigExtra?.expoPublicApiUrl,
+    manifestExtra?.expoClient?.extra?.apiUrl,
+    manifestExtra?.apiUrl,
   ];
   const configuredUrl = configuredUrlCandidates.find(
     (value) => typeof value === 'string' && value.trim()
