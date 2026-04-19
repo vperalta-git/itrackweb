@@ -63,6 +63,17 @@ function getRuntimeMapboxAccessToken() {
   return getRuntimeExtra().mapboxAccessToken ?? null;
 }
 
+function normalizeSearchText(value: string | null | undefined) {
+  return value?.replace(/\s+/g, ' ').trim().toLowerCase() ?? '';
+}
+
+function tokenizeSearchText(value: string) {
+  return normalizeSearchText(value)
+    .split(' ')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 function createAddressParts(formattedAddress: string) {
   const parts = formattedAddress
     .split(',')
@@ -223,16 +234,98 @@ async function reverseGeocodeOpenStreetMapLocation(
   return buildLocationOptionFromOpenStreetMap(payload);
 }
 
+function scoreLocationOption(
+  option: DriverAllocationLocationOption,
+  normalizedQuery: string
+) {
+  const queryTokens = tokenizeSearchText(normalizedQuery);
+  const normalizedLabel = normalizeSearchText(option.label);
+  const normalizedHint = normalizeSearchText(option.hint);
+  const normalizedFullText = normalizeSearchText(
+    `${option.label} ${option.hint}`
+  );
+  const containsAllTokens =
+    queryTokens.length > 0 &&
+    queryTokens.every((token) => normalizedFullText.includes(token));
+
+  if (normalizedLabel === normalizedQuery) {
+    return 0;
+  }
+
+  if (containsAllTokens && normalizedFullText.startsWith(normalizedQuery)) {
+    return 1;
+  }
+
+  if (containsAllTokens && normalizedLabel.startsWith(normalizedQuery)) {
+    return 2;
+  }
+
+  if (containsAllTokens && normalizedFullText.includes(normalizedQuery)) {
+    return 3;
+  }
+
+  if (containsAllTokens) {
+    return 4;
+  }
+
+  if (normalizedLabel.startsWith(normalizedQuery)) {
+    return 5;
+  }
+
+  if (normalizedLabel.includes(normalizedQuery)) {
+    return 6;
+  }
+
+  if (normalizedHint.includes(normalizedQuery)) {
+    return 7;
+  }
+
+  if (normalizedFullText.includes(normalizedQuery)) {
+    return 8;
+  }
+
+  return 9;
+}
+
+function mergeSearchResults(
+  query: string,
+  limit: number,
+  ...groups: DriverAllocationLocationOption[][]
+) {
+  const normalizedQuery = normalizeSearchText(query);
+  const merged = new Map<string, DriverAllocationLocationOption>();
+
+  groups.flat().forEach((option) => {
+    merged.set(option.value, option);
+  });
+
+  return Array.from(merged.values())
+    .sort((left, right) => {
+      const scoreDifference =
+        scoreLocationOption(left, normalizedQuery) -
+        scoreLocationOption(right, normalizedQuery);
+
+      if (scoreDifference !== 0) {
+        return scoreDifference;
+      }
+
+      return left.label.localeCompare(right.label);
+    })
+    .slice(0, limit);
+}
+
 export async function searchMapboxAddresses(
   query: string,
   limit = 5
 ): Promise<DriverAllocationLocationOption[]> {
   const accessToken = getRuntimeMapboxAccessToken();
-  const trimmedQuery = query.trim();
+  const trimmedQuery = query.replace(/\s+/g, ' ').trim();
 
   if (!trimmedQuery) {
     return [];
   }
+
+  const openStreetMapPromise = searchOpenStreetMapAddresses(trimmedQuery, limit);
 
   if (accessToken) {
     const url =
@@ -244,14 +337,20 @@ export async function searchMapboxAddresses(
       '&types=address,street,neighborhood,locality,place,district,postcode' +
       `&limit=${encodeURIComponent(String(limit))}` +
       `&access_token=${encodeURIComponent(accessToken)}`;
-    const results = await fetchMapboxResults(url);
+    const [mapboxResults, openStreetMapResults] = await Promise.all([
+      fetchMapboxResults(url),
+      openStreetMapPromise,
+    ]);
 
-    if (results.length) {
-      return results.slice(0, limit);
-    }
+    return mergeSearchResults(
+      trimmedQuery,
+      limit,
+      openStreetMapResults,
+      mapboxResults
+    );
   }
 
-  return searchOpenStreetMapAddresses(trimmedQuery, limit);
+  return openStreetMapPromise;
 }
 
 export async function reverseGeocodeMapboxLocation(

@@ -17,6 +17,12 @@ export interface DriverAllocationLiveLocation
   updatedAt?: Date | null;
 }
 
+type DriverAllocationDistancePoint =
+  | DriverAllocationLocation
+  | DriverAllocationLiveLocation
+  | null
+  | undefined;
+
 export interface DriverAllocationUnitOption {
   label: string;
   value: string;
@@ -137,6 +143,7 @@ const COMPLETED_ALLOCATION_STATUSES = new Set<AllocationStatus>([
 ]);
 const DEFAULT_IN_TRANSIT_PROGRESS = 0.62;
 const TRIP_START_PROGRESS = 0.18;
+export const TRIP_COMPLETION_RADIUS_METERS = 500;
 const EARTH_RADIUS_KM = 6371;
 const DEFAULT_URBAN_SPEED_KMH = 28;
 const MIN_REALISTIC_SPEED_KMH = 8;
@@ -448,6 +455,60 @@ export const getDriverAllocationRemainingDistanceKm = (
   );
 };
 
+export const getDriverAllocationRemainingDistanceMeters = (
+  allocation: DriverAllocationRecord,
+  remainingDistanceKmOverride?: number | null
+) => {
+  const remainingDistanceKm =
+    remainingDistanceKmOverride ?? getDriverAllocationRemainingDistanceKm(allocation);
+
+  if (remainingDistanceKm === null) {
+    return null;
+  }
+
+  return Math.max(Math.round(remainingDistanceKm * 1000), 0);
+};
+
+export const getDriverAllocationDestinationRadiusMeters = (
+  allocation: DriverAllocationRecord,
+  currentLocationOverride?: DriverAllocationDistancePoint
+) => {
+  const destination = findDriverAllocationLocation(allocation.destinationId);
+  const currentLocation =
+    currentLocationOverride ?? allocation.currentLocation ?? null;
+
+  if (!destination || !currentLocation) {
+    return null;
+  }
+
+  return Math.max(
+    Math.round(
+      getDistanceBetweenLocationsKm(currentLocation, destination.location) * 1000
+    ),
+    0
+  );
+};
+
+export const canDriverCompleteAllocationTrip = (
+  allocation: DriverAllocationRecord,
+  currentLocationOverride?: DriverAllocationDistancePoint
+) => {
+  if (allocation.status !== AllocationStatus.IN_TRANSIT) {
+    return false;
+  }
+
+  const destinationRadiusMeters = getDriverAllocationDestinationRadiusMeters(
+    allocation,
+    currentLocationOverride
+  );
+
+  if (destinationRadiusMeters === null) {
+    return false;
+  }
+
+  return destinationRadiusMeters <= TRIP_COMPLETION_RADIUS_METERS;
+};
+
 export const formatDriverAllocationRemainingDistance = (
   allocation: DriverAllocationRecord,
   remainingDistanceKmOverride?: number | null
@@ -672,6 +733,20 @@ export const completeDriverAllocationTrip = async (allocationId: string) =>
     status: AllocationStatus.COMPLETED,
     routeProgress: 1,
   });
+
+export const notifyDriverAllocationCompletionRequest = async (
+  allocationId: string
+) => {
+  const response = await api.post(
+    `/driver-allocations/${allocationId}/completion-request`
+  );
+  const savedRecord = mapDriverAllocationRecord(
+    getResponseData<DriverAllocationApiRecord>(response)
+  );
+
+  saveMappedAllocation(savedRecord);
+  return savedRecord;
+};
 
 export const updateDriverAllocationLiveLocation = async (
   allocationId: string,

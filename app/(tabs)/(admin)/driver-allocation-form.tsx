@@ -101,7 +101,7 @@ const CURATED_LOCATION_PRESETS: CuratedLocationPreset[] = [
 ];
 
 function normalizeSearchValue(value: string | null | undefined) {
-  return value?.trim().toLowerCase() ?? '';
+  return value?.replace(/\s+/g, ' ').trim().toLowerCase() ?? '';
 }
 
 function mergeLocationOptions(
@@ -161,6 +161,26 @@ function formatLocationDisplay(
   }
 
   return `${location.label}, ${location.hint}`;
+}
+
+function getSearchResultTitle(
+  location: DriverAllocationLocationOption,
+  query: string
+) {
+  const normalizedQuery = normalizeSearchValue(query);
+  const normalizedLabel = normalizeSearchValue(location.label);
+  const fullDisplay = formatLocationDisplay(location);
+  const normalizedDisplay = normalizeSearchValue(fullDisplay);
+
+  if (
+    normalizedQuery.includes(' ') &&
+    !normalizedLabel.includes(normalizedQuery) &&
+    normalizedDisplay.includes(normalizedQuery)
+  ) {
+    return fullDisplay;
+  }
+
+  return location.label;
 }
 
 function isCuratedLocationSelected(
@@ -1029,7 +1049,9 @@ export default function DriverAllocationFormScreen() {
                     onPress={() => handlePickupSelection(location)}
                   >
                     <View style={styles.searchResultCopy}>
-                      <Text style={styles.searchResultTitle}>{location.label}</Text>
+                      <Text style={styles.searchResultTitle}>
+                        {getSearchResultTitle(location, pickupSearchValue)}
+                      </Text>
                       <Text style={styles.searchResultSubtitle}>{location.hint}</Text>
                     </View>
                     <Ionicons
@@ -1178,7 +1200,9 @@ export default function DriverAllocationFormScreen() {
                     onPress={() => handleDestinationSelection(location)}
                   >
                     <View style={styles.searchResultCopy}>
-                      <Text style={styles.searchResultTitle}>{location.label}</Text>
+                      <Text style={styles.searchResultTitle}>
+                        {getSearchResultTitle(location, destinationSearchValue)}
+                      </Text>
                       <Text style={styles.searchResultSubtitle}>{location.hint}</Text>
                     </View>
                     <Ionicons

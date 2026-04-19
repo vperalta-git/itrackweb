@@ -17,14 +17,18 @@ import { useAuth } from '@/src/mobile/context/AuthContext';
 import type { Location, MarkerData } from '@/src/mobile/components/MapView';
 import {
   acceptDriverAllocation,
+  canDriverCompleteAllocationTrip,
   completeDriverAllocationTrip,
   findDriverAllocationLocation,
   formatDriverAllocationEta,
+  getDriverAllocationDestinationRadiusMeters,
   getDriverAllocationDashboardRecord,
   getDriverAllocationInitialRegion,
   getDriverAllocationLiveLocation,
+  getDriverAllocationRemainingDistanceMeters,
   getDriverAllocationRoute,
   loadDriverAllocations,
+  notifyDriverAllocationCompletionRequest,
   startDriverAllocationTrip,
 } from '@/src/mobile/data/driver-allocation';
 import {
@@ -102,6 +106,7 @@ export default function DriverDashboard() {
   const { user } = useAuth();
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
+  const [isSubmittingTripAction, setIsSubmittingTripAction] = useState(false);
 
   const activeAllocation = useMemo(
     () => (user?.id ? getDriverAllocationDashboardRecord(user.id) : null),
@@ -239,7 +244,40 @@ export default function DriverDashboard() {
           },
     [activeAllocation]
   );
-  const stageMessage = getStageMessage(tripStage);
+  const liveRemainingDistanceKm = liveMetrics.distanceKm ?? undefined;
+  const destinationRadiusMeters =
+    activeAllocation && tripStage === 'in_transit'
+      ? getDriverAllocationDestinationRadiusMeters(
+          activeAllocation,
+          driverLocation ?? trackedDriverLocation ?? undefined
+        )
+      : null;
+  const isWithinCompletionRadius =
+    activeAllocation
+      ? canDriverCompleteAllocationTrip(
+        activeAllocation,
+          driverLocation ?? trackedDriverLocation ?? undefined
+        )
+      : false;
+  const remainingDistanceMeters =
+    activeAllocation && tripStage === 'in_transit'
+      ? getDriverAllocationRemainingDistanceMeters(
+          activeAllocation,
+          liveRemainingDistanceKm
+        )
+      : null;
+  const stageMessage =
+    tripStage === 'in_transit'
+      ? isWithinCompletionRadius
+        ? 'Trip is active on the live route. End Trip is available once delivery is complete within the 500-meter destination radius.'
+        : `Trip is active on the live route. Notify the admin or supervisor until your live location is within 500 meters of the destination${
+            typeof destinationRadiusMeters === 'number'
+              ? ` (${destinationRadiusMeters} m from drop-off).`
+              : typeof remainingDistanceMeters === 'number'
+                ? ` (${remainingDistanceMeters} m left on route).`
+              : '.'
+          }`
+      : getStageMessage(tripStage);
   const isWaitingForBooking = tripStage === 'waiting_for_booking';
   const dashboardMapChipLabel = isWaitingForBooking
     ? 'Standby Coverage'
@@ -294,11 +332,12 @@ export default function DriverDashboard() {
   };
 
   const handleAcceptBooking = async () => {
-    if (!activeAllocation) {
+    if (!activeAllocation || isSubmittingTripAction) {
       return;
     }
 
     try {
+      setIsSubmittingTripAction(true);
       await acceptDriverAllocation(activeAllocation.id);
       refreshActiveAllocation();
       Alert.alert(
@@ -312,15 +351,18 @@ export default function DriverDashboard() {
           ? error.message
           : 'The booking could not be accepted right now.'
       );
+    } finally {
+      setIsSubmittingTripAction(false);
     }
   };
 
   const handleStartTrip = async () => {
-    if (!activeAllocation) {
+    if (!activeAllocation || isSubmittingTripAction) {
       return;
     }
 
     try {
+      setIsSubmittingTripAction(true);
       await startDriverAllocationTrip(activeAllocation.id);
       refreshActiveAllocation();
       Alert.alert(
@@ -334,15 +376,18 @@ export default function DriverDashboard() {
           ? error.message
           : 'The trip could not be started right now.'
       );
+    } finally {
+      setIsSubmittingTripAction(false);
     }
   };
 
   const handleEndTrip = async () => {
-    if (!activeAllocation) {
+    if (!activeAllocation || isSubmittingTripAction) {
       return;
     }
 
     try {
+      setIsSubmittingTripAction(true);
       await completeDriverAllocationTrip(activeAllocation.id);
       refreshActiveAllocation();
       Alert.alert(
@@ -356,6 +401,32 @@ export default function DriverDashboard() {
           ? error.message
           : 'The trip could not be completed right now.'
       );
+    } finally {
+      setIsSubmittingTripAction(false);
+    }
+  };
+
+  const handleNotifyAdminSupervisor = async () => {
+    if (!activeAllocation || isSubmittingTripAction) {
+      return;
+    }
+
+    try {
+      setIsSubmittingTripAction(true);
+      await notifyDriverAllocationCompletionRequest(activeAllocation.id);
+      Alert.alert(
+        'Admin/Supervisor Notified',
+        'A trip completion review was sent. End Trip will appear automatically once your live location is within 500 meters of the destination.'
+      );
+    } catch (error) {
+      Alert.alert(
+        'Unable to notify admin/supervisor',
+        error instanceof Error
+          ? error.message
+          : 'The trip completion request could not be sent right now.'
+      );
+    } finally {
+      setIsSubmittingTripAction(false);
     }
   };
 
@@ -489,7 +560,7 @@ export default function DriverDashboard() {
                     color={theme.colors.primaryDark}
                   />
                   <Text style={styles.waitingInfoText}>
-                    One active dispatch at a time
+                    One active driving booking at a time
                   </Text>
                 </View>
               </View>
@@ -585,6 +656,7 @@ export default function DriverDashboard() {
                     title="Accept Booking"
                     variant="primary"
                     onPress={handleAcceptBooking}
+                    loading={isSubmittingTripAction}
                     fullWidth
                     icon={
                       <Ionicons
@@ -601,6 +673,7 @@ export default function DriverDashboard() {
                     title="Start Trip"
                     variant="primary"
                     onPress={handleStartTrip}
+                    loading={isSubmittingTripAction}
                     fullWidth
                     icon={
                       <Ionicons
@@ -614,15 +687,32 @@ export default function DriverDashboard() {
 
                 {tripStage === 'in_transit' ? (
                   <Button
-                    title="End Trip"
-                    variant="danger"
-                    onPress={handleEndTrip}
+                    title={
+                      isWithinCompletionRadius
+                        ? 'End Trip'
+                        : 'Notify Admin/Supervisor'
+                    }
+                    variant={isWithinCompletionRadius ? 'danger' : 'secondary'}
+                    onPress={
+                      isWithinCompletionRadius
+                        ? handleEndTrip
+                        : handleNotifyAdminSupervisor
+                    }
+                    loading={isSubmittingTripAction}
                     fullWidth
                     icon={
                       <Ionicons
-                        name="stop-circle-outline"
+                        name={
+                          isWithinCompletionRadius
+                            ? 'stop-circle-outline'
+                            : 'notifications-outline'
+                        }
                         size={18}
-                        color={theme.colors.white}
+                        color={
+                          isWithinCompletionRadius
+                            ? theme.colors.white
+                            : theme.colors.text
+                        }
                       />
                     }
                   />
