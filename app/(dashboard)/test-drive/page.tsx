@@ -315,7 +315,7 @@ export default function TestDrivePage() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => { setSelected(request); setSheetOpen(true) }}><Eye className="mr-2 size-4" />View Details</DropdownMenuItem>
               <DropdownMenuItem onClick={() => openEdit(request)}><Edit className="mr-2 size-4" />Edit</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => openEdit(request)}><Calendar className="mr-2 size-4" />Reschedule</DropdownMenuItem>
+              {/* <DropdownMenuItem onClick={() => openEdit(request)}><Calendar className="mr-2 size-4" />Reschedule</DropdownMenuItem> */}
               <DropdownMenuItem className="text-destructive" onClick={() => setRequestToDelete(request)}><Trash2 className="mr-2 size-4" />Delete</DropdownMenuItem>
               {request.status === 'pending' && isApprover(role) && <DropdownMenuItem className="text-success" onClick={() => setRequestToApprove(request)}><CheckCircle className="mr-2 size-4" />Approve</DropdownMenuItem>}
               {request.status === 'pending' && isApprover(role) && <DropdownMenuItem className="text-destructive" onClick={() => setRequestToReject(request)}><XCircle className="mr-2 size-4" />Reject</DropdownMenuItem>}
