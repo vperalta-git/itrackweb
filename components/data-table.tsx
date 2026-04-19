@@ -191,7 +191,7 @@ export function DataTable<TData, TValue>({
           )}
           {filterComponent}
         </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 xl:justify-end">
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 xl:w-auto xl:justify-end">
           {toolbarRight}
           {exportConfig && (
             <Button
@@ -199,7 +199,7 @@ export function DataTable<TData, TValue>({
               size="sm"
               onClick={() => setIsExportOpen(true)}
               disabled={allFilteredRows.length === 0}
-              className="shrink-0"
+              className="w-full shrink-0 sm:w-auto"
             >
               <FileDown className="mr-2 size-4" />
               Export PDF
@@ -207,7 +207,7 @@ export function DataTable<TData, TValue>({
           )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="shrink-0">
+              <Button variant="outline" size="sm" className="w-full shrink-0 sm:w-auto">
                 <SlidersHorizontal className="mr-2 size-4" />
                 Columns
                 <ChevronDown className="ml-2 size-4" />

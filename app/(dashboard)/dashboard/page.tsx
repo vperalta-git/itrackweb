@@ -293,19 +293,19 @@ export default function DashboardPage() {
           icon={Car}
         />
         <MetricCard
-          title="Available"
+          title="Availble Vechicles"
           value={availableVehicles}
           description="Ready for sale"
           icon={Package}
         />
         <MetricCard
-          title="Ongoing Shipment"
+          title="Active Shipment"
           value={ongoingShipment}
           description="Units in transit"
           icon={TrendingUp}
         />
         <MetricCard
-          title="Ongoing Vehicle Preparation"
+          title="Active Vehicle Preparation"
           value={ongoingPreparation}
           description="Units in dispatch"
           icon={ClipboardCheck}
