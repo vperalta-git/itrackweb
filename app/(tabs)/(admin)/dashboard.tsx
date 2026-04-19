@@ -284,7 +284,7 @@ export default function AdminDashboard() {
       },
       {
         key: 'available',
-        label: 'Available',
+        label: 'Availble Vechicles',
         value: scopedVehicles.filter(
           (vehicle) => vehicle.status === VehicleStatus.AVAILABLE
         ).length,
@@ -306,7 +306,7 @@ export default function AdminDashboard() {
       },
       {
         key: 'preparation',
-        label: 'Active Preparation',
+        label: 'Active Vehicle Preparation',
         value: [...latestPreparationRecords.values()].filter((record) =>
           ACTIVE_PREPARATION_STATUSES.has(record.status)
         ).length,

@@ -15,10 +15,6 @@ import {
 import { theme } from '@/src/mobile/constants/theme';
 import { useAuth } from '@/src/mobile/context/AuthContext';
 import {
-  getAuthEventRecords,
-  loadAuthEventRecords,
-} from '@/src/mobile/data/auth-events';
-import {
   formatDriverAllocationStatusLabel,
   getDriverAllocations,
   loadDriverAllocations,
@@ -77,11 +73,8 @@ type ActivityKind =
   | 'created'
   | 'updated'
   | 'released'
-  | 'login'
-  | 'logout'
   | 'deleted';
 type ActivityModule =
-  | 'authentication'
   | 'users'
   | 'vehicle_stocks'
   | 'unit_allocations'
@@ -109,7 +102,7 @@ const ITEMS_PER_PAGE = 10;
 
 const REPORT_SUBTITLES: Record<ReportTab, string> = {
   audit:
-    'Review the derived audit trail from authentication, user lifecycle events, vehicle stocks, allocations, preparations, bookings, and release records.',
+    'Review the audit trail from user lifecycle events, vehicle stocks, allocations, preparations, bookings, and release records.',
   release:
     'Review released unit history with customer, preparation, and assignment details.',
 };
@@ -118,13 +111,10 @@ const ACTIVITY_KIND_LABELS: Record<ActivityKind, string> = {
   created: 'Created',
   updated: 'Updated',
   released: 'Released',
-  login: 'Login',
-  logout: 'Logout',
   deleted: 'Deleted',
 };
 
 const ACTIVITY_MODULE_LABELS: Record<ActivityModule, string> = {
-  authentication: 'Authentication',
   users: 'Users',
   vehicle_stocks: 'Vehicle Stocks',
   unit_allocations: 'Unit Allocations',
@@ -139,8 +129,6 @@ const ACTIVITY_KIND_FILTERS = [
   { label: 'Created', value: 'created' },
   { label: 'Updated', value: 'updated' },
   { label: 'Released', value: 'released' },
-  { label: 'Login', value: 'login' },
-  { label: 'Logout', value: 'logout' },
   { label: 'Deleted', value: 'deleted' },
 ] as const;
 
@@ -152,10 +140,6 @@ const getActivityBadgeStatus = (kind: ActivityKind) => {
       return 'active' as const;
     case 'released':
       return 'verified' as const;
-    case 'login':
-      return 'confirmed' as const;
-    case 'logout':
-      return 'inactive' as const;
     case 'deleted':
       return 'cancelled' as const;
     default:
@@ -222,23 +206,7 @@ const getSortableActivityTime = (value: Date) =>
 const formatActivityName = (value: string | null | undefined) =>
   String(value ?? '').trim() || 'Unavailable';
 
-const formatActivityRoleLabel = (value?: UserRole | null) =>
-  value ? formatUserRoleLabel(value) : 'User';
-
 const buildActivityRecords = (): ActivityRecord[] => {
-  const authRecords = getAuthEventRecords().map((record) => ({
-    id: `auth-${record.id}`,
-    timestamp: record.createdAt,
-    module: 'authentication' as const,
-    kind: record.eventType,
-    name: formatActivityName(record.name || record.email),
-    title:
-      record.eventType === 'login'
-        ? 'User signed in'
-        : 'User signed out',
-    description: `${record.email} ${record.eventType === 'login' ? 'signed in' : 'signed out'} as ${formatActivityRoleLabel(record.role)}.`,
-  }));
-
   const deletedUserRecords = getUserAuditEventRecords().map((record) => ({
     id: `user-audit-${record.id}`,
     timestamp: record.createdAt,
@@ -332,7 +300,6 @@ const buildActivityRecords = (): ActivityRecord[] => {
   }));
 
   return [
-    ...authRecords,
     ...deletedUserRecords,
     ...releaseHistoryRecords,
     ...preparationRecords,
@@ -388,7 +355,6 @@ export default function ReportsScreen() {
 
     try {
       await Promise.all([
-        loadAuthEventRecords(),
         loadUserAuditEventRecords(),
         loadUserManagementRecords(),
         loadVehicleStocks(),
@@ -549,7 +515,7 @@ export default function ReportsScreen() {
   const handleExportActivity = async () => {
     await shareExport({
       title: 'Audit Trail Report',
-      subtitle: 'Derived audit trail from current operational, authentication, and user lifecycle records',
+      subtitle: 'Audit trail from current operational and user lifecycle records',
       metadata: [
         { label: 'Scope', value: getRoleLabel(role) },
         {
@@ -745,7 +711,7 @@ export default function ReportsScreen() {
           },
           {
             label: 'Data Source',
-            value: 'Backend records, authentication events, and saved user lifecycle events',
+            value: 'Saved user lifecycle and operational records',
             iconName: 'server-outline',
             iconColor: theme.colors.textSubtle,
           },
