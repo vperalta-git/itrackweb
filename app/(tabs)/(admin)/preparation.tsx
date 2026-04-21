@@ -24,6 +24,7 @@ import { useAuth } from '@/src/mobile/context/AuthContext';
 import { theme } from '@/src/mobile/constants/theme';
 import {
   approvePreparationRequest,
+  confirmPreparationReadyForRelease,
   deletePreparationRecord,
   formatRequestedServices,
   getPreparationBadgeStatus,
@@ -374,7 +375,7 @@ export default function PreparationScreen() {
     preparationId: string,
     vehicleName: string
   ) => {
-    if (!canReviewPreparation) {
+    if (role !== UserRole.ADMIN) {
       return;
     }
 
@@ -390,6 +391,33 @@ export default function PreparationScreen() {
           text: 'Mark Completed',
           onPress: async () => {
             await markPreparationCompleted(preparationId);
+            setPreparations(getPreparationRecords());
+          },
+        },
+      ]
+    );
+  };
+
+  const handleConfirmReadyForRelease = (
+    preparationId: string,
+    vehicleName: string
+  ) => {
+    if (!canReviewPreparation) {
+      return;
+    }
+
+    Alert.alert(
+      'Confirm ready for release?',
+      `${vehicleName} has completed the dispatcher checklist and will now be marked as Ready for Release.`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Confirm',
+          onPress: async () => {
+            await confirmPreparationReadyForRelease(preparationId);
             setPreparations(getPreparationRecords());
           },
         },
@@ -476,6 +504,9 @@ export default function PreparationScreen() {
         {filteredPreparations.length ? (
           paginatedPreparations.map((item) => {
             const menuItems: CardActionMenuItem[] = [];
+            const checklistIsComplete =
+              item.dispatcherChecklist.length > 0 &&
+              item.dispatcherChecklist.every((step) => step.completed);
 
             if (canReviewPreparation && item.status === PreparationStatus.PENDING) {
               menuItems.push({
@@ -496,6 +527,21 @@ export default function PreparationScreen() {
 
             if (
               canReviewPreparation &&
+              item.status === PreparationStatus.IN_DISPATCH &&
+              checklistIsComplete
+            ) {
+              menuItems.push({
+                key: `ready-${item.id}`,
+                label: 'Confirm Ready for Release',
+                iconName: 'shield-checkmark-outline',
+                tone: 'positive',
+                onPress: () =>
+                  handleConfirmReadyForRelease(item.id, item.unitName),
+              });
+            }
+
+            if (
+              role === UserRole.ADMIN &&
               item.status === PreparationStatus.READY_FOR_RELEASE
             ) {
               menuItems.push({

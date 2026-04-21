@@ -144,34 +144,58 @@ export default function ChecklistScreen() {
       return;
     }
 
-    try {
-      const updatedPreparation = await toggleDispatcherChecklistStep(
-        selectedPreparation.id,
-        stepId
-      );
+    const selectedStep = selectedPreparation.dispatcherChecklist.find(
+      (step) => step.id === stepId
+    );
 
-      if (updatedPreparation.status === PreparationStatus.READY_FOR_RELEASE) {
-        const remainingPreparations = getPendingDispatcherPreparations(user?.id);
-
-        setPreparations(remainingPreparations);
-        setSelectedPreparationId(remainingPreparations[0]?.id ?? null);
-
-        Alert.alert(
-          'Dispatcher Checklist Completed',
-          `${selectedPreparation.unitName} is now marked Ready for Release and removed from the in-dispatch queue.`
-        );
-        return;
-      }
-
-      refreshPreparations();
-    } catch (error) {
-      Alert.alert(
-        'Unable to update checklist',
-        error instanceof Error
-          ? error.message
-          : 'The checklist step could not be updated right now.'
-      );
+    if (!selectedStep) {
+      return;
     }
+
+    const nextActionLabel = selectedStep.completed ? 'mark as not done' : 'confirm';
+
+    Alert.alert(
+      selectedStep.completed ? 'Remove checklist confirmation?' : 'Confirm checklist item?',
+      selectedStep.completed
+        ? `Do you want to mark "${selectedStep.label}" as not done?`
+        : `Do you want to confirm "${selectedStep.label}" as completed?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: selectedStep.completed ? 'Mark Not Done' : 'Confirm',
+          onPress: async () => {
+            try {
+              const updatedPreparation = await toggleDispatcherChecklistStep(
+                selectedPreparation.id,
+                stepId
+              );
+
+              refreshPreparations();
+
+              if (
+                updatedPreparation.status === PreparationStatus.IN_DISPATCH &&
+                getDispatcherChecklistProgress(updatedPreparation) === 100
+              ) {
+                Alert.alert(
+                  'Checklist Complete',
+                  `${selectedPreparation.unitName} is fully checked. An admin can now confirm it as Ready for Release.`
+                );
+              }
+            } catch (error) {
+              Alert.alert(
+                `Unable to ${nextActionLabel} checklist item`,
+                error instanceof Error
+                  ? error.message
+                  : 'The checklist step could not be updated right now.'
+              );
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleBackPress = () => {
@@ -379,6 +403,12 @@ export default function ChecklistScreen() {
 
       <Card style={styles.listCard}>
         <Text style={styles.sectionTitle}>Checklist for Dispatcher</Text>
+        {progressPercent === 100 ? (
+          <Text style={styles.completionHint}>
+            All checklist items are confirmed. Wait for admin to mark this unit
+            ready for release.
+          </Text>
+        ) : null}
 
         {selectedPreparation.dispatcherChecklist.map((task, index) => (
           <TouchableOpacity
@@ -545,6 +575,13 @@ const createStyles = (theme: AppTheme) =>
   },
   listCard: {
     marginBottom: theme.spacing.base,
+  },
+  completionHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: theme.colors.textSubtle,
+    marginBottom: theme.spacing.sm,
+    fontFamily: theme.fonts.family.sans,
   },
   sectionTitle: {
     fontSize: 18,

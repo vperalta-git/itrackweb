@@ -25,6 +25,7 @@ import { useAuth } from '@/src/mobile/context/AuthContext';
 import { theme } from '@/src/mobile/constants/theme';
 import {
   approvePreparationRequest,
+  confirmPreparationReadyForRelease,
   deletePreparationRecord,
   formatRequestedServices,
   getPreparationApprovalLabel,
@@ -257,6 +258,38 @@ export default function PreparationDetailScreen() {
     );
   };
 
+  const handleConfirmReadyForRelease = () => {
+    if (!record) {
+      return;
+    }
+
+    Alert.alert(
+      'Confirm ready for release?',
+      `${record.unitName} has a completed dispatcher checklist and will now be marked as Ready for Release.`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Confirm',
+          onPress: async () => {
+            try {
+              setRecord(await confirmPreparationReadyForRelease(record.id));
+            } catch (error) {
+              Alert.alert(
+                'Unable to confirm ready for release',
+                error instanceof Error
+                  ? error.message
+                  : 'The preparation request could not be updated right now.'
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (!record) {
     return (
       <View style={styles.container}>
@@ -286,10 +319,18 @@ export default function PreparationDetailScreen() {
 
   const canReviewPreparation =
     role === UserRole.ADMIN || role === UserRole.SUPERVISOR;
+  const checklistIsComplete =
+    record.dispatcherChecklist.length > 0 &&
+    record.dispatcherChecklist.every((item) => item.completed);
   const canApproveOrReject =
     canReviewPreparation && record.status === PreparationStatus.PENDING;
+  const canConfirmReadyForRelease =
+    canReviewPreparation &&
+    record.status === PreparationStatus.IN_DISPATCH &&
+    checklistIsComplete;
   const canMarkCompleted =
-    canReviewPreparation && record.status === PreparationStatus.READY_FOR_RELEASE;
+    role === UserRole.ADMIN &&
+    record.status === PreparationStatus.READY_FOR_RELEASE;
   const canEditPreparation =
     access.canEdit && isPreparationEditable(record.status);
 
@@ -455,6 +496,7 @@ export default function PreparationDetailScreen() {
         </Card>
 
         {canApproveOrReject ||
+        canConfirmReadyForRelease ||
         canMarkCompleted ||
         canEditPreparation ||
         access.canDelete ? (
@@ -492,6 +534,27 @@ export default function PreparationDetailScreen() {
                     style={[styles.actionButtonText, styles.rejectButtonText]}
                   >
                     Reject Request
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {canConfirmReadyForRelease ? (
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={[styles.statusActionButton, styles.releaseButton]}
+                  activeOpacity={0.88}
+                  onPress={handleConfirmReadyForRelease}
+                >
+                  <Ionicons
+                    name="shield-checkmark-outline"
+                    size={18}
+                    color={theme.colors.white}
+                  />
+                  <Text
+                    style={[styles.actionButtonText, styles.releaseButtonText]}
+                  >
+                    Confirm Ready for Release
                   </Text>
                 </TouchableOpacity>
               </View>

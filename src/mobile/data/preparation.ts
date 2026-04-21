@@ -546,11 +546,7 @@ export const savePreparationRecord = async ({
       : nextStatus === PreparationStatus.PENDING ||
           nextStatus === PreparationStatus.REJECTED
         ? 0
-        : progress ??
-          Math.max(
-            existingRecord?.progress ?? 0,
-            checklistProgress === 100 ? 95 : checklistProgress
-          );
+        : progress ?? checklistProgress;
   const nextCompletedAt =
     nextStatus === PreparationStatus.COMPLETED
       ? toApiDateString(completedAt ?? existingRecord?.completedAt ?? new Date())
@@ -703,32 +699,19 @@ export const toggleDispatcherChecklistStep = async (
     approvedByRole: existingRecord.approvedByRole,
     approvedByName: existingRecord.approvedByName,
     approvedAt: existingRecord.approvedAt,
-    status:
-      checklistProgress === 100
-        ? PreparationStatus.READY_FOR_RELEASE
-        : PreparationStatus.IN_DISPATCH,
-    progress:
-      checklistProgress === 100
-        ? 100
-        : Math.max(existingRecord.progress, checklistProgress),
+    status: PreparationStatus.IN_DISPATCH,
+    progress: checklistProgress,
     dispatcherChecklist,
     completedAt: undefined,
-    readyForReleaseAt: checklistProgress === 100 ? new Date() : undefined,
+    readyForReleaseAt: undefined,
   }).then((savedRecord) => {
     const patchedRecord = {
       ...savedRecord,
       dispatcherChecklist,
-      progress:
-        checklistProgress === 100
-          ? 100
-          : Math.max(savedRecord.progress, checklistProgress),
-      status:
-        checklistProgress === 100
-          ? PreparationStatus.READY_FOR_RELEASE
-          : PreparationStatus.IN_DISPATCH,
+      progress: checklistProgress,
+      status: PreparationStatus.IN_DISPATCH,
       completedAt: undefined,
-      readyForReleaseAt:
-        checklistProgress === 100 ? formatDisplayDate() : undefined,
+      readyForReleaseAt: undefined,
     };
 
     upsertPreparationRecord(patchedRecord);
@@ -782,6 +765,49 @@ export const completeDispatcherChecklist = async (
 
   upsertPreparationRecord(patchedRecord);
   return patchedRecord;
+};
+
+export const confirmPreparationReadyForRelease = async (
+  preparationId: string
+): Promise<PreparationRecord> => {
+  const existingRecord = findPreparationRecordById(preparationId);
+
+  if (!existingRecord) {
+    throw new Error('Selected preparation request could not be found.');
+  }
+
+  const checklistProgress = getChecklistProgressFromSteps(
+    existingRecord.dispatcherChecklist
+  );
+
+  if (checklistProgress < 100) {
+    throw new Error(
+      'Complete every dispatcher checklist item before marking this unit ready for release.'
+    );
+  }
+
+  return savePreparationRecord({
+    ...existingRecord,
+    id: existingRecord.id,
+    requestedServices: existingRecord.requestedServices,
+    customRequests: existingRecord.customRequests,
+    customerName: existingRecord.customerName,
+    customerContactNo: existingRecord.customerContactNo,
+    notes: existingRecord.notes,
+    requestedByRole: existingRecord.requestedByRole,
+    requestedByName: existingRecord.requestedByName,
+    dispatcherId: existingRecord.dispatcherId,
+    dispatcherName: existingRecord.dispatcherName,
+    approvalStatus: existingRecord.approvalStatus,
+    approvedByRole: existingRecord.approvedByRole,
+    approvedByName: existingRecord.approvedByName,
+    approvedAt: existingRecord.approvedAt,
+    status: PreparationStatus.READY_FOR_RELEASE,
+    progress: 100,
+    dispatcherChecklist: existingRecord.dispatcherChecklist,
+    completedAt: undefined,
+    readyForReleaseAt: new Date(),
+  });
 };
 
 export const approvePreparationRequest = async (

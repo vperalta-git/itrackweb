@@ -478,7 +478,7 @@ export default function PreparationFormScreen() {
           placeholder="Choose available vehicle"
           value={vehicleId}
           options={PREPARATION_VEHICLE_OPTIONS.map((vehicle) => ({
-            label: `${vehicle.unitName} - ${vehicle.variation}`,
+            label: `${vehicle.unitName} - ${vehicle.variation} (${vehicle.conductionNumber})`,
             value: vehicle.id,
           }))}
           onValueChange={(value) => {
@@ -492,7 +492,7 @@ export default function PreparationFormScreen() {
           error={errors.vehicleId}
         />
         <Text style={styles.helperText}>
-          Only vehicles currently marked `Available` in Vehicle Stocks are listed here.
+          Only units currently marked `Available` are listed here. Stockyard units are excluded.
         </Text>
 
         <Input
