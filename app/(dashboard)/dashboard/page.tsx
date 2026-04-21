@@ -293,7 +293,7 @@ export default function DashboardPage() {
           icon={Car}
         />
         <MetricCard
-          title="Availble Vechicles"
+          title="Available Vehicles"
           value={availableVehicles}
           description="Ready for sale"
           icon={Package}

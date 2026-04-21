@@ -116,6 +116,11 @@ const getChecklistProgress = (request: PreparationRequest) => {
   return Math.round((completedCount / checklist.length) * 100)
 }
 
+const isChecklistComplete = (request: PreparationRequest) => {
+  const checklist = request.dispatcherChecklist ?? []
+  return checklist.length > 0 && checklist.every((item) => item.completed)
+}
+
 const getRunningProgress = (request: PreparationRequest, now = Date.now()) => {
   const checklistProgress = getChecklistProgress(request)
 
@@ -234,6 +239,7 @@ export default function PreparationPage() {
   const [requestToDelete, setRequestToDelete] = React.useState<PreparationRequest | null>(null)
   const [requestToReadyForRelease, setRequestToReadyForRelease] =
     React.useState<PreparationRequest | null>(null)
+  const [requestToComplete, setRequestToComplete] = React.useState<PreparationRequest | null>(null)
   const [liveNow, setLiveNow] = React.useState(() => Date.now())
 
   React.useEffect(() => {
@@ -254,7 +260,7 @@ export default function PreparationPage() {
         setInventoryVehicles(nextVehicles)
         console.log('[Preparation ETA][Frontend] Preparation page initial load received ETA data.', {
           totalRequests: nextRequests.length,
-          preview: nextRequests.slice(0, 5).map((request) => ({
+          preview: nextRequests.slice(0, 5).map((request: PreparationRequest) => ({
             id: request.id,
             status: request.status,
             estimatedTime: request.estimatedTime,
@@ -408,7 +414,7 @@ export default function PreparationPage() {
         })
 
         const updatedRequest =
-          nextRequests.find((item) => item.id === requestBeingEdited.id) ?? null
+          nextRequests.find((item: PreparationRequest) => item.id === requestBeingEdited.id) ?? null
 
         setRequests(nextRequests)
         setSelectedRequest(updatedRequest)
@@ -504,7 +510,7 @@ export default function PreparationPage() {
     })
 
     setRequests(nextRequests)
-    setSelectedRequest(nextRequests.find((item) => item.id === request.id) ?? null)
+    setSelectedRequest(nextRequests.find((item: PreparationRequest) => item.id === request.id) ?? null)
     logAuditEvent({
       user: getAuditActor(role),
       action: 'UPDATE',
@@ -527,7 +533,7 @@ export default function PreparationPage() {
     })
 
     setRequests(nextRequests)
-    setSelectedRequest(nextRequests.find((item) => item.id === request.id) ?? null)
+    setSelectedRequest(nextRequests.find((item: PreparationRequest) => item.id === request.id) ?? null)
     logAuditEvent({
       user: getAuditActor(role),
       action: 'UPDATE',
@@ -569,7 +575,10 @@ export default function PreparationPage() {
     })
 
     setRequests(nextRequests)
-    setSelectedRequest(nextRequests.find((item) => item.id === requestToReadyForRelease.id) ?? null)
+    setSelectedRequest(
+      nextRequests.find((item: PreparationRequest) => item.id === requestToReadyForRelease.id) ??
+        null
+    )
     setIsViewDetailsOpen(false)
     logAuditEvent({
       user: getAuditActor(role),
@@ -581,6 +590,31 @@ export default function PreparationPage() {
       `Vehicle marked as ready for release. SMS notification is now being processed for ${requestToReadyForRelease.customerName} at ${requestToReadyForRelease.contactNumber}.`
     )
     setRequestToReadyForRelease(null)
+  }
+
+  const handleMarkCompleted = async () => {
+    if (!requestToComplete) return
+
+    const nextRequests = await updatePreparationStatusRecord(requestToComplete.id, {
+      status: 'completed',
+      progress: 100,
+      completedAt: new Date().toISOString(),
+      readyForReleaseAt: requestToComplete.readyForReleaseAt ?? new Date().toISOString(),
+    })
+
+    setRequests(nextRequests)
+    setSelectedRequest(
+      nextRequests.find((item: PreparationRequest) => item.id === requestToComplete.id) ?? null
+    )
+    setIsViewDetailsOpen(false)
+    logAuditEvent({
+      user: getAuditActor(role),
+      action: 'UPDATE',
+      module: 'Preparation',
+      description: `Marked vehicle ${requestToComplete.conductionNumber} as completed after release.`,
+    })
+    toast.success(`Vehicle ${requestToComplete.conductionNumber} marked as completed.`)
+    setRequestToComplete(null)
   }
 
   // Column definitions
@@ -736,10 +770,16 @@ export default function PreparationPage() {
                   </DropdownMenuItem>
                 </>
               )}
-              {request.status === 'ready-for-release' && (
+              {request.status === 'in-dispatch' && isChecklistComplete(request) && (
                 <DropdownMenuItem onClick={() => setRequestToReadyForRelease(request)}>
+                  <CheckCircle className="mr-2 size-4" />
+                  Confirm Ready for Release
+                </DropdownMenuItem>
+              )}
+              {role === 'admin' && request.status === 'ready-for-release' && (
+                <DropdownMenuItem onClick={() => setRequestToComplete(request)}>
                   <Clock className="mr-2 size-4" />
-                  Ready for Release
+                  Mark Completed
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
@@ -1227,12 +1267,18 @@ export default function PreparationPage() {
 
               <div className="border-t border-border bg-background px-6 py-4">
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                  {selectedRequest.status === 'ready-for-release' && (
+                  {selectedRequest.status === 'in-dispatch' && isChecklistComplete(selectedRequest) && (
                     <Button
                       onClick={() => setRequestToReadyForRelease(selectedRequest)}
                     >
+                      <CheckCircle className="mr-2 size-4" />
+                      Confirm Ready for Release
+                    </Button>
+                  )}
+                  {role === 'admin' && selectedRequest.status === 'ready-for-release' && (
+                    <Button onClick={() => setRequestToComplete(selectedRequest)}>
                       <Clock className="mr-2 size-4" />
-                      Ready for Release
+                      Mark Completed
                     </Button>
                   )}
                 </div>
@@ -1255,6 +1301,21 @@ export default function PreparationPage() {
         }
         confirmLabel="Confirm"
         onConfirm={handleReadyForRelease}
+      />
+
+      <ConfirmActionDialog
+        open={Boolean(requestToComplete)}
+        onOpenChange={(open) => {
+          if (!open) setRequestToComplete(null)
+        }}
+        title="Mark Preparation Completed"
+        description={
+          requestToComplete
+            ? `Mark ${requestToComplete.conductionNumber} as completed after the vehicle has been released to ${requestToComplete.customerName}?`
+            : ''
+        }
+        confirmLabel="Mark Completed"
+        onConfirm={handleMarkCompleted}
       />
 
       <ConfirmActionDialog
