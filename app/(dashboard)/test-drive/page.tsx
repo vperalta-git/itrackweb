@@ -331,7 +331,7 @@ export default function TestDrivePage() {
     <div className="space-y-6">
       <PageHeader title="Test Drive Requests" description={role === 'admin' || role === 'supervisor' ? 'Manage customer test drive scheduling' : role === 'manager' ? `Manage test drives for agents under ${scope.managerName}` : `Manage your test drive schedules as ${scope.agentName}`}>
         <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm() }}>
-          <DialogTrigger asChild><Button size="sm" onClick={openNew}><Plus className="mr-2 size-4" />New Request</Button></DialogTrigger>
+          <DialogTrigger asChild><Button size="sm" onClick={openNew}><Plus className="mr-2 size-4" />Schedule Test Drive</Button></DialogTrigger>
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>{editingId ? 'Edit Test Drive Request' : 'New Test Drive Request'}</DialogTitle>
