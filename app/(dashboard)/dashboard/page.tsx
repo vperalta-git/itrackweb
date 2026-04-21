@@ -86,6 +86,32 @@ const barChartConfig: ChartConfig = {
   },
 }
 
+type PeriodFilter = 'week' | 'month' | 'year'
+
+const getPeriodStartDate = (period: PeriodFilter) => {
+  const now = new Date()
+
+  switch (period) {
+    case 'week':
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7)
+    case 'year':
+      return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())
+    case 'month':
+    default:
+      return new Date(now.getFullYear(), now.getMonth() - 1, now.getDate())
+  }
+}
+
+const isWithinPeriod = (value: string, period: PeriodFilter) => {
+  const timestamp = new Date(value).getTime()
+
+  if (Number.isNaN(timestamp)) {
+    return false
+  }
+
+  return timestamp >= getPeriodStartDate(period).getTime()
+}
+
 export default function DashboardPage() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
@@ -164,6 +190,27 @@ export default function DashboardPage() {
     [role, vehicles]
   )
 
+  const vehiclesForStatusOverview = React.useMemo(
+    () => scopedVehicles.filter((vehicle) => isWithinPeriod(vehicle.dateAdded, vehicleStatusFilter)),
+    [scopedVehicles, vehicleStatusFilter]
+  )
+
+  const vehiclesForModelDistribution = React.useMemo(
+    () => scopedVehicles.filter((vehicle) => isWithinPeriod(vehicle.dateAdded, modelPeriodFilter)),
+    [modelPeriodFilter, scopedVehicles]
+  )
+
+  const vehiclesForAgentPerformance = React.useMemo(
+    () => scopedVehicles.filter((vehicle) => isWithinPeriod(vehicle.dateAdded, agentPeriodFilter)),
+    [agentPeriodFilter, scopedVehicles]
+  )
+
+  const vehiclesForTopSellingUnits = React.useMemo(() => {
+    const sourceVehicles = isSalesAgent || isManager ? vehicles : scopedVehicles
+
+    return sourceVehicles.filter((vehicle) => isWithinPeriod(vehicle.dateAdded, unitPeriodFilter))
+  }, [isManager, isSalesAgent, scopedVehicles, unitPeriodFilter, vehicles])
+
   const totalVehicles = scopedVehicles.length
   const availableVehicles = scopedVehicles.filter((vehicle) => vehicle.status === 'available').length
   const ongoingShipment = scopedVehicles.filter((vehicle) => vehicle.status === 'in-transit').length
@@ -174,8 +221,11 @@ export default function DashboardPage() {
   const displayedVehicleStats = React.useMemo(
     () =>
       statusOrder.map((status) => {
-        const count = scopedVehicles.filter((vehicle) => vehicle.status === status).length
-        const percentage = totalVehicles > 0 ? Math.round((count / totalVehicles) * 100) : 0
+        const count = vehiclesForStatusOverview.filter((vehicle) => vehicle.status === status).length
+        const percentage =
+          vehiclesForStatusOverview.length > 0
+            ? Math.round((count / vehiclesForStatusOverview.length) * 100)
+            : 0
 
         return {
           status,
@@ -183,7 +233,7 @@ export default function DashboardPage() {
           percentage,
         }
       }),
-    [scopedVehicles, totalVehicles]
+    [vehicleStatusFilter, vehiclesForStatusOverview]
   )
 
   const displayedStatusPieData = displayedVehicleStats
@@ -200,7 +250,7 @@ export default function DashboardPage() {
   )
 
   const modelDistribution = React.useMemo(() => {
-    const grouped = scopedVehicles.reduce<Record<string, number>>((acc, vehicle) => {
+    const grouped = vehiclesForModelDistribution.reduce<Record<string, number>>((acc, vehicle) => {
       acc[vehicle.unitName] = (acc[vehicle.unitName] ?? 0) + 1
       return acc
     }, {})
@@ -208,13 +258,13 @@ export default function DashboardPage() {
     return Object.entries(grouped)
       .map(([model, count]) => ({ model, count }))
       .sort((a, b) => b.count - a.count)
-  }, [scopedVehicles])
+  }, [vehiclesForModelDistribution])
 
   const displayedModelData =
     modelLimit === 'all' ? modelDistribution : modelDistribution.slice(0, Number(modelLimit))
 
   const agentPerformance = React.useMemo(() => {
-    const grouped = scopedVehicles.reduce<
+    const grouped = vehiclesForAgentPerformance.reduce<
       Record<string, { name: string; manager: string; allocations: number; completed: number; active: number }>
     >((acc, vehicle) => {
       if (!vehicle.assignedAgent || vehicle.assignedAgent === 'Unassigned') return acc
@@ -240,7 +290,7 @@ export default function DashboardPage() {
     }, {})
 
     return Object.values(grouped).sort((a, b) => b.allocations - a.allocations)
-  }, [scopedVehicles])
+  }, [vehiclesForAgentPerformance])
 
   const filteredAgentPerformance = React.useMemo(() => {
     if (!isAdminOrSupervisor || agentManagerFilter === 'all') return agentPerformance
@@ -253,9 +303,7 @@ export default function DashboardPage() {
       : filteredAgentPerformance.slice(0, Number(agentLimit))
 
   const topSellingUnits = React.useMemo(() => {
-    const sourceVehicles = isSalesAgent || isManager ? vehicles : scopedVehicles
-
-    const grouped = sourceVehicles
+    const grouped = vehiclesForTopSellingUnits
       .filter((vehicle) => vehicle.status === 'released')
       .reduce<Record<string, { unit: string; sold: number }>>((acc, vehicle) => {
         const key = `${vehicle.unitName} ${vehicle.variation}`
@@ -267,7 +315,7 @@ export default function DashboardPage() {
       }, {})
 
     return Object.values(grouped).sort((a, b) => b.sold - a.sold)
-  }, [isManager, isSalesAgent, scopedVehicles, vehicles])
+  }, [vehiclesForTopSellingUnits])
 
   const displayedTopSellingUnits =
     unitLimit === 'all' ? topSellingUnits : topSellingUnits.slice(0, Number(unitLimit))
