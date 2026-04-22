@@ -188,11 +188,12 @@ const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => 
       : null
   const fallbackRemaining =
     elapsedMinutes !== null && totalMinutes !== null ? Math.max(totalMinutes - elapsedMinutes, 0) : null
-  const remainingMinutes =
+  const backendRemainingMinutes =
     typeof request.predictedRemainingMinutes === 'number' &&
     Number.isFinite(request.predictedRemainingMinutes)
       ? Math.max(0, Math.round(request.predictedRemainingMinutes))
-      : fallbackRemaining
+      : null
+  const remainingMinutes = fallbackRemaining ?? backendRemainingMinutes
 
   if (request.status === 'in-dispatch' && elapsedMinutes !== null) {
     return {
