@@ -206,14 +206,9 @@ const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => 
   }
 
   if ((request.status === 'completed' || request.status === 'ready-for-release') && request.inDispatchAt) {
-    const finishedAt = request.readyForReleaseAt ?? request.completedAt
-    const actualMinutes = finishedAt ? getMinutesBetween(request.inDispatchAt, new Date(finishedAt).getTime()) : elapsedMinutes
-
-    if (actualMinutes !== null) {
-      return {
-        headline: request.estimatedTime,
-        supporting: null,
-      }
+    return {
+      headline: formatDurationLabel(0),
+      supporting: null,
     }
   }
 
