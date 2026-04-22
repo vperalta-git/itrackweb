@@ -766,10 +766,10 @@ export default function PreparationPage() {
                   </DropdownMenuItem>
                 </>
               )}
-              {request.status === 'in-dispatch' && isChecklistComplete(request) && (
+              {request.status === 'in-dispatch' && (
                 <DropdownMenuItem onClick={() => setRequestToReadyForRelease(request)}>
                   <CheckCircle className="mr-2 size-4" />
-                  Confirm Ready for Release
+                  Ready for Release
                 </DropdownMenuItem>
               )}
               {role === 'admin' && request.status === 'ready-for-release' && (
@@ -1263,12 +1263,12 @@ export default function PreparationPage() {
 
               <div className="border-t border-border bg-background px-6 py-4">
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                  {selectedRequest.status === 'in-dispatch' && isChecklistComplete(selectedRequest) && (
+                  {selectedRequest.status === 'in-dispatch' && (
                     <Button
                       onClick={() => setRequestToReadyForRelease(selectedRequest)}
                     >
                       <CheckCircle className="mr-2 size-4" />
-                      Confirm Ready for Release
+                      Ready for Release
                     </Button>
                   )}
                   {role === 'admin' && selectedRequest.status === 'ready-for-release' && (

@@ -216,6 +216,12 @@ const mapPreparation = (
   const requestedServices = preparation.requestedServices ?? []
   const customRequests = preparation.customRequests ?? []
   const serviceLabels = [...requestedServices.map(formatServiceLabel), ...customRequests]
+  const checklistProgress = calculatePreparationProgress(preparation.dispatcherChecklist)
+  const mappedStatus = mapPreparationStatusToUi(preparation.status) as PreparationRequestRecord['status']
+  const normalizedStatus =
+    mappedStatus === 'completed' && !preparation.readyForReleaseAt && checklistProgress >= 100
+      ? 'in-dispatch'
+      : mappedStatus
 
   const mappedPreparation = {
     id: getEntityId(preparation),
@@ -228,9 +234,9 @@ const mapPreparation = (
     manager: getFullName(unitAllocation?.managerId) || '',
     customerName: preparation.customerName ?? '',
     contactNumber: preparation.customerContactNo ?? '',
-    status: mapPreparationStatusToUi(preparation.status) as PreparationRequestRecord['status'],
+    status: normalizedStatus,
     estimatedTime: getEstimatedTimeLabel(preparation, serviceLabels.length),
-    progress: calculatePreparationProgress(preparation.dispatcherChecklist),
+    progress: checklistProgress,
     notes: preparation.notes ?? '',
     vehicleId,
     requestedServices,
@@ -255,6 +261,8 @@ const mapPreparation = (
     preparationId: mappedPreparation.id,
     backendStatus: preparation.status ?? null,
     uiStatus: mappedPreparation.status,
+    normalizedFromCompletedToInDispatch:
+      mappedStatus === 'completed' && mappedPreparation.status === 'in-dispatch',
     estimatedTime: mappedPreparation.estimatedTime,
     predictedTotalMinutes: mappedPreparation.predictedTotalMinutes ?? null,
     predictedRemainingMinutes: mappedPreparation.predictedRemainingMinutes ?? null,
