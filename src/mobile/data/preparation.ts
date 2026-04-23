@@ -749,18 +749,20 @@ export const completeDispatcherChecklist = async (
     approvedByRole: existingRecord.approvedByRole,
     approvedByName: existingRecord.approvedByName,
     approvedAt: existingRecord.approvedAt,
-    status: PreparationStatus.READY_FOR_RELEASE,
+    status: PreparationStatus.IN_DISPATCH,
     progress: 100,
     dispatcherChecklist,
     completedAt: undefined,
-    readyForReleaseAt: new Date(),
+    readyForReleaseAt: undefined,
   });
 
   const patchedRecord = {
     ...savedRecord,
     dispatcherChecklist,
+    progress: 100,
+    status: PreparationStatus.IN_DISPATCH,
     completedAt: undefined,
-    readyForReleaseAt: formatDisplayDate(),
+    readyForReleaseAt: undefined,
   };
 
   upsertPreparationRecord(patchedRecord);
