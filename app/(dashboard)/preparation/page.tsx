@@ -598,7 +598,7 @@ export default function PreparationPage() {
       status: 'completed',
       progress: 100,
       completedAt: new Date().toISOString(),
-      readyForReleaseAt: requestToComplete.readyForReleaseAt ?? new Date().toISOString(),
+      readyForReleaseAt: requestToComplete.readyForReleaseAt ?? null,
     })
 
     setRequests(nextRequests)
