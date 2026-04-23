@@ -393,7 +393,7 @@ export default function TestDriveScreen() {
       action={
         access.canCreate ? (
           <Button
-            title="Add Booking"
+            title="Schedule Test Drive"
             size="small"
             onPress={handleOpenCreate}
             icon={
@@ -442,8 +442,8 @@ export default function TestDriveScreen() {
       onRefresh={handleRefresh}
     >
       <FilterSummaryCard
-        title="Booking View"
-        value={`${filteredBookings.length} of ${bookings.length} bookings shown`}
+        title=""
+        value={`${filteredBookings.length} of ${bookings.length} schedules shown`}
         iconName="car-sport-outline"
         items={[
           {

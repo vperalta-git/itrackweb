@@ -21,7 +21,7 @@ interface FilterSummaryItem {
 }
 
 interface FilterSummaryCardProps {
-  title: string;
+  title?: string;
   value: string;
   iconName: IoniconName;
   items: FilterSummaryItem[];
@@ -49,8 +49,10 @@ export function FilterSummaryCard({
         </View>
 
         <View style={styles.headerCopy}>
-          <Text style={styles.headerLabel}>{title}</Text>
-          <Text style={styles.headerValue}>{value}</Text>
+          {title ? <Text style={styles.headerLabel}>{title}</Text> : null}
+          <Text style={[styles.headerValue, !title ? styles.headerValueStandalone : null]}>
+            {value}
+          </Text>
         </View>
       </View>
 
@@ -125,6 +127,9 @@ const createStyles = (theme: AppTheme) =>
     fontWeight: '700',
     color: theme.colors.text,
     fontFamily: theme.fonts.family.sans,
+  },
+  headerValueStandalone: {
+    marginTop: 0,
   },
   itemsWrap: {
     borderRadius: theme.radius.md,

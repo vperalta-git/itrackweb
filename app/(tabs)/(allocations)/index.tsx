@@ -306,7 +306,7 @@ export default function AllocationsScreen() {
       onRefresh={handleRefresh}
     >
       <FilterSummaryCard
-        title="Agent Allocation View"
+        title=""
         value={`${filteredAllocations.length} of ${allocations.length} records shown`}
         iconName="people-outline"
         items={[

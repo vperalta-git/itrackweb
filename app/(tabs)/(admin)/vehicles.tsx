@@ -373,7 +373,7 @@ export default function VehiclesScreen() {
     >
       {activeTab === 'stock_list' ? (
         <FilterSummaryCard
-          title="Vehicle View"
+          title=""
           value={`${filteredVehicles.length} of ${displayVehicles.length} vehicles shown`}
           iconName="car-sport-outline"
           items={[

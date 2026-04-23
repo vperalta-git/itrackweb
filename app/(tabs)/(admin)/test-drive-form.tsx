@@ -597,7 +597,7 @@ export default function TestDriveFormScreen() {
 
         <View style={styles.actions}>
           <Button
-            title={isEditMode ? 'Save Changes' : 'Add Booking'}
+            title={isEditMode ? 'Save Changes' : 'Schedule Test Drive'}
             onPress={handleSubmit}
             fullWidth
             icon={

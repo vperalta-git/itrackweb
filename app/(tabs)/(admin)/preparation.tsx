@@ -487,7 +487,7 @@ export default function PreparationScreen() {
       onRefresh={handleRefresh}
     >
       <FilterSummaryCard
-        title="Preparation View"
+        title=""
         value={`${filteredPreparations.length} of ${preparations.length} requests shown`}
         iconName="build-outline"
         items={[

@@ -495,8 +495,8 @@ export default function DriverAllocationScreen() {
       ) : (
         <>
           <FilterSummaryCard
-            title="Dispatch View"
-            value={`${filteredAllocations.length} of ${allocations.length} allocations shown`}
+            title=""
+            value={`${filteredAllocations.length} of ${allocations.length} driver allocations shown`}
             iconName="navigate-outline"
             items={[
               {

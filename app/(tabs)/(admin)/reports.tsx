@@ -691,34 +691,6 @@ export default function ReportsScreen() {
 
   const renderActivityTab = () => (
     <>
-      <FilterSummaryCard
-        title="Audit Trail View"
-        value={`${filteredActivity.length} of ${activityRecords.length} audit trail records shown`}
-        iconName="shield-checkmark-outline"
-        items={[
-          {
-            label: 'Kind Filter',
-            value:
-              activityKindFilter === 'all'
-                ? 'All Entries'
-                : ACTIVITY_KIND_LABELS[activityKindFilter],
-            dotColor:
-              activityKindFilter === 'released'
-                ? theme.colors.success
-                : activityKindFilter === 'updated'
-                  ? theme.colors.info
-                  : theme.colors.primary,
-          },
-          {
-            label: 'Data Source',
-            value: 'Saved user lifecycle and operational records',
-            iconName: 'server-outline',
-            iconColor: theme.colors.textSubtle,
-          },
-        ]}
-        style={styles.summaryCard}
-      />
-
       <View style={styles.list}>
         {filteredActivity.length ? (
           paginatedActivity.map((record) => (
