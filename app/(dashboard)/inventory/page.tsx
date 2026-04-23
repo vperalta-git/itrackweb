@@ -99,7 +99,9 @@ const bodyColorSwatches: Record<string, string> = {
   'Splash White': '#f7f7f2',
   'Satin White Pearl': '#f4f2eb',
   'Eiger Grey': '#7d8086',
-  White: '#ffffff',
+  'Cosmic Silver': '#c0c5cc',
+  'Biarritz Blue': '#2e5a8c',
+  'White': '#ffffff',
 }
 
 const getBodyColorSwatch = (bodyColor: string) =>
