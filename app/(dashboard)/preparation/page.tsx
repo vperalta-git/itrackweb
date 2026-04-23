@@ -183,6 +183,29 @@ const getMinutesBetween = (start?: string, end?: number) => {
   return diffMs > 0 ? Math.round(diffMs / 60000) : 0
 }
 
+const getChecklistAdjustedRemainingMinutes = (
+  request: PreparationRequest,
+  baselineRemainingMinutes: number | null
+) => {
+  if (baselineRemainingMinutes === null) {
+    return null
+  }
+
+  const checklist = request.dispatcherChecklist ?? []
+
+  if (checklist.length === 0) {
+    return baselineRemainingMinutes
+  }
+
+  const incompleteCount = checklist.filter((item) => !item.completed).length
+
+  if (incompleteCount <= 0) {
+    return 0
+  }
+
+  return Math.max(0, Math.round((baselineRemainingMinutes * incompleteCount) / checklist.length))
+}
+
 const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => {
   const elapsedMinutes = getMinutesBetween(request.inDispatchAt, now)
   const totalMinutes =
@@ -196,7 +219,10 @@ const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => 
     Number.isFinite(request.predictedRemainingMinutes)
       ? Math.max(0, Math.round(request.predictedRemainingMinutes))
       : null
-  const remainingMinutes = fallbackRemaining ?? backendRemainingMinutes
+  const remainingMinutes = getChecklistAdjustedRemainingMinutes(
+    request,
+    fallbackRemaining ?? backendRemainingMinutes
+  )
 
   if (request.status === 'in-dispatch' && elapsedMinutes !== null) {
     return {
