@@ -121,6 +121,9 @@ const isChecklistComplete = (request: PreparationRequest) => {
   return checklist.length > 0 && checklist.every((item) => item.completed)
 }
 
+const isReadyForReleaseEligible = (request: PreparationRequest, now = Date.now()) =>
+  getRunningProgress(request, now) >= 100 && isChecklistComplete(request)
+
 const getRunningProgress = (request: PreparationRequest, now = Date.now()) => {
   const checklistProgress = getChecklistProgress(request)
 
@@ -766,7 +769,7 @@ export default function PreparationPage() {
                   </DropdownMenuItem>
                 </>
               )}
-              {request.status === 'in-dispatch' && (
+              {request.status === 'in-dispatch' && isReadyForReleaseEligible(request, liveNow) && (
                 <DropdownMenuItem onClick={() => setRequestToReadyForRelease(request)}>
                   <CheckCircle className="mr-2 size-4" />
                   Ready for Release
@@ -787,8 +790,10 @@ export default function PreparationPage() {
 
   // Filter data
   const filteredRequests = React.useMemo(() => {
-    if (statusFilter === 'all') return scopedRequests
-    return scopedRequests.filter((r) => r.status === statusFilter)
+    const activeRequests = scopedRequests.filter((request) => request.status !== 'completed')
+
+    if (statusFilter === 'all') return activeRequests
+    return activeRequests.filter((request) => request.status === statusFilter)
   }, [scopedRequests, statusFilter])
 
   const handleExportPdf = () => {
@@ -1082,7 +1087,6 @@ export default function PreparationPage() {
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="in-dispatch">In Dispatch</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="ready-for-release">Ready for Release</SelectItem>
                 <SelectItem value="rejected">Rejected</SelectItem>
               </SelectContent>
@@ -1263,14 +1267,15 @@ export default function PreparationPage() {
 
               <div className="border-t border-border bg-background px-6 py-4">
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                  {selectedRequest.status === 'in-dispatch' && (
+                  {selectedRequest.status === 'in-dispatch' &&
+                    isReadyForReleaseEligible(selectedRequest, liveNow) && (
                     <Button
                       onClick={() => setRequestToReadyForRelease(selectedRequest)}
                     >
                       <CheckCircle className="mr-2 size-4" />
                       Ready for Release
                     </Button>
-                  )}
+                    )}
                   {role === 'admin' && selectedRequest.status === 'ready-for-release' && (
                     <Button onClick={() => setRequestToComplete(selectedRequest)}>
                       <Clock className="mr-2 size-4" />
