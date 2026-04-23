@@ -201,14 +201,14 @@ const managerMenuCatalog = createAdminAreaMenuCatalog(UserRole.MANAGER);
 const salesAgentMenuCatalog = createAdminAreaMenuCatalog(UserRole.SALES_AGENT);
 const dispatchHistoryMenuItem = sidebarItem(
   'dispatchHistory',
-  'Dispatch History',
+  'Release History',
   'DH',
   getRoleRoute(UserRole.DISPATCHER, 'history'),
   'Completed dispatch records with filters and history.'
 );
 const driverHistoryMenuItem = sidebarItem(
   'driverHistory',
-  'Driver History',
+  'Trip History',
   'HI',
   getRoleRoute(UserRole.DRIVER, 'history'),
   'Completed trip history with search and review.'
@@ -217,42 +217,42 @@ const driverHistoryMenuItem = sidebarItem(
 const dashboardMenuItemsByRole: Record<UserRole, SidebarMenuItem> = {
   [UserRole.ADMIN]: sidebarItem(
     'dashboard',
-    'Admin Dashboard',
+    'Dashboard',
     'DB',
     getRoleRoute(UserRole.ADMIN, 'dashboard'),
     'Analytics, filters, and operating summaries.'
   ),
   [UserRole.SUPERVISOR]: sidebarItem(
     'dashboard',
-    'Supervisor Dashboard',
+    'Dashboard',
     'DB',
     getRoleRoute(UserRole.SUPERVISOR, 'dashboard'),
     'Analytics, filters, and operating summaries.'
   ),
   [UserRole.MANAGER]: sidebarItem(
     'dashboard',
-    'Manager Dashboard',
+    'Dashboard',
     'DB',
     getRoleRoute(UserRole.MANAGER, 'dashboard'),
     'Analytics, filters, and operating summaries.'
   ),
   [UserRole.SALES_AGENT]: sidebarItem(
     'dashboard',
-    'Sales Agent Dashboard',
+    'Dashboard',
     'DB',
     getRoleRoute(UserRole.SALES_AGENT, 'dashboard'),
     'Analytics, filters, and operating summaries.'
   ),
   [UserRole.DISPATCHER]: sidebarItem(
     'dashboard',
-    'Dispatcher Dashboard',
+    'Vehicle Preparation Monitoring',
     'DB',
     getRoleRoute(UserRole.DISPATCHER, 'dashboard'),
     'Pending dispatcher checklist queue, approvals, and dispatch readiness.'
   ),
   [UserRole.DRIVER]: sidebarItem(
     'dashboard',
-    'Driver Dashboard',
+    'Assigned Delivery',
     'DB',
     getRoleRoute(UserRole.DRIVER, 'dashboard'),
     'Live trip map, start and end controls, and active car status.'
