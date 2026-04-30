@@ -116,13 +116,8 @@ const getChecklistProgress = (request: PreparationRequest) => {
   return Math.round((completedCount / checklist.length) * 100)
 }
 
-const isChecklistComplete = (request: PreparationRequest) => {
-  const checklist = request.dispatcherChecklist ?? []
-  return checklist.length > 0 && checklist.every((item) => item.completed)
-}
-
 const isReadyForReleaseEligible = (request: PreparationRequest, now = Date.now()) =>
-  getRunningProgress(request, now) >= 100 && isChecklistComplete(request)
+  getRunningProgress(request, now) >= 100
 
 const getRunningProgress = (request: PreparationRequest, now = Date.now()) => {
   const checklistProgress = getChecklistProgress(request)
