@@ -116,13 +116,8 @@ const getChecklistProgress = (request: PreparationRequest) => {
   return Math.round((completedCount / checklist.length) * 100)
 }
 
-const isChecklistComplete = (request: PreparationRequest) => {
-  const checklist = request.dispatcherChecklist ?? []
-  return checklist.length > 0 && checklist.every((item) => item.completed)
-}
-
 const isReadyForReleaseEligible = (request: PreparationRequest, now = Date.now()) =>
-  getRunningProgress(request, now) >= 100 && isChecklistComplete(request)
+  getRunningProgress(request, now) >= 100
 
 const getRunningProgress = (request: PreparationRequest, now = Date.now()) => {
   const checklistProgress = getChecklistProgress(request)
@@ -148,7 +143,7 @@ const getRunningProgress = (request: PreparationRequest, now = Date.now()) => {
   const timeProgress = Math.round((Math.max(elapsedMinutes, 0) / totalMinutes) * 100)
   const combinedProgress = Math.max(checklistProgress, timeProgress)
 
-  if (checklistProgress >= 100) {
+  if (checklistProgress >= 100 || timeProgress >= 100) {
     return 100
   }
 
@@ -183,6 +178,29 @@ const getMinutesBetween = (start?: string, end?: number) => {
   return diffMs > 0 ? Math.round(diffMs / 60000) : 0
 }
 
+const getChecklistAdjustedRemainingMinutes = (
+  request: PreparationRequest,
+  baselineRemainingMinutes: number | null
+) => {
+  if (baselineRemainingMinutes === null) {
+    return null
+  }
+
+  const checklist = request.dispatcherChecklist ?? []
+
+  if (checklist.length === 0) {
+    return baselineRemainingMinutes
+  }
+
+  const incompleteCount = checklist.filter((item) => !item.completed).length
+
+  if (incompleteCount <= 0) {
+    return 0
+  }
+
+  return Math.max(0, Math.round((baselineRemainingMinutes * incompleteCount) / checklist.length))
+}
+
 const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => {
   const elapsedMinutes = getMinutesBetween(request.inDispatchAt, now)
   const totalMinutes =
@@ -196,7 +214,10 @@ const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => 
     Number.isFinite(request.predictedRemainingMinutes)
       ? Math.max(0, Math.round(request.predictedRemainingMinutes))
       : null
-  const remainingMinutes = fallbackRemaining ?? backendRemainingMinutes
+  const remainingMinutes = getChecklistAdjustedRemainingMinutes(
+    request,
+    fallbackRemaining ?? backendRemainingMinutes
+  )
 
   if (request.status === 'in-dispatch' && elapsedMinutes !== null) {
     return {

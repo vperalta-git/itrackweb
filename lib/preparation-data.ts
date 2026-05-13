@@ -219,7 +219,7 @@ const mapPreparation = (
   const checklistProgress = calculatePreparationProgress(preparation.dispatcherChecklist)
   const mappedStatus = mapPreparationStatusToUi(preparation.status) as PreparationRequestRecord['status']
   const normalizedStatus =
-    mappedStatus === 'completed' && !preparation.readyForReleaseAt && checklistProgress >= 100
+    mappedStatus === 'completed' && !preparation.readyForReleaseAt
       ? 'in-dispatch'
       : mappedStatus
 
