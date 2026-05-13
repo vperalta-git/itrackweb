@@ -11,6 +11,8 @@ type RouteMapFrameProps = {
   destination?: MapCoordinatesInput | null
   focus?: MapCoordinatesInput | null
   routeOrigin?: MapCoordinatesInput | null
+  onOriginChange?: (coordinates: { latitude: number; longitude: number }) => void
+  onDestinationChange?: (coordinates: { latitude: number; longitude: number }) => void
   className?: string
 }
 
@@ -49,6 +51,8 @@ type MapboxMap = {
 
 type MapboxMarker = {
   addTo(map: MapboxMap): MapboxMarker
+  getLngLat(): { lng: number; lat: number }
+  on(event: 'dragend', listener: () => void): MapboxMarker
   remove(): void
   setLngLat(lngLat: [number, number]): MapboxMarker
 }
@@ -299,6 +303,8 @@ export function RouteMapFrame({
   destination,
   focus,
   routeOrigin,
+  onOriginChange,
+  onDestinationChange,
   className,
 }: RouteMapFrameProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
@@ -477,21 +483,59 @@ export function RouteMapFrame({
     markersRef.current.forEach((marker) => marker.remove())
     markersRef.current = []
 
-    const nextMarkers = [
-      normalizedOrigin
-        ? new mapboxgl.Marker({ color: '#f97316' }).setLngLat(toLngLat(normalizedOrigin)).addTo(map)
-        : null,
-      normalizedDestination
-        ? new mapboxgl.Marker({ color: '#16a34a' })
-            .setLngLat(toLngLat(normalizedDestination))
-            .addTo(map)
-        : null,
+    const nextMarkers: MapboxMarker[] = []
+
+    if (normalizedOrigin) {
+      const marker = new mapboxgl.Marker({
+        color: '#f97316',
+        draggable: Boolean(onOriginChange),
+      })
+        .setLngLat(toLngLat(normalizedOrigin))
+        .addTo(map)
+
+      if (onOriginChange) {
+        marker.on('dragend', () => {
+          const coordinates = marker.getLngLat()
+          onOriginChange({
+            latitude: coordinates.lat,
+            longitude: coordinates.lng,
+          })
+        })
+      }
+
+      nextMarkers.push(marker)
+    }
+
+    if (normalizedDestination) {
+      const marker = new mapboxgl.Marker({
+        color: '#16a34a',
+        draggable: Boolean(onDestinationChange),
+      })
+        .setLngLat(toLngLat(normalizedDestination))
+        .addTo(map)
+
+      if (onDestinationChange) {
+        marker.on('dragend', () => {
+          const coordinates = marker.getLngLat()
+          onDestinationChange({
+            latitude: coordinates.lat,
+            longitude: coordinates.lng,
+          })
+        })
+      }
+
+      nextMarkers.push(marker)
+    }
+
+    if (
       normalizedFocus &&
       !arePointsEqual(normalizedFocus, normalizedOrigin) &&
       !arePointsEqual(normalizedFocus, normalizedDestination)
-        ? new mapboxgl.Marker({ color: '#dc2626' }).setLngLat(toLngLat(normalizedFocus)).addTo(map)
-        : null,
-    ].filter((marker): marker is MapboxMarker => marker !== null)
+    ) {
+      nextMarkers.push(
+        new mapboxgl.Marker({ color: '#dc2626' }).setLngLat(toLngLat(normalizedFocus)).addTo(map)
+      )
+    }
 
     markersRef.current = nextMarkers
 
@@ -584,12 +628,21 @@ export function RouteMapFrame({
         ? buildCoordinateBounds(lineCoordinates)
         : buildBounds(points),
       {
-      padding: 56,
-      duration: 800,
-      maxZoom: 14.5,
+        padding: 56,
+        duration: 800,
+        maxZoom: 14.5,
       }
     )
-  }, [mapReady, normalizedDestination, normalizedFocus, normalizedOrigin, routeCoordinates, routeRequestPoints])
+  }, [
+    mapReady,
+    normalizedDestination,
+    normalizedFocus,
+    normalizedOrigin,
+    onDestinationChange,
+    onOriginChange,
+    routeCoordinates,
+    routeRequestPoints,
+  ])
 
   return (
     <div className={cn('relative h-full w-full overflow-hidden', className)}>

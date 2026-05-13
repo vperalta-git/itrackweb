@@ -476,6 +476,58 @@ export default function DriverAllocationPage() {
     setDestinationSearchResults([])
   }
 
+  const handlePickupMarkerDrag = React.useCallback(
+    (coordinates: { latitude: number; longitude: number }) => {
+      setAssignmentForm((current) => {
+        if (!current.pickupLocation) {
+          return current
+        }
+
+        const nextPickupLocation = {
+          ...current.pickupLocation,
+          id: `${current.pickupLocation.id}-adjusted-${coordinates.latitude.toFixed(
+            6
+          )}-${coordinates.longitude.toFixed(6)}`,
+          latitude: coordinates.latitude,
+          longitude: coordinates.longitude,
+        }
+
+        return {
+          ...current,
+          pickupLocation: nextPickupLocation,
+          pickupQuery: formatMapLocationLabel(nextPickupLocation),
+        }
+      })
+    },
+    []
+  )
+
+  const handleDestinationMarkerDrag = React.useCallback(
+    (coordinates: { latitude: number; longitude: number }) => {
+      setAssignmentForm((current) => {
+        if (!current.destinationLocation) {
+          return current
+        }
+
+        const nextDestinationLocation = {
+          ...current.destinationLocation,
+          id: `${current.destinationLocation.id}-adjusted-${coordinates.latitude.toFixed(
+            6
+          )}-${coordinates.longitude.toFixed(6)}`,
+          latitude: coordinates.latitude,
+          longitude: coordinates.longitude,
+        }
+
+        return {
+          ...current,
+          destinationLocation: nextDestinationLocation,
+          destinationQuery: formatMapLocationLabel(nextDestinationLocation),
+        }
+      })
+    },
+    []
+  )
+
   const resolveCuratedLocationPreset = React.useCallback(
     async (preset: CuratedLocationPreset) => {
       for (const query of preset.queries) {
@@ -1134,6 +1186,8 @@ export default function DriverAllocationPage() {
                         origin={assignmentForm.pickupLocation}
                         destination={assignmentForm.destinationLocation}
                         focus={assignmentForm.destinationLocation ?? assignmentForm.pickupLocation}
+                        onOriginChange={handlePickupMarkerDrag}
+                        onDestinationChange={handleDestinationMarkerDrag}
                       />
                       {!assignmentForm.pickupLocation && !assignmentForm.destinationLocation ? (
                         <div className="pointer-events-none absolute left-4 top-4 max-w-xs rounded-lg border bg-background/90 px-3 py-2 text-xs text-muted-foreground shadow-sm">
@@ -1153,8 +1207,7 @@ export default function DriverAllocationPage() {
                           'Not selected'}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        The map is interactive by default, so you can drag and zoom even before you
-                        search for a route.
+                        Drag either pin to refine the saved coordinates, then zoom or pan as needed.
                       </p>
                     </div>
                   </div>
