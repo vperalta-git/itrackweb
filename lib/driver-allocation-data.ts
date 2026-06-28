@@ -35,7 +35,17 @@ export interface DriverAllocationRecord {
   notes?: string
   routeProgress?: number | null
   estimatedDuration?: number | null
+  scheduledShipmentAt?: string | null
+  actualStartTime?: string | null
+  completedAt?: string | null
   currentLocation?: DriverAllocationLiveLocation | null
+  stopRequest?: {
+    status: 'none' | 'pending' | 'approved' | 'rejected'
+    reason: string
+    requestedAt?: string | null
+    reviewedAt?: string | null
+    reviewNotes?: string
+  } | null
   pickupLocationDetails?: BackendRouteStop | null
   destinationLocationDetails?: BackendRouteStop | null
 }
@@ -143,7 +153,19 @@ const mapDriverAllocationRecord = (
     notes: allocation.notes ?? '',
     routeProgress: allocation.routeProgress ?? null,
     estimatedDuration: allocation.estimatedDuration ?? null,
+    scheduledShipmentAt: allocation.scheduledShipmentAt ?? null,
+    actualStartTime: allocation.startTime ?? null,
+    completedAt: allocation.endTime ?? null,
     currentLocation,
+    stopRequest: allocation.stopRequest
+      ? {
+          status: allocation.stopRequest.status ?? 'none',
+          reason: allocation.stopRequest.reason ?? '',
+          requestedAt: allocation.stopRequest.requestedAt ?? null,
+          reviewedAt: allocation.stopRequest.reviewedAt ?? null,
+          reviewNotes: allocation.stopRequest.reviewNotes ?? '',
+        }
+      : null,
     pickupLocationDetails: allocation.pickupLocation ?? null,
     destinationLocationDetails: allocation.destinationLocation ?? null,
   }
@@ -179,6 +201,7 @@ export async function createDriverAllocationRecord(input: {
   pickupLocation: BackendRouteStop
   destinationLocation: BackendRouteStop
   notes?: string
+  scheduledShipmentAt?: string | null
 }) {
   await apiRequest('/driver-allocations', {
     method: 'POST',
@@ -188,6 +211,7 @@ export async function createDriverAllocationRecord(input: {
       driverId: input.driverId,
       pickupLocation: input.pickupLocation,
       destinationLocation: input.destinationLocation,
+      scheduledShipmentAt: input.scheduledShipmentAt ?? null,
       notes: input.notes?.trim() ?? '',
       status: 'pending',
     },
@@ -209,6 +233,7 @@ export async function updateDriverAllocationRecord(
     destinationLocation: BackendRouteStop
     status: DriverAllocationRecord['status']
     notes?: string
+    scheduledShipmentAt?: string | null
   }
 ) {
   await apiRequest(`/driver-allocations/${id}`, {
@@ -219,6 +244,7 @@ export async function updateDriverAllocationRecord(
       driverId: input.driverId,
       pickupLocation: input.pickupLocation,
       destinationLocation: input.destinationLocation,
+      scheduledShipmentAt: input.scheduledShipmentAt ?? null,
       status: mapUiAllocationStatusToBackend(input.status),
       notes: input.notes?.trim() ?? '',
     },
@@ -233,6 +259,27 @@ export async function updateDriverAllocationRecord(
 export async function deleteDriverAllocationRecord(id: string) {
   await apiRequest(`/driver-allocations/${id}`, {
     method: 'DELETE',
+  })
+
+  await syncInventoryVehiclesFromBackend()
+  const nextAllocations = await syncDriverAllocationsFromBackend()
+  requestWebNotificationRefresh()
+  return nextAllocations
+}
+
+export async function reviewDriverAllocationStopRequestRecord(
+  id: string,
+  input: {
+    action: 'approve' | 'reject'
+    reviewNotes?: string
+  }
+) {
+  await apiRequest(`/driver-allocations/${id}/stop-request`, {
+    method: 'PATCH',
+    body: {
+      action: input.action,
+      reviewNotes: input.reviewNotes?.trim() ?? '',
+    },
   })
 
   await syncInventoryVehiclesFromBackend()

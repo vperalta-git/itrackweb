@@ -17,6 +17,9 @@ import {
   Truck,
   Building2,
   LoaderCircle,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react'
 
 import { RouteMapFrame } from '@/components/route-map-frame'
@@ -59,6 +62,7 @@ import {
   deleteDriverAllocationRecord,
   DriverAllocationRecord,
   loadDriverAllocations,
+  reviewDriverAllocationStopRequestRecord,
   syncDriverAllocationsFromBackend,
   updateDriverAllocationRecord,
 } from '@/lib/driver-allocation-data'
@@ -87,6 +91,7 @@ type DriverAllocation = DriverAllocationRecord
 type AssignmentFormState = {
   unitId: string
   driverId: string
+  scheduledShipmentAt: string
   pickupQuery: string
   destinationQuery: string
   pickupLocation: MapLocationSuggestion | null
@@ -96,6 +101,7 @@ type AssignmentFormState = {
 const initialAssignmentForm: AssignmentFormState = {
   unitId: '',
   driverId: '',
+  scheduledShipmentAt: '',
   pickupQuery: '',
   destinationQuery: '',
   pickupLocation: null,
@@ -140,6 +146,29 @@ function normalizeInventoryStatus(status: string) {
 
 function normalizeSearchValue(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? ''
+}
+
+const formatDateTimeLocalInput = (value?: string | null) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  return offsetDate.toISOString().slice(0, 16)
+}
+
+const formatDateTimeDisplay = (value?: string | null) => {
+  if (!value) return 'Not scheduled'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Not scheduled'
+
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 function isCuratedLocationSelected(
@@ -284,7 +313,7 @@ export default function DriverAllocationPage() {
       inventoryVehicles.filter(
         (vehicle) =>
           (vehicle.conductionNumber === assignmentBeingEdited?.conductionNumber ||
-            normalizeInventoryStatus(vehicle.status) === 'in-stockyard') &&
+            ['in-stockyard', 'available'].includes(normalizeInventoryStatus(vehicle.status))) &&
           !allocatedConductionNumbers.has(vehicle.conductionNumber)
       ),
     [allocatedConductionNumbers, assignmentBeingEdited, inventoryVehicles]
@@ -439,6 +468,7 @@ export default function DriverAllocationPage() {
       driverId: driverMatch?.id ?? '',
       pickupQuery: formatMapLocationLabel(pickupLocation) || allocation.pickupLocation,
       destinationQuery: formatMapLocationLabel(destinationLocation) || allocation.destination,
+      scheduledShipmentAt: formatDateTimeLocalInput(allocation.scheduledShipmentAt),
       pickupLocation,
       destinationLocation,
     })
@@ -578,13 +608,25 @@ export default function DriverAllocationPage() {
     const selectedUnit = inventoryVehicles.find((vehicle) => vehicle.id === assignmentForm.unitId)
     const selectedDriver = drivers.find((driver) => driver.id === assignmentForm.driverId)
 
-    if (
-      !selectedUnit ||
-      !selectedDriver ||
-      !assignmentForm.pickupLocation ||
-      !assignmentForm.destinationLocation
-    ) {
+    if (!selectedUnit || !selectedDriver) {
+      toast.error('Select both vehicle unit and driver.')
+      return
+    }
+
+    if (!assignmentForm.scheduledShipmentAt) {
+      toast.error('Enter the vehicle shipment date and time.')
+      return
+    }
+
+    if (!assignmentForm.pickupLocation || !assignmentForm.destinationLocation) {
       toast.error('Select both pickup and destination from the map search results.')
+      return
+    }
+
+    const scheduledShipmentAt = new Date(assignmentForm.scheduledShipmentAt)
+
+    if (Number.isNaN(scheduledShipmentAt.getTime())) {
+      toast.error('Enter a valid shipment date and time.')
       return
     }
 
@@ -603,6 +645,7 @@ export default function DriverAllocationPage() {
           destinationLocation: mapLocationSuggestionToRouteStop(
             assignmentForm.destinationLocation
           ),
+          scheduledShipmentAt: scheduledShipmentAt.toISOString(),
           status: assignmentBeingEdited.status,
         })
 
@@ -630,6 +673,7 @@ export default function DriverAllocationPage() {
         destinationLocation: mapLocationSuggestionToRouteStop(
           assignmentForm.destinationLocation
         ),
+        scheduledShipmentAt: scheduledShipmentAt.toISOString(),
       })
 
       setAllocations(nextAllocations)
@@ -669,6 +713,55 @@ export default function DriverAllocationPage() {
     toast.success('Driver allocation cancelled.')
   }
 
+  const handleReviewStopRequest = async (
+    allocation: DriverAllocation,
+    action: 'approve' | 'reject'
+  ) => {
+    const approved = action === 'approve'
+    const confirmed = window.confirm(
+      approved
+        ? `Approve stop request for ${allocation.conductionNumber}? This will cancel the trip.`
+        : `Reject stop request for ${allocation.conductionNumber}? The driver will be notified to continue.`
+    )
+
+    if (!confirmed) return
+
+    try {
+      const nextAllocations = await reviewDriverAllocationStopRequestRecord(
+        allocation.id,
+        {
+          action,
+          reviewNotes: approved
+            ? 'Stop request confirmed by admin/supervisor.'
+            : 'Stop request rejected by admin/supervisor.',
+        }
+      )
+      setAllocations(nextAllocations)
+      setSelectedAllocation((current) =>
+        current?.id === allocation.id
+          ? nextAllocations.find((item) => item.id === allocation.id) ?? current
+          : current
+      )
+      logAuditEvent({
+        user: getAuditActor(role),
+        action: approved ? 'APPROVE' : 'REJECT',
+        module: 'Allocation',
+        description: `${approved ? 'Approved' : 'Rejected'} stop trip request for ${allocation.conductionNumber}.`,
+      })
+      toast.success(
+        approved
+          ? 'Stop request approved. Trip was cancelled.'
+          : 'Stop request rejected. Driver was notified.'
+      )
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Unable to review the stop request right now.'
+      )
+    }
+  }
+
   const columns: ColumnDef<DriverAllocation>[] = [
     {
       accessorKey: 'date',
@@ -681,6 +774,24 @@ export default function DriverAllocationPage() {
           Date
           <ArrowUpDown className="ml-2 size-4" />
         </Button>
+      ),
+    },
+    {
+      accessorKey: 'scheduledShipmentAt',
+      header: 'Shipment Schedule',
+      cell: ({ row }) => (
+        <div>
+          <span className="font-medium">
+            {formatDateTimeDisplay(row.original.scheduledShipmentAt)}
+          </span>
+          {row.original.actualStartTime ? (
+            <p className="text-xs text-muted-foreground">
+              Started {formatDateTimeDisplay(row.original.actualStartTime)}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">Not started yet</p>
+          )}
+        </div>
       ),
     },
     {
@@ -736,7 +847,17 @@ export default function DriverAllocationPage() {
     {
       accessorKey: 'status',
       header: 'Status',
-      cell: ({ row }) => <StatusBadge status={row.getValue('status')} />,
+      cell: ({ row }) => (
+        <div className="space-y-1">
+          <StatusBadge status={row.getValue('status')} />
+          {row.original.stopRequest?.status === 'pending' && (
+            <Badge variant="destructive" className="gap-1">
+              <AlertTriangle className="size-3" />
+              Stop requested
+            </Badge>
+          )}
+        </div>
+      ),
       filterFn: (row, id, value) => {
         if (value === 'all') return true
         return row.getValue(id) === value
@@ -779,6 +900,22 @@ export default function DriverAllocationPage() {
                     Track Location
                   </Link>
                 </DropdownMenuItem>
+              )}
+              {allocation.stopRequest?.status === 'pending' && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={() => handleReviewStopRequest(allocation, 'approve')}
+                  >
+                    <CheckCircle2 className="mr-2 size-4" />
+                    Approve Stop
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleReviewStopRequest(allocation, 'reject')}>
+                    <XCircle className="mr-2 size-4" />
+                    Reject Stop
+                  </DropdownMenuItem>
+                </>
               )}
               <DropdownMenuSeparator />
               {allocation.status === 'pending' && (
@@ -841,6 +978,8 @@ export default function DriverAllocationPage() {
       filename: 'driver-allocation-report',
       columns: [
         { header: 'Date', value: (row) => row.date },
+        { header: 'Scheduled Shipment', value: (row) => formatDateTimeDisplay(row.scheduledShipmentAt) },
+        { header: 'Actual Trip Start', value: (row) => formatDateTimeDisplay(row.actualStartTime) },
         { header: 'Unit Name', value: (row) => row.unitName },
         { header: 'Conduction Number', value: (row) => row.conductionNumber },
         { header: 'Body Color', value: (row) => row.bodyColor },
@@ -870,6 +1009,9 @@ export default function DriverAllocationPage() {
       filename: `driver-allocation-${selectedAllocation.conductionNumber.toLowerCase()}`,
       columns: [
         { header: 'Date', value: (row) => row.date },
+        { header: 'Scheduled Shipment', value: (row) => formatDateTimeDisplay(row.scheduledShipmentAt) },
+        { header: 'Actual Trip Start', value: (row) => formatDateTimeDisplay(row.actualStartTime) },
+        { header: 'Trip Completed', value: (row) => formatDateTimeDisplay(row.completedAt) },
         { header: 'Unit Name', value: (row) => row.unitName },
         { header: 'Conduction Number', value: (row) => row.conductionNumber },
         { header: 'Body Color', value: (row) => row.bodyColor },
@@ -939,7 +1081,7 @@ export default function DriverAllocationPage() {
                           ))
                         ) : (
                           <div className="px-2 py-3 text-sm text-muted-foreground">
-                            No stockyard units available.
+                            No available or stockyard units available.
                           </div>
                         )}
                       </SelectContent>
@@ -986,6 +1128,24 @@ export default function DriverAllocationPage() {
                         )}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="min-w-0 space-y-2 md:col-span-2">
+                    <Label htmlFor="scheduledShipmentAt">Vehicle Shipment Date and Time</Label>
+                    <Input
+                      id="scheduledShipmentAt"
+                      type="datetime-local"
+                      value={assignmentForm.scheduledShipmentAt}
+                      onChange={(event) =>
+                        setAssignmentForm((current) => ({
+                          ...current,
+                          scheduledShipmentAt: event.target.value,
+                        }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This is the planned date and time when the driver should ship the vehicle.
+                      Actual trip start is recorded automatically when the driver taps Start Trip.
+                    </p>
                   </div>
                 </div>
 
@@ -1228,6 +1388,7 @@ export default function DriverAllocationPage() {
                 disabled={
                   !assignmentForm.unitId ||
                   !assignmentForm.driverId ||
+                  !assignmentForm.scheduledShipmentAt ||
                   !assignmentForm.pickupLocation ||
                   !assignmentForm.destinationLocation
                 }
@@ -1355,6 +1516,18 @@ export default function DriverAllocationPage() {
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Date</span>
                       <span className="font-medium">{selectedAllocation.date}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-sm text-muted-foreground">Scheduled Shipment</span>
+                      <span className="text-right font-medium">
+                        {formatDateTimeDisplay(selectedAllocation.scheduledShipmentAt)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-sm text-muted-foreground">Actual Trip Start</span>
+                      <span className="text-right font-medium">
+                        {formatDateTimeDisplay(selectedAllocation.actualStartTime)}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Unit Name</span>

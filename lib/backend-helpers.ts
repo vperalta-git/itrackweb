@@ -72,10 +72,18 @@ export type BackendDriverAllocation = {
   destinationLocation?: BackendRouteStop | null
   estimatedDuration?: number
   actualDuration?: number | null
+  scheduledShipmentAt?: string | null
   startTime?: string | null
   endTime?: string | null
   routeProgress?: number | null
   currentLocation?: BackendLiveLocation | null
+  stopRequest?: {
+    status?: 'none' | 'pending' | 'approved' | 'rejected'
+    reason?: string
+    requestedAt?: string | null
+    reviewedAt?: string | null
+    reviewNotes?: string
+  } | null
   notes?: string
   createdAt?: string
   updatedAt?: string

@@ -39,6 +39,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { exportPdfReport } from '@/lib/export-pdf'
 import { BackendPopulatedUser, getEntityId } from '@/lib/backend-helpers'
 import {
@@ -200,9 +208,7 @@ export default function VehicleHistoryPage() {
       title: 'Release History Report',
       subtitle: 'Complete unit history from backend preparation and release records',
       filename: 'vehicle-history-report',
-      layout: 'cards',
-      recordTitle: (row) => `${row.conductionNumber} - ${row.unitName}`,
-      recordSubtitle: (row) => `${row.variation} - ${row.bodyColor}`,
+      layout: 'table',
       columns: [
         { header: 'Vehicle Added', value: (row) => row.vehicleAddedAt },
         { header: 'Conduction Number', value: (row) => row.conductionNumber },
@@ -228,9 +234,7 @@ export default function VehicleHistoryPage() {
       title: 'Release History Report',
       subtitle: 'Complete unit history from backend preparation and release records',
       filename: `vehicle-history-${record.conductionNumber.toLowerCase()}`,
-      layout: 'cards',
-      recordTitle: (row) => `${row.conductionNumber} - ${row.unitName}`,
-      recordSubtitle: (row) => `${row.variation} - ${row.bodyColor}`,
+      layout: 'table',
       columns: [
         { header: 'Vehicle Added', value: (row) => row.vehicleAddedAt },
         { header: 'Conduction Number', value: (row) => row.conductionNumber },
@@ -353,76 +357,82 @@ export default function VehicleHistoryPage() {
               No release history records match the current filters.
             </div>
           ) : (
-            paginatedRecords.map((record) => (
-              <div key={record.id} className="border-b px-5 py-4 last:border-b-0">
-                <div className="rounded-xl border bg-background p-4">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="min-w-0 space-y-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-base font-semibold text-primary">{record.conductionNumber}</p>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>Vehicle Added</TableHead>
+                    <TableHead>Conduction No.</TableHead>
+                    <TableHead>Unit Details</TableHead>
+                    <TableHead>Delivery Pickup</TableHead>
+                    <TableHead>Agent Assigned</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Date Released</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedRecords.map((record) => (
+                    <TableRow key={record.id} className="align-top">
+                      <TableCell className="min-w-[150px] text-sm">
+                        {record.vehicleAddedAt}
+                      </TableCell>
+                      <TableCell className="min-w-[130px] font-semibold text-primary">
+                        {record.conductionNumber}
+                      </TableCell>
+                      <TableCell className="min-w-[220px]">
+                        <div className="space-y-1">
+                          <div className="font-medium">
+                            {record.unitName} {record.variation}
+                          </div>
+                          <BodyColorChip bodyColor={record.bodyColor} />
+                        </div>
+                      </TableCell>
+                      <TableCell className="min-w-[150px] text-sm">
+                        {record.deliveryPickupAt}
+                      </TableCell>
+                      <TableCell className="min-w-[220px]">
+                        <AssignedAgentDisplay
+                          agentName={record.agentAssigned}
+                          avatarUrl={userAvatarByName.get(record.agentAssigned) || ''}
+                          secondaryText={record.agentAssignedAt}
+                          avatarClassName="size-7"
+                        />
+                      </TableCell>
+                      <TableCell className="min-w-[180px]">
+                        <div className="font-medium">{record.customerName}</div>
+                        <div className="text-xs text-muted-foreground">{record.customerContact}</div>
+                      </TableCell>
+                      <TableCell className="min-w-[140px]">
                         <Badge variant="outline" className={statusBadgeClasses[record.status]}>
                           {statusLabels[record.status]}
                         </Badge>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                        <span>
-                          {record.unitName} {record.variation} in
-                        </span>
-                        <BodyColorChip bodyColor={record.bodyColor} />
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                        <div className="rounded-lg border bg-muted/20 p-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            Added
-                          </p>
-                          <p className="mt-1 text-sm font-medium">{record.vehicleAddedAt}</p>
+                      </TableCell>
+                      <TableCell className="min-w-[150px] text-sm">
+                        {record.releasedAt}
+                      </TableCell>
+                      <TableCell className="min-w-[230px]">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleExportSingleRecord(record)}
+                          >
+                            <FileDown className="mr-2 size-4" />
+                            Export
+                          </Button>
+                          <Button size="sm" onClick={() => handleOpenDetails(record)}>
+                            <Eye className="mr-2 size-4" />
+                            Details
+                          </Button>
                         </div>
-                        <div className="rounded-lg border bg-muted/20 p-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            Pickup
-                          </p>
-                          <p className="mt-1 text-sm font-medium">{record.deliveryPickupAt}</p>
-                        </div>
-                        <div className="rounded-lg border bg-muted/20 p-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            Agent
-                          </p>
-                          <div className="mt-2">
-                            <AssignedAgentDisplay
-                              agentName={record.agentAssigned}
-                              avatarUrl={userAvatarByName.get(record.agentAssigned) || ''}
-                              avatarClassName="size-7"
-                            />
-                          </div>
-                        </div>
-                        <div className="rounded-lg border bg-muted/20 p-3">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                            Customer
-                          </p>
-                          <p className="mt-1 text-sm font-medium">{record.customerName}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      <div className="rounded-lg border bg-muted/20 px-3 py-2 text-right">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                          Released
-                        </p>
-                        <p className="mt-1 text-sm font-medium">{record.releasedAt}</p>
-                      </div>
-                      <Button variant="outline" onClick={() => handleExportSingleRecord(record)}>
-                        <FileDown className="mr-2 size-4" />
-                        Export Report
-                      </Button>
-                      <Button onClick={() => handleOpenDetails(record)}>
-                        <Eye className="mr-2 size-4" />
-                        View Details
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

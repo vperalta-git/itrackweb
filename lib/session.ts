@@ -28,6 +28,7 @@ export interface SessionUser {
   routeRole: Role | null
   managerId: string | null
   managerName: string | null
+  mustChangePassword: boolean
 }
 
 export interface AuthSession {
@@ -55,6 +56,7 @@ type BackendUserShape = {
         lastName?: string
       }
     | null
+  mustChangePassword?: boolean
 }
 
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
@@ -197,6 +199,7 @@ export function mapAuthUserFromBackend(user: BackendUserShape): SessionUser {
     routeRole,
     managerId: getEntityId(user.managerId),
     managerName: getUserFullName(managerValue),
+    mustChangePassword: Boolean(user.mustChangePassword),
   }
 }
 

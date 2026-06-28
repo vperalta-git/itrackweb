@@ -9,6 +9,8 @@ import {
   Phone,
   Shield,
   Camera,
+  Eye,
+  EyeOff,
   KeyRound,
   Save,
 } from 'lucide-react'
@@ -119,6 +121,16 @@ export default function ProfilePage() {
     newPassword: '',
     confirmPassword: '',
   })
+  const [passwordTouched, setPasswordTouched] = React.useState({
+    currentPassword: false,
+    newPassword: false,
+    confirmPassword: false,
+  })
+  const [showPasswordFields, setShowPasswordFields] = React.useState({
+    currentPassword: false,
+    newPassword: false,
+    confirmPassword: false,
+  })
   const [isAvatarCropOpen, setIsAvatarCropOpen] = React.useState(false)
   const [avatarDraft, setAvatarDraft] = React.useState('')
   const [avatarCrop, setAvatarCrop] = React.useState({ x: 0, y: 0 })
@@ -195,8 +207,43 @@ export default function ProfilePage() {
     setUser((prev) => ({ ...prev, [field]: value }))
   }
 
+  const passwordErrors = React.useMemo(() => {
+    const errors: Partial<Record<keyof typeof passwordForm, string>> = {}
+
+    if (!passwordForm.currentPassword) {
+      errors.currentPassword = 'Current password is required.'
+    }
+
+    if (!passwordForm.newPassword) {
+      errors.newPassword = 'New password is required.'
+    } else if (!isValidStrongPassword(passwordForm.newPassword)) {
+      errors.newPassword = PASSWORD_REQUIREMENTS_MESSAGE
+    } else if (passwordForm.newPassword === passwordForm.currentPassword) {
+      errors.newPassword = 'New password must be different from the current password.'
+    }
+
+    if (!passwordForm.confirmPassword) {
+      errors.confirmPassword = 'Confirm your new password.'
+    } else if (passwordForm.confirmPassword !== passwordForm.newPassword) {
+      errors.confirmPassword = 'The confirmation password does not match.'
+    }
+
+    return errors
+  }, [passwordForm])
+
+  const shouldShowPasswordError = (field: keyof typeof passwordForm) =>
+    Boolean(passwordTouched[field] || passwordForm[field])
+
   const handlePasswordChange = (field: keyof typeof passwordForm, value: string) => {
     setPasswordForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handlePasswordBlur = (field: keyof typeof passwordTouched) => {
+    setPasswordTouched((prev) => ({ ...prev, [field]: true }))
+  }
+
+  const togglePasswordVisibility = (field: keyof typeof showPasswordFields) => {
+    setShowPasswordFields((prev) => ({ ...prev, [field]: !prev[field] }))
   }
 
   const handleAvatarSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -275,18 +322,19 @@ export default function ProfilePage() {
   const handlePasswordSave = async () => {
     if (!sessionUser) return
 
-    if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
-      toast.error('Please complete all password fields')
-      return
-    }
+    setPasswordTouched({
+      currentPassword: true,
+      newPassword: true,
+      confirmPassword: true,
+    })
 
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      toast.error('New password and confirmation do not match')
-      return
-    }
+    const firstPasswordError =
+      passwordErrors.currentPassword ||
+      passwordErrors.newPassword ||
+      passwordErrors.confirmPassword
 
-    if (!isValidStrongPassword(passwordForm.newPassword)) {
-      toast.error(PASSWORD_REQUIREMENTS_MESSAGE)
+    if (firstPasswordError) {
+      toast.error(firstPasswordError)
       return
     }
 
@@ -303,6 +351,14 @@ export default function ProfilePage() {
       currentPassword: '',
       newPassword: '',
       confirmPassword: '',
+    })
+    setPasswordTouched({
+      currentPassword: false,
+      newPassword: false,
+      confirmPassword: false,
+    })
+    updateSessionUser({
+      mustChangePassword: false,
     })
     toast.success('Password updated successfully')
   }
@@ -507,36 +563,110 @@ export default function ProfilePage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {sessionUser?.mustChangePassword && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                This account is using a temporary password. Create a new password before continuing regular use.
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="currentPassword">Current Password</Label>
-              <Input
-                id="currentPassword"
-                type="password"
-                value={passwordForm.currentPassword}
-                onChange={(e) => handlePasswordChange('currentPassword', e.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  id="currentPassword"
+                  type={showPasswordFields.currentPassword ? 'text' : 'password'}
+                  value={passwordForm.currentPassword}
+                  onChange={(e) => handlePasswordChange('currentPassword', e.target.value)}
+                  onBlur={() => handlePasswordBlur('currentPassword')}
+                  className="pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-10 w-10 hover:bg-transparent"
+                  onClick={() => togglePasswordVisibility('currentPassword')}
+                >
+                  {showPasswordFields.currentPassword ? (
+                    <EyeOff className="size-4 text-muted-foreground" />
+                  ) : (
+                    <Eye className="size-4 text-muted-foreground" />
+                  )}
+                  <span className="sr-only">
+                    {showPasswordFields.currentPassword ? 'Hide password' : 'Show password'}
+                  </span>
+                </Button>
+              </div>
+              {shouldShowPasswordError('currentPassword') && passwordErrors.currentPassword && (
+                <p className="text-xs text-destructive">{passwordErrors.currentPassword}</p>
+              )}
             </div>
             <div className="grid gap-4">
               <div className="space-y-2">
                 <Label htmlFor="newPassword">New Password</Label>
-                <Input
-                  id="newPassword"
-                  type="password"
-                  value={passwordForm.newPassword}
-                  onChange={(e) => handlePasswordChange('newPassword', e.target.value)}
-                />
+                <div className="relative">
+                  <Input
+                    id="newPassword"
+                    type={showPasswordFields.newPassword ? 'text' : 'password'}
+                    value={passwordForm.newPassword}
+                    onChange={(e) => handlePasswordChange('newPassword', e.target.value)}
+                    onBlur={() => handlePasswordBlur('newPassword')}
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-10 w-10 hover:bg-transparent"
+                    onClick={() => togglePasswordVisibility('newPassword')}
+                  >
+                    {showPasswordFields.newPassword ? (
+                      <EyeOff className="size-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="size-4 text-muted-foreground" />
+                    )}
+                    <span className="sr-only">
+                      {showPasswordFields.newPassword ? 'Hide password' : 'Show password'}
+                    </span>
+                  </Button>
+                </div>
+                {shouldShowPasswordError('newPassword') && passwordErrors.newPassword && (
+                  <p className="text-xs text-destructive">{passwordErrors.newPassword}</p>
+                )}
                 <p className="text-xs text-muted-foreground">
                   {PASSWORD_REQUIREMENTS_MESSAGE}
                 </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  value={passwordForm.confirmPassword}
-                  onChange={(e) => handlePasswordChange('confirmPassword', e.target.value)}
-                />
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showPasswordFields.confirmPassword ? 'text' : 'password'}
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) => handlePasswordChange('confirmPassword', e.target.value)}
+                    onBlur={() => handlePasswordBlur('confirmPassword')}
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-10 w-10 hover:bg-transparent"
+                    onClick={() => togglePasswordVisibility('confirmPassword')}
+                  >
+                    {showPasswordFields.confirmPassword ? (
+                      <EyeOff className="size-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="size-4 text-muted-foreground" />
+                    )}
+                    <span className="sr-only">
+                      {showPasswordFields.confirmPassword ? 'Hide password' : 'Show password'}
+                    </span>
+                  </Button>
+                </div>
+                {shouldShowPasswordError('confirmPassword') && passwordErrors.confirmPassword && (
+                  <p className="text-xs text-destructive">{passwordErrors.confirmPassword}</p>
+                )}
               </div>
             </div>
             <div className="flex justify-end">

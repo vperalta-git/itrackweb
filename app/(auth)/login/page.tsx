@@ -17,6 +17,31 @@ import { buildRolePath } from '@/lib/rbac'
 import { mapAuthUserFromBackend, persistServerSession, saveSession } from '@/lib/session'
 import { recordUserLastLogin, syncUsersFromBackend } from '@/lib/user-data'
 
+type LoginResponse = {
+  token: string
+  user: {
+    id?: string
+    _id?: string
+    firstName?: string
+    lastName?: string
+    email?: string
+    phone?: string
+    bio?: string
+    avatarUrl?: string | null
+    role?: string
+    mustChangePassword?: boolean
+    managerId?:
+      | string
+      | {
+          id?: string
+          _id?: string
+          firstName?: string
+          lastName?: string
+        }
+      | null
+  }
+}
+
 export default function LoginPage() {
   const [isLoading, setIsLoading] = React.useState(false)
   const [showPassword, setShowPassword] = React.useState(false)
@@ -40,62 +65,16 @@ export default function LoginPage() {
     setError('')
     setIsLoading(true)
 
-    let response:
-      | {
-          token: string
-          user: {
-            id?: string
-            _id?: string
-            firstName?: string
-            lastName?: string
-            email?: string
-            phone?: string
-            bio?: string
-            avatarUrl?: string | null
-            role?: string
-            managerId?:
-              | string
-              | {
-                  id?: string
-                  _id?: string
-                  firstName?: string
-                  lastName?: string
-                }
-              | null
-          }
-        }
-      | undefined
+    let response: LoginResponse | null = null
 
     try {
-      response = await apiRequest<{
-        token: string
-        user: {
-          id?: string
-          _id?: string
-          firstName?: string
-          lastName?: string
-          email?: string
-          phone?: string
-          bio?: string
-          avatarUrl?: string | null
-          role?: string
-          managerId?:
-            | string
-            | {
-                id?: string
-                _id?: string
-                firstName?: string
-                lastName?: string
-              }
-            | null
-        }
-      }>('/auth/login', {
+      response = (await apiRequest('/auth/login', {
         method: 'POST',
         body: {
           email: formData.email.trim().toLowerCase(),
           password: formData.password,
         },
-      })
+      })) as LoginResponse
     } catch (error) {
       console.error('Login request failed', error)
       setError(
@@ -107,6 +86,12 @@ export default function LoginPage() {
           ? error.message
           : 'Unable to sign in right now.'
       )
+      setIsLoading(false)
+      return
+    }
+
+    if (!response) {
+      setError('Unable to sign in right now.')
       setIsLoading(false)
       return
     }
@@ -155,7 +140,12 @@ export default function LoginPage() {
         description: `${user.email} signed in successfully.`,
       })
 
-      window.location.assign(buildRolePath(user.routeRole, 'dashboard'))
+      window.location.assign(
+        buildRolePath(
+          user.routeRole,
+          user.mustChangePassword ? 'profile' : 'dashboard'
+        )
+      )
     } catch (error) {
       console.error('Client-side sign-in finalization failed', error)
       setError(

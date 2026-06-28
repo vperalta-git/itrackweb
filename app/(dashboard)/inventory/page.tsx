@@ -107,6 +107,18 @@ const bodyColorSwatches: Record<string, string> = {
 const getBodyColorSwatch = (bodyColor: string) =>
   bodyColorSwatches[bodyColor] ?? '#cbd5e1'
 
+type StockViewMode = 'vehicles' | 'stock-count'
+
+type StockCountRow = {
+  id: string
+  unitName: string
+  variation: string
+  bodyColor: string
+  stockCount: number
+}
+
+const normalizeStockCountValue = (value: string) => value.trim() || 'Unspecified'
+
 function SortableColumnHeader<TData, TValue>({
   column,
   label,
@@ -199,6 +211,7 @@ export default function InventoryPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false)
   const [vehicleToDelete, setVehicleToDelete] = React.useState<Vehicle | null>(null)
   const [statusFilter, setStatusFilter] = React.useState<string>('all')
+  const [stockViewMode, setStockViewMode] = React.useState<StockViewMode>('vehicles')
   const [addVehicleForm, setAddVehicleForm] = React.useState(initialAddVehicleForm)
   const [editVehicleForm, setEditVehicleForm] = React.useState(emptyEditVehicleForm)
   const [users, setUsers] = React.useState(() => loadUsers())
@@ -541,6 +554,66 @@ export default function InventoryPage() {
     },
   ]
 
+  const stockCountColumns: ColumnDef<StockCountRow>[] = [
+    {
+      accessorKey: 'unitName',
+      meta: {
+        headerClassName: 'w-[28%]',
+        cellClassName: 'whitespace-normal break-words align-top',
+      },
+      header: ({ column }) => (
+        <SortableColumnHeader column={column} label="Unit Name" />
+      ),
+      cell: ({ row }) => <span className="font-medium">{row.getValue('unitName')}</span>,
+    },
+    {
+      accessorKey: 'variation',
+      meta: {
+        headerClassName: 'w-[34%]',
+        cellClassName: 'whitespace-normal break-words align-top',
+      },
+      header: 'Variation',
+    },
+    {
+      accessorKey: 'bodyColor',
+      meta: {
+        headerClassName: 'w-[24%]',
+        cellClassName: 'whitespace-normal break-words align-top',
+      },
+      header: 'Body Color',
+      cell: ({ row }) => {
+        const bodyColor = row.getValue('bodyColor') as string
+        const swatchColor = getBodyColorSwatch(bodyColor)
+
+        return (
+          <div className="flex items-center gap-2">
+            <span
+              className="size-3 rounded-full border border-slate-300 ring-1 ring-white/95 shadow-[0_1px_2px_rgba(15,23,42,0.08),0_3px_8px_rgba(15,23,42,0.12)] dark:border-slate-500 dark:ring-slate-950/70 dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),0_3px_8px_rgba(0,0,0,0.28)]"
+              style={{ backgroundColor: swatchColor }}
+              aria-hidden="true"
+            />
+            <span>{bodyColor}</span>
+          </div>
+        )
+      },
+    },
+    {
+      accessorKey: 'stockCount',
+      meta: {
+        headerClassName: 'w-[14%] text-right',
+        cellClassName: 'text-right align-top',
+      },
+      header: ({ column }) => (
+        <div className="flex justify-end">
+          <SortableColumnHeader column={column} label="Stock Count" />
+        </div>
+      ),
+      cell: ({ row }) => (
+        <span className="font-semibold text-primary">{row.getValue('stockCount')}</span>
+      ),
+    },
+  ]
+
   // Filter data based on status
   const filteredVehicles = React.useMemo(() => {
     if (role === 'sales-agent' || role === 'manager') {
@@ -572,6 +645,43 @@ export default function InventoryPage() {
     if (statusFilter === 'all') return scopedVehicles
     return scopedVehicles.filter((v) => v.status === statusFilter)
   }, [role, scope.agentName, scope.agentNames, vehicles, statusFilter])
+
+  const stockCountRows = React.useMemo(() => {
+    const groupedRows = new Map<string, StockCountRow>()
+
+    filteredVehicles.forEach((vehicle) => {
+      const unitName = normalizeStockCountValue(vehicle.unitName)
+      const variation = normalizeStockCountValue(vehicle.variation)
+      const bodyColor = normalizeStockCountValue(vehicle.bodyColor)
+      const key = [unitName, variation, bodyColor]
+        .map((value) => value.toLocaleLowerCase())
+        .join('||')
+
+      const existingRow = groupedRows.get(key)
+      if (existingRow) {
+        existingRow.stockCount += 1
+        return
+      }
+
+      groupedRows.set(key, {
+        id: key,
+        unitName,
+        variation,
+        bodyColor,
+        stockCount: 1,
+      })
+    })
+
+    return Array.from(groupedRows.values()).sort((a, b) => {
+      const unitSort = a.unitName.localeCompare(b.unitName)
+      if (unitSort !== 0) return unitSort
+
+      const variationSort = a.variation.localeCompare(b.variation)
+      if (variationSort !== 0) return variationSort
+
+      return a.bodyColor.localeCompare(b.bodyColor)
+    })
+  }, [filteredVehicles])
 
   React.useEffect(() => {
     let isMounted = true
@@ -646,6 +756,41 @@ export default function InventoryPage() {
       rows: [selectedVehicle],
     })
   }
+
+  const inventoryFilterComponent = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Filter className="size-4 text-muted-foreground" />
+      <Select
+        value={stockViewMode}
+        onValueChange={(value) => setStockViewMode(value as StockViewMode)}
+      >
+        <SelectTrigger className="w-44">
+          <SelectValue placeholder="Stock View" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="vehicles">Vehicle List</SelectItem>
+          <SelectItem value="stock-count">Stock Count</SelectItem>
+        </SelectContent>
+      </Select>
+      <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <SelectTrigger className="w-40">
+          <SelectValue placeholder="All Status" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Status</SelectItem>
+          <SelectItem value="in-stockyard">In Stockyard</SelectItem>
+          <SelectItem value="available">Available</SelectItem>
+          {(role === 'admin' || role === 'supervisor') && (
+            <>
+              <SelectItem value="in-transit">In Transit</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="in-dispatch">In Dispatch</SelectItem>
+            </>
+          )}
+        </SelectContent>
+      </Select>
+    </div>
+  )
 
   return (
     <div className="space-y-6">
@@ -833,40 +978,35 @@ export default function InventoryPage() {
         )}
       </PageHeader>
 
-      <DataTable
-        columns={columns}
-        data={filteredVehicles}
-        tableClassName="min-w-[1180px] table-fixed"
-        searchKey="conductionNumber"
-        searchPlaceholder="Search by conduction number..."
-        exportConfig={{
-          title: 'Vehicle Stocks Report',
-          subtitle: 'Current vehicle stock listing',
-          filename: 'vehicle-stocks-report',
-        }}
-        filterComponent={
-          <div className="flex items-center gap-2">
-            <Filter className="size-4 text-muted-foreground" />
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="All Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="in-stockyard">In Stockyard</SelectItem>
-                <SelectItem value="available">Available</SelectItem>
-                {(role === 'admin' || role === 'supervisor') && (
-                  <>
-                    <SelectItem value="in-transit">In Transit</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in-dispatch">In Dispatch</SelectItem>
-                  </>
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-        }
-      />
+      {stockViewMode === 'vehicles' ? (
+        <DataTable
+          columns={columns}
+          data={filteredVehicles}
+          tableClassName="min-w-[1180px] table-fixed"
+          searchKey="conductionNumber"
+          searchPlaceholder="Search by conduction number..."
+          exportConfig={{
+            title: 'Vehicle Stocks Report',
+            subtitle: 'Current vehicle stock listing',
+            filename: 'vehicle-stocks-report',
+          }}
+          filterComponent={inventoryFilterComponent}
+        />
+      ) : (
+        <DataTable
+          columns={stockCountColumns}
+          data={stockCountRows}
+          tableClassName="min-w-[760px] table-fixed"
+          searchKey="unitName"
+          searchPlaceholder="Search by unit name..."
+          exportConfig={{
+            title: 'Vehicle Stock Count Report',
+            subtitle: 'Grouped by unit, variation, and body color',
+            filename: 'vehicle-stock-count-report',
+          }}
+          filterComponent={inventoryFilterComponent}
+        />
+      )}
 
       <Dialog open={isViewDetailsOpen} onOpenChange={setIsViewDetailsOpen}>
             <DialogContent className="w-[96vw] max-w-4xl">
