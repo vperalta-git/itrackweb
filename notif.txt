@@ -2,7 +2,7 @@ Notification Summary
 
 Global validations
 - Action succeeded, source record exists, recipient exists and is active, recipient has access, notification is enabled, channel is configured, payload fields are complete, dedupe/cooldown is checked, timestamp is saved, failures are logged safely.
-- Channel checks: In-App = valid user and saved payload; Email = valid email, opted in, SMTP ready; SMS = valid `09XXXXXXXXX` or `+639XXXXXXXXX`, provider ready; Push = valid active device token.
+- Channel checks: In-App = valid user and saved payload; Email = valid email, opted in, SMTP ready; SMS = valid `09XXXXXXXXX`, provider ready; Push = valid active device token.
 
 1. User Management
 - Triggers: user created, profile updated, role changed, deactivated, reactivated, password reset/temp password, first login.

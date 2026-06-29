@@ -339,11 +339,11 @@ export default function TestDrivePage() {
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2"><Label>Customer Name</Label><Input placeholder="Full name" value={form.customerName} onChange={(event) => setField('customerName', event.target.value)} /></div>
-                <div className="space-y-2"><Label>Phone Number</Label><Input placeholder="09171234567 or +639171234567" value={form.customerPhone} onChange={(event) => setField('customerPhone', event.target.value)} /></div>
+                <div className="space-y-2"><Label>Customer Name <span className="text-destructive" aria-hidden="true">*</span></Label><Input placeholder="Full name" value={form.customerName} onChange={(event) => setField('customerName', event.target.value)} /></div>
+                <div className="space-y-2"><Label>Phone Number <span className="text-destructive" aria-hidden="true">*</span></Label><Input placeholder="09171234567" value={form.customerPhone} onChange={(event) => setField('customerPhone', event.target.value)} /></div>
               </div>
               <div className="space-y-2">
-                <Label>Select Vehicle</Label>
+                <Label>Select Vehicle <span className="text-destructive" aria-hidden="true">*</span></Label>
                 <Select value={form.vehicleId} onValueChange={(value) => setField('vehicleId', value)}>
                   <SelectTrigger><SelectValue placeholder="Choose an available unallocated vehicle" /></SelectTrigger>
                   <SelectContent>{dialogVehicles.map((vehicle) => <SelectItem key={vehicle.id} value={vehicle.id}>{vehicle.vehicleStockNumber} - {vehicle.vehicleName}</SelectItem>)}</SelectContent>
@@ -351,7 +351,7 @@ export default function TestDrivePage() {
                 <p className="text-xs text-muted-foreground">Only units with Available status and no existing agent allocation can be used for test drive.</p>
               </div>
               <div className="space-y-2">
-                <Label>Date and Time</Label>
+                <Label>Date and Time <span className="text-destructive" aria-hidden="true">*</span></Label>
                 <Input type="datetime-local" value={form.scheduledAt} onChange={(event) => setField('scheduledAt', event.target.value)} />
                 <p className="text-xs text-muted-foreground">Use one field for the full schedule instead of a separate time dropdown.</p>
               </div>

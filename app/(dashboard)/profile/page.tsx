@@ -496,7 +496,7 @@ export default function ProfilePage() {
           <CardContent className="space-y-5">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="firstName">First Name</Label>
+                <Label htmlFor="firstName">First Name <span className="text-destructive" aria-hidden="true">*</span></Label>
                 <Input
                   id="firstName"
                   value={user.firstName}
@@ -504,7 +504,7 @@ export default function ProfilePage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="lastName">Last Name</Label>
+                <Label htmlFor="lastName">Last Name <span className="text-destructive" aria-hidden="true">*</span></Label>
                 <Input
                   id="lastName"
                   value={user.lastName}
@@ -515,7 +515,7 @@ export default function ProfilePage() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
+                <Label htmlFor="email">Email Address <span className="text-destructive" aria-hidden="true">*</span></Label>
                 <Input
                   id="email"
                   type="email"
@@ -524,9 +524,10 @@ export default function ProfilePage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="phone">Phone Number</Label>
+                <Label htmlFor="phone">Phone Number <span className="text-destructive" aria-hidden="true">*</span></Label>
                 <Input
                   id="phone"
+                  placeholder="09171234567"
                   value={user.phone}
                   onChange={(e) => handleInputChange('phone', e.target.value)}
                 />

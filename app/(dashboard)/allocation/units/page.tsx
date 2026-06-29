@@ -462,7 +462,7 @@ export default function UnitAllocationPage() {
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
-                <Label>Select Manager</Label>
+                <Label>Select Manager <span className="text-destructive" aria-hidden="true">*</span></Label>
                 <Select
                   value={allocationForm.manager}
                   onValueChange={(value) =>
@@ -495,7 +495,7 @@ export default function UnitAllocationPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Select Agent</Label>
+                <Label>Select Agent <span className="text-destructive" aria-hidden="true">*</span></Label>
                 <Select
                   value={allocationForm.agent}
                   onValueChange={(value) =>
@@ -531,7 +531,7 @@ export default function UnitAllocationPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Select Unit</Label>
+                <Label>Select Unit <span className="text-destructive" aria-hidden="true">*</span></Label>
                 <Select
                   value={allocationForm.unitId}
                   onValueChange={(value) =>
@@ -680,7 +680,7 @@ export default function UnitAllocationPage() {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="space-y-2">
-              <Label>Manager</Label>
+              <Label>Manager <span className="text-destructive" aria-hidden="true">*</span></Label>
               <Select
                 value={reassignForm.manager}
                 onValueChange={(value) =>
@@ -716,7 +716,7 @@ export default function UnitAllocationPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Agent</Label>
+              <Label>Agent <span className="text-destructive" aria-hidden="true">*</span></Label>
               <Select
                 value={reassignForm.agent}
                 onValueChange={(value) =>

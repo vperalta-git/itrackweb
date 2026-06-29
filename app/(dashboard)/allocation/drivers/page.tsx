@@ -1062,7 +1062,7 @@ export default function DriverAllocationPage() {
               <div className="grid gap-6">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="min-w-0 space-y-2">
-                    <Label>Select Unit</Label>
+                    <Label>Select Unit <span className="text-destructive" aria-hidden="true">*</span></Label>
                     <Select
                       value={assignmentForm.unitId}
                       onValueChange={(value) =>
@@ -1088,7 +1088,7 @@ export default function DriverAllocationPage() {
                     </Select>
                   </div>
                   <div className="min-w-0 space-y-2">
-                    <Label>Select Driver</Label>
+                    <Label>Select Driver <span className="text-destructive" aria-hidden="true">*</span></Label>
                     <Select
                       value={assignmentForm.driverId}
                       onValueChange={(value) =>
@@ -1130,7 +1130,7 @@ export default function DriverAllocationPage() {
                     </Select>
                   </div>
                   <div className="min-w-0 space-y-2 md:col-span-2">
-                    <Label htmlFor="scheduledShipmentAt">Vehicle Shipment Date and Time</Label>
+                    <Label htmlFor="scheduledShipmentAt">Vehicle Shipment Date and Time <span className="text-destructive" aria-hidden="true">*</span></Label>
                     <Input
                       id="scheduledShipmentAt"
                       type="datetime-local"
@@ -1153,7 +1153,7 @@ export default function DriverAllocationPage() {
                 <div className="space-y-4">
                   <div className="rounded-xl border bg-muted/20 p-4">
                     <div className="space-y-2">
-                      <Label>Pickup Location</Label>
+                      <Label>Pickup Location <span className="text-destructive" aria-hidden="true">*</span></Label>
                       <Input
                         placeholder="Search pickup address"
                         value={assignmentForm.pickupQuery}
@@ -1246,7 +1246,7 @@ export default function DriverAllocationPage() {
 
                   <div className="rounded-xl border bg-muted/20 p-4">
                     <div className="space-y-2">
-                      <Label>Drop-off Destination</Label>
+                      <Label>Drop-off Destination <span className="text-destructive" aria-hidden="true">*</span></Label>
                       <Input
                         placeholder="Search destination address"
                         value={assignmentForm.destinationQuery}

@@ -873,7 +873,7 @@ export default function PreparationPage() {
             <div className="min-h-0 overflow-y-auto px-6 py-5">
               <div className="grid gap-4">
               <div className="space-y-2">
-                <Label htmlFor="vehicle">Select Vehicle</Label>
+                <Label htmlFor="vehicle">Select Vehicle <span className="text-destructive" aria-hidden="true">*</span></Label>
                 {requestBeingEdited ? (
                   <div className="rounded-lg border bg-muted/20 px-3 py-3 text-sm">
                     <p className="font-medium text-primary">{requestBeingEdited.conductionNumber}</p>
@@ -906,7 +906,7 @@ export default function PreparationPage() {
               </div>
 
               <div className="space-y-3">
-                <Label>Requested Services</Label>
+                <Label>Requested Services <span className="text-destructive" aria-hidden="true">*</span></Label>
                 <div className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2">
                   {requestedServiceOptions.map((service) => (
                     <div key={service} className="flex items-center gap-3">
@@ -964,7 +964,7 @@ export default function PreparationPage() {
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="customer-name">Customer Name</Label>
+                  <Label htmlFor="customer-name">Customer Name <span className="text-destructive" aria-hidden="true">*</span></Label>
                   <Input
                     id="customer-name"
                     placeholder="Enter customer name"
@@ -978,7 +978,7 @@ export default function PreparationPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="contact-number">Contact No.</Label>
+                  <Label htmlFor="contact-number">Contact No. <span className="text-destructive" aria-hidden="true">*</span></Label>
                   <Input
                     id="contact-number"
                     placeholder="09XXXXXXXXX"
@@ -991,7 +991,7 @@ export default function PreparationPage() {
                     }
                   />
                   <p className="text-xs text-muted-foreground">
-                    Use `09XXXXXXXXX` or `+639XXXXXXXXX` for SMS notifications.
+                    Use `09XXXXXXXXX` for SMS notifications.
                   </p>
                   {requestForm.contactNumber.length > 0 && !isValidMobileNumber && (
                     <p className="text-xs text-destructive">

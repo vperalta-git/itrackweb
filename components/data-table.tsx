@@ -54,6 +54,7 @@ interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
   data: TData[]
   searchKey?: string
+  searchKeys?: string[]
   searchPlaceholder?: string
   filterComponent?: React.ReactNode
   toolbarRight?: React.ReactNode
@@ -74,6 +75,7 @@ export function DataTable<TData, TValue>({
   columns,
   data,
   searchKey,
+  searchKeys,
   searchPlaceholder = 'Search...',
   filterComponent,
   toolbarRight,
@@ -82,6 +84,7 @@ export function DataTable<TData, TValue>({
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
+  const [globalFilter, setGlobalFilter] = React.useState('')
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
   const [rowSelection, setRowSelection] = React.useState({})
   const [isExportOpen, setIsExportOpen] = React.useState(false)
@@ -93,6 +96,18 @@ export function DataTable<TData, TValue>({
     columns,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onGlobalFilterChange: setGlobalFilter,
+    globalFilterFn: (row, _columnId, filterValue) => {
+      const value = String(filterValue ?? '').trim().toLocaleLowerCase()
+      const keys = searchKeys?.length ? searchKeys : searchKey ? [searchKey] : []
+      if (!value || keys.length === 0) return true
+
+      return keys.some((key) =>
+        String((row.original as Record<string, unknown>)[key] ?? '')
+          .toLocaleLowerCase()
+          .includes(value)
+      )
+    },
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -102,6 +117,7 @@ export function DataTable<TData, TValue>({
     state: {
       sorting,
       columnFilters,
+      globalFilter,
       columnVisibility,
       rowSelection,
     },
@@ -176,15 +192,24 @@ export function DataTable<TData, TValue>({
       {/* Toolbar */}
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          {searchKey && (
+          {(searchKey || searchKeys?.length) && (
             <div className="relative w-full sm:max-w-sm">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder={searchPlaceholder}
-                value={(table.getColumn(searchKey)?.getFilterValue() as string) ?? ''}
-                onChange={(event) =>
-                  table.getColumn(searchKey)?.setFilterValue(event.target.value)
+                value={
+                  searchKeys?.length
+                    ? globalFilter
+                    : (table.getColumn(searchKey ?? '')?.getFilterValue() as string) ?? ''
                 }
+                onChange={(event) => {
+                  if (searchKeys?.length) {
+                    table.setGlobalFilter(event.target.value)
+                    return
+                  }
+
+                  table.getColumn(searchKey ?? '')?.setFilterValue(event.target.value)
+                }}
                 className="w-full pl-9"
               />
             </div>
