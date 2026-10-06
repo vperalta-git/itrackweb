@@ -108,7 +108,6 @@ const getBodyColorSwatch = (bodyColor: string) =>
   bodyColorSwatches[bodyColor] ?? '#cbd5e1'
 
 type StockViewMode = 'vehicles' | 'stock-count'
-type StockSortMode = 'unit' | 'color-asc' | 'color-desc' | 'count-desc' | 'count-asc'
 
 type StockCountRow = {
   id: string
@@ -119,10 +118,6 @@ type StockCountRow = {
 }
 
 const normalizeStockCountValue = (value: string) => value.trim() || 'Unspecified'
-
-function RequiredAsterisk() {
-  return <span className="text-destructive" aria-hidden="true">*</span>
-}
 
 function SortableColumnHeader<TData, TValue>({
   column,
@@ -217,7 +212,6 @@ export default function InventoryPage() {
   const [vehicleToDelete, setVehicleToDelete] = React.useState<Vehicle | null>(null)
   const [statusFilter, setStatusFilter] = React.useState<string>('all')
   const [stockViewMode, setStockViewMode] = React.useState<StockViewMode>('vehicles')
-  const [stockSortMode, setStockSortMode] = React.useState<StockSortMode>('unit')
   const [addVehicleForm, setAddVehicleForm] = React.useState(initialAddVehicleForm)
   const [editVehicleForm, setEditVehicleForm] = React.useState(emptyEditVehicleForm)
   const [users, setUsers] = React.useState(() => loadUsers())
@@ -586,9 +580,7 @@ export default function InventoryPage() {
         headerClassName: 'w-[24%]',
         cellClassName: 'whitespace-normal break-words align-top',
       },
-      header: ({ column }) => (
-        <SortableColumnHeader column={column} label="Body Color" />
-      ),
+      header: 'Body Color',
       cell: ({ row }) => {
         const bodyColor = row.getValue('bodyColor') as string
         const swatchColor = getBodyColorSwatch(bodyColor)
@@ -681,26 +673,6 @@ export default function InventoryPage() {
     })
 
     return Array.from(groupedRows.values()).sort((a, b) => {
-      if (stockSortMode === 'color-asc') {
-        const colorSort = a.bodyColor.localeCompare(b.bodyColor)
-        if (colorSort !== 0) return colorSort
-      }
-
-      if (stockSortMode === 'color-desc') {
-        const colorSort = b.bodyColor.localeCompare(a.bodyColor)
-        if (colorSort !== 0) return colorSort
-      }
-
-      if (stockSortMode === 'count-desc') {
-        const countSort = b.stockCount - a.stockCount
-        if (countSort !== 0) return countSort
-      }
-
-      if (stockSortMode === 'count-asc') {
-        const countSort = a.stockCount - b.stockCount
-        if (countSort !== 0) return countSort
-      }
-
       const unitSort = a.unitName.localeCompare(b.unitName)
       if (unitSort !== 0) return unitSort
 
@@ -709,7 +681,7 @@ export default function InventoryPage() {
 
       return a.bodyColor.localeCompare(b.bodyColor)
     })
-  }, [filteredVehicles, stockSortMode])
+  }, [filteredVehicles])
 
   React.useEffect(() => {
     let isMounted = true
@@ -800,20 +772,6 @@ export default function InventoryPage() {
           <SelectItem value="stock-count">Stock Count</SelectItem>
         </SelectContent>
       </Select>
-      {stockViewMode === 'stock-count' && (
-        <Select value={stockSortMode} onValueChange={(value) => setStockSortMode(value as StockSortMode)}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Sort Stock Count" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="unit">Unit / Variation / Color</SelectItem>
-            <SelectItem value="color-asc">Color A to Z</SelectItem>
-            <SelectItem value="color-desc">Color Z to A</SelectItem>
-            <SelectItem value="count-desc">Most Stock First</SelectItem>
-            <SelectItem value="count-asc">Least Stock First</SelectItem>
-          </SelectContent>
-        </Select>
-      )}
       <Select value={statusFilter} onValueChange={setStatusFilter}>
         <SelectTrigger className="w-40">
           <SelectValue placeholder="All Status" />
@@ -878,7 +836,7 @@ export default function InventoryPage() {
                 )}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
                   <div className="space-y-2">
-                    <Label htmlFor="unit-name">Unit Name <RequiredAsterisk /></Label>
+                    <Label htmlFor="unit-name">Unit Name</Label>
                     <SearchableSelect
                       value={addVehicleForm.unitName}
                       onValueChange={(value) =>
@@ -896,7 +854,7 @@ export default function InventoryPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="variation">Variation <RequiredAsterisk /></Label>
+                    <Label htmlFor="variation">Variation</Label>
                     <SearchableSelect
                       value={addVehicleForm.variation}
                       onValueChange={(value) =>
@@ -928,7 +886,7 @@ export default function InventoryPage() {
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="conduction-number">Conduction Number <RequiredAsterisk /></Label>
+                    <Label htmlFor="conduction-number">Conduction Number</Label>
                     <Input
                       id="conduction-number"
                       value={addVehicleForm.conductionNumber}
@@ -942,7 +900,7 @@ export default function InventoryPage() {
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="body-color">Body Color <RequiredAsterisk /></Label>
+                    <Label htmlFor="body-color">Body Color</Label>
                     <SearchableSelect
                       value={addVehicleForm.bodyColor}
                       onValueChange={(value) =>
@@ -968,7 +926,7 @@ export default function InventoryPage() {
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="vehicle-status">Status <RequiredAsterisk /></Label>
+                    <Label htmlFor="vehicle-status">Status</Label>
                     <Select
                       value={addVehicleForm.status}
                       onValueChange={(value) =>
@@ -1026,8 +984,7 @@ export default function InventoryPage() {
           data={filteredVehicles}
           tableClassName="min-w-[1180px] table-fixed"
           searchKey="conductionNumber"
-          searchKeys={['conductionNumber', 'unitName', 'variation', 'bodyColor', 'status', 'notes']}
-          searchPlaceholder="Search conduction, unit, variation, color, status..."
+          searchPlaceholder="Search by conduction number..."
           exportConfig={{
             title: 'Vehicle Stocks Report',
             subtitle: 'Current vehicle stock listing',
@@ -1041,8 +998,7 @@ export default function InventoryPage() {
           data={stockCountRows}
           tableClassName="min-w-[760px] table-fixed"
           searchKey="unitName"
-          searchKeys={['unitName', 'variation', 'bodyColor', 'stockCount']}
-          searchPlaceholder="Search unit, variation, color, or count..."
+          searchPlaceholder="Search by unit name..."
           exportConfig={{
             title: 'Vehicle Stock Count Report',
             subtitle: 'Grouped by unit, variation, and body color',
@@ -1144,7 +1100,7 @@ export default function InventoryPage() {
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
               <div className="space-y-2">
-                <Label>Unit Name <RequiredAsterisk /></Label>
+                <Label>Unit Name</Label>
                 <SearchableSelect
                   value={editVehicleForm.unitName}
                   onValueChange={(value) =>
@@ -1162,7 +1118,7 @@ export default function InventoryPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Variation <RequiredAsterisk /></Label>
+                <Label>Variation</Label>
                 <SearchableSelect
                   value={editVehicleForm.variation}
                   onValueChange={(value) =>
@@ -1187,7 +1143,7 @@ export default function InventoryPage() {
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Conduction Number <RequiredAsterisk /></Label>
+                <Label>Conduction Number</Label>
                 <Input
                   value={editVehicleForm.conductionNumber}
                   onChange={(e) =>
@@ -1199,7 +1155,7 @@ export default function InventoryPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Body Color <RequiredAsterisk /></Label>
+                <Label>Body Color</Label>
                 <SearchableSelect
                   value={editVehicleForm.bodyColor}
                   onValueChange={(value) =>
@@ -1217,7 +1173,7 @@ export default function InventoryPage() {
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Status <RequiredAsterisk /></Label>
+                <Label>Status</Label>
                 <Select
                   value={editVehicleForm.status}
                   onValueChange={(value) =>

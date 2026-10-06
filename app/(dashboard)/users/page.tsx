@@ -506,7 +506,7 @@ export default function UsersPage() {
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>First Name <span className="text-destructive" aria-hidden="true">*</span></Label>
+                  <Label>First Name</Label>
                   <Input
                     placeholder="Enter first name"
                     value={addForm.firstName}
@@ -516,7 +516,7 @@ export default function UsersPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Last Name <span className="text-destructive" aria-hidden="true">*</span></Label>
+                  <Label>Last Name</Label>
                   <Input
                     placeholder="Enter last name"
                     value={addForm.lastName}
@@ -527,7 +527,7 @@ export default function UsersPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Email Address <span className="text-destructive" aria-hidden="true">*</span></Label>
+                <Label>Email Address</Label>
                 <Input
                   type="email"
                   placeholder="user@isuzupasig.com"
@@ -541,9 +541,9 @@ export default function UsersPage() {
                 </p>
               </div>
               <div className="space-y-2">
-                <Label>Phone Number <span className="text-destructive" aria-hidden="true">*</span></Label>
+                <Label>Phone Number</Label>
                 <Input
-                  placeholder="09171234567"
+                  placeholder="+63 9XX XXX XXXX"
                   value={addForm.phone}
                   onChange={(event) =>
                     setAddForm((current) => ({
@@ -560,7 +560,7 @@ export default function UsersPage() {
                 ) : null}
               </div>
               <div className="space-y-2">
-                <Label>Role <span className="text-destructive" aria-hidden="true">*</span></Label>
+                <Label>Role</Label>
                 <Select
                   value={addForm.role}
                   onValueChange={(value: User['role']) =>
@@ -586,7 +586,7 @@ export default function UsersPage() {
               </div>
               {addForm.role === 'sales-agent' && (
                 <div className="space-y-2">
-                  <Label>Assigned Manager <span className="text-destructive" aria-hidden="true">*</span></Label>
+                  <Label>Assigned Manager</Label>
                   <Select
                     value={addForm.managerId}
                     onValueChange={(value) =>
@@ -814,7 +814,7 @@ export default function UsersPage() {
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>First Name <span className="text-destructive" aria-hidden="true">*</span></Label>
+                <Label>First Name</Label>
                 <Input
                   value={editForm.firstName}
                   onChange={(event) =>
@@ -823,7 +823,7 @@ export default function UsersPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Last Name <span className="text-destructive" aria-hidden="true">*</span></Label>
+                <Label>Last Name</Label>
                 <Input
                   value={editForm.lastName}
                   onChange={(event) =>
@@ -833,7 +833,7 @@ export default function UsersPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Email Address <span className="text-destructive" aria-hidden="true">*</span></Label>
+              <Label>Email Address</Label>
               <Input
                 type="email"
                 value={editForm.email}
@@ -846,7 +846,7 @@ export default function UsersPage() {
               </p>
             </div>
             <div className="space-y-2">
-              <Label>Phone Number <span className="text-destructive" aria-hidden="true">*</span></Label>
+              <Label>Phone Number</Label>
               <Input
                 value={editForm.phone}
                 onChange={(event) =>
@@ -857,7 +857,7 @@ export default function UsersPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Role <span className="text-destructive" aria-hidden="true">*</span></Label>
+                <Label>Role</Label>
                 <Select
                   value={editForm.role}
                   onValueChange={(value: User['role']) =>
@@ -878,7 +878,7 @@ export default function UsersPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Status <span className="text-destructive" aria-hidden="true">*</span></Label>
+                <Label>Status</Label>
                 <Select
                   value={editForm.status}
                   onValueChange={(value: User['status']) =>
