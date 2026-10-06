@@ -5,9 +5,12 @@ import {
   createSignedSessionValue,
   getServerSessionCookieOptions,
 } from '@/lib/server-auth-session'
+import { normalizeApiBaseUrl } from '@/lib/api-base-url'
 import { isValidRole } from '@/lib/rbac'
 
 type SessionRequestBody = {
+  token?: string
+  mustChangePassword?: boolean
   userId?: string
   routeRole?: string
   remember?: boolean
@@ -26,8 +29,19 @@ export async function POST(request: Request) {
     )
   }
 
+  const upstream = await fetch(`${normalizeApiBaseUrl(process.env.BACKEND_URL)}/auth/me`, {
+    headers: { Authorization: `Bearer ${body?.token ?? ''}` }, cache: 'no-store',
+  }).catch(() => null)
+  if (!upstream?.ok) return NextResponse.json({ message: 'Please sign in again.' }, { status: 401 })
+  const { data: user } = await upstream.json()
+  const actualRole = user?.role === 'sales_agent' ? 'sales-agent' : user?.role
+  if (user?.id !== userId || actualRole !== routeRole) {
+    return NextResponse.json({ message: 'Invalid session.' }, { status: 403 })
+  }
+
   const { value } = await createSignedSessionValue({
     userId,
+    mustChangePassword: user.mustChangePassword === true,
     routeRole,
     remember,
   })

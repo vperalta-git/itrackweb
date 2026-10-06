@@ -1,5 +1,7 @@
 'use client'
 
+import { persistServerSession } from '@/lib/session'
+
 import * as React from 'react'
 import { usePathname } from 'next/navigation'
 import Cropper, { type Area } from 'react-easy-crop'
@@ -357,9 +359,10 @@ export default function ProfilePage() {
       newPassword: false,
       confirmPassword: false,
     })
-    updateSessionUser({
+    const nextSession = updateSessionUser({
       mustChangePassword: false,
     })
+    if (nextSession) await persistServerSession(nextSession)
     toast.success('Password updated successfully')
   }
 

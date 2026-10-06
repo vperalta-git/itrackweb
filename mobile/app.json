@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "I-TRACK",
+    "slug": "i-track-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "newArchEnabled": true,
+    "icon": "./public/logo.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./public/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTabletMode": true,
+      "bundleIdentifier": "com.itrack.mobile"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./public/logo-android-adaptive.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.itrack.mobile",
+      "googleServicesFile": "./google-services.json"
+    },
+    "web": {
+      "favicon": "./public/icon-light-32x32.png"
+    },
+    "scheme": "itrack",
+    "plugins": [
+      "expo-router",
+      "expo-notifications",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow I-TRACK to access your location while driving so dispatch can detect your realtime trip position."
+        }
+      ]
+    ],
+    "extra": {
+      "apiUrl": "https://i-track-backend-b72a.onrender.com",
+      "expoPushProjectId": "2c81022f-9e77-4cc2-a286-6278f615d38a",
+      "eas": {
+        "projectId": "2c81022f-9e77-4cc2-a286-6278f615d38a"
+      }
+    }
+  }
+}

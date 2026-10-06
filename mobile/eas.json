@@ -1,0 +1,45 @@
+{
+  "cli": {
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://i-track-backend-b72a.onrender.com",
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "2c81022f-9e77-4cc2-a286-6278f615d38a",
+        "EXPO_PUBLIC_MAPBOX_STYLE_OWNER": "mapbox",
+        "EXPO_PUBLIC_MAPBOX_STYLE_ID": "streets-v12"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "preview": {
+      "developmentClient": false,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://i-track-backend-b72a.onrender.com",
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "2c81022f-9e77-4cc2-a286-6278f615d38a",
+        "EXPO_PUBLIC_MAPBOX_STYLE_OWNER": "mapbox",
+        "EXPO_PUBLIC_MAPBOX_STYLE_ID": "streets-v12"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "developmentClient": false,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://i-track-backend-b72a.onrender.com",
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "2c81022f-9e77-4cc2-a286-6278f615d38a",
+        "EXPO_PUBLIC_MAPBOX_STYLE_OWNER": "mapbox",
+        "EXPO_PUBLIC_MAPBOX_STYLE_ID": "streets-v12"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  }
+}

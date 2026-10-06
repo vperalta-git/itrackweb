@@ -1,0 +1,1056 @@
+import React, { useMemo, useState } from 'react';
+import {
+  Alert,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import {
+  Button,
+  MapViewComponent,
+  StatusBadge,
+} from '@/src/mobile/components';
+import { theme } from '@/src/mobile/constants/theme';
+import { useAuth } from '@/src/mobile/context/AuthContext';
+import type { Location, MarkerData } from '@/src/mobile/components/MapView';
+import {
+  acceptDriverAllocation,
+  canDriverCompleteAllocationTrip,
+  completeDriverAllocationTrip,
+  findDriverAllocationLocation,
+  formatDriverAllocationEta,
+  getDriverAllocationDestinationRadiusMeters,
+  getDriverAllocationDashboardRecord,
+  getDriverAllocationInitialRegion,
+  getDriverAllocationLiveLocation,
+  getDriverAllocationRemainingDistanceMeters,
+  getDriverAllocationRoute,
+  loadDriverAllocations,
+  notifyDriverAllocationCompletionRequest,
+  requestDriverAllocationStop,
+  startDriverAllocationTrip,
+} from '@/src/mobile/data/driver-allocation';
+import {
+  useDriverAllocationLiveRouteMetrics,
+  useDriverRealtimeLocation,
+} from '@/src/mobile/hooks';
+import { AllocationStatus } from '@/src/mobile/types';
+
+type DriverTripStage =
+  | 'pending_acceptance'
+  | 'accepted'
+  | 'in_transit'
+  | 'waiting_for_booking';
+
+const getStageBadgeStatus = (stage: DriverTripStage) => {
+  switch (stage) {
+    case 'pending_acceptance':
+      return 'pending' as const;
+    case 'accepted':
+      return 'confirmed' as const;
+    case 'in_transit':
+      return 'in_transit' as const;
+    case 'waiting_for_booking':
+      return 'inactive' as const;
+    default:
+      return 'inactive' as const;
+  }
+};
+
+const getStageLabel = (stage: DriverTripStage) => {
+  switch (stage) {
+    case 'pending_acceptance':
+      return 'Pending Acceptance';
+    case 'accepted':
+      return 'Accepted';
+    case 'in_transit':
+      return 'In Transit';
+    case 'waiting_for_booking':
+      return 'Waiting for Booking';
+    default:
+      return 'Pending Acceptance';
+  }
+};
+
+const getMapChipLabel = (stage: DriverTripStage) => {
+  switch (stage) {
+    case 'pending_acceptance':
+    case 'accepted':
+      return 'Pickup to Destination';
+    case 'in_transit':
+      return 'Live Driving Route';
+    case 'waiting_for_booking':
+      return 'Waiting for Booking';
+    default:
+      return 'Pickup to Destination';
+  }
+};
+
+const getStageMessage = (stage: DriverTripStage) => {
+  switch (stage) {
+    case 'pending_acceptance':
+      return 'Accept the pending booking first before trip controls appear. Only one active booking is assigned per driver.';
+    case 'accepted':
+      return 'Booking accepted. Start the trip when the vehicle is ready to move.';
+    case 'in_transit':
+      return 'Trip is active on the live route. End the trip once delivery is complete.';
+    case 'waiting_for_booking':
+      return 'No active booking right now. Stay available for the next assignment.';
+    default:
+      return 'Accept the pending booking first before trip controls appear.';
+  }
+};
+
+export default function DriverDashboard() {
+  const { user } = useAuth();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
+  const [isSubmittingTripAction, setIsSubmittingTripAction] = useState(false);
+
+  const activeAllocation = useMemo(
+    () => (user?.id ? getDriverAllocationDashboardRecord(user.id) : null),
+    [refreshKey, user?.id]
+  );
+
+  const tripStage: DriverTripStage = useMemo(() => {
+    if (!activeAllocation) {
+      return 'waiting_for_booking';
+    }
+
+    switch (activeAllocation.status) {
+      case AllocationStatus.ASSIGNED:
+        return 'accepted';
+      case AllocationStatus.IN_TRANSIT:
+        return 'in_transit';
+      case AllocationStatus.PENDING:
+      default:
+        return 'pending_acceptance';
+    }
+  }, [activeAllocation]);
+
+  const pickupLocation = useMemo(
+    () =>
+      activeAllocation
+        ? findDriverAllocationLocation(activeAllocation.pickupId)
+        : null,
+    [activeAllocation]
+  );
+  const destinationLocation = useMemo(
+    () =>
+      activeAllocation
+        ? findDriverAllocationLocation(activeAllocation.destinationId)
+        : null,
+    [activeAllocation]
+  );
+  const {
+    currentLocation: trackedDriverLocation,
+    trackingStatus,
+    statusMessage: trackingStatusMessage,
+    lastUpdatedAt,
+  } = useDriverRealtimeLocation(activeAllocation);
+  const driverLocation = useMemo(
+    () =>
+      activeAllocation?.status === AllocationStatus.IN_TRANSIT
+        ? trackedDriverLocation ?? getDriverAllocationLiveLocation(activeAllocation)
+        : null,
+    [activeAllocation, trackedDriverLocation]
+  );
+  const liveMetrics = useDriverAllocationLiveRouteMetrics(
+    activeAllocation,
+    trackedDriverLocation ?? undefined
+  );
+  const pickupMarker = useMemo<MarkerData | null>(
+    () =>
+      pickupLocation
+        ? {
+            id: 'driver-pickup',
+            location: pickupLocation.location,
+            title: 'Pickup',
+            description: pickupLocation.label,
+            type: 'checkpoint',
+          }
+        : null,
+    [pickupLocation]
+  );
+  const destinationMarker = useMemo<MarkerData | null>(
+    () =>
+      destinationLocation
+        ? {
+            id: 'driver-destination',
+            location: destinationLocation.location,
+            title: 'Destination',
+            description: destinationLocation.label,
+            type: 'destination',
+          }
+        : null,
+    [destinationLocation]
+  );
+  const driverMarker = useMemo<MarkerData | null>(
+    () =>
+      driverLocation && activeAllocation
+        ? {
+            id: `driver-${activeAllocation.id}`,
+            location: driverLocation,
+            title: activeAllocation.driverName,
+            description: `Current position - ETA ${liveMetrics.etaLabel}${
+              liveMetrics.distanceLabel ? ` - ${liveMetrics.distanceLabel}` : ''
+            }`,
+            type: 'driver',
+            status: 'active',
+          }
+        : null,
+    [activeAllocation, driverLocation, liveMetrics.distanceLabel, liveMetrics.etaLabel]
+  );
+  const markers = useMemo(
+    () =>
+      [
+        pickupMarker,
+        destinationMarker,
+        tripStage === 'in_transit' ? driverMarker : null,
+      ].filter((marker) => marker !== null) as MarkerData[],
+    [destinationMarker, driverMarker, pickupMarker, tripStage]
+  );
+  const routes = useMemo<Location[][]>(() => {
+    if (
+      tripStage === 'in_transit' &&
+      driverLocation &&
+      destinationLocation
+    ) {
+      return [[driverLocation, destinationLocation.location]];
+    }
+
+    if (!activeAllocation) {
+      return [];
+    }
+
+    return getDriverAllocationRoute(
+      activeAllocation.pickupId,
+      activeAllocation.destinationId
+    );
+  }, [activeAllocation, destinationLocation, driverLocation, tripStage]);
+  const initialRegion = useMemo(
+    () =>
+      activeAllocation
+        ? getDriverAllocationInitialRegion(
+            activeAllocation.pickupId,
+            activeAllocation.destinationId
+          )
+        : {
+            latitude: 14.5995,
+            longitude: 120.9842,
+            latitudeDelta: 0.18,
+            longitudeDelta: 0.18,
+          },
+    [activeAllocation]
+  );
+  const liveRemainingDistanceKm = liveMetrics.distanceKm ?? undefined;
+  const destinationRadiusMeters =
+    activeAllocation && tripStage === 'in_transit'
+      ? getDriverAllocationDestinationRadiusMeters(
+          activeAllocation,
+          driverLocation ?? trackedDriverLocation ?? undefined
+        )
+      : null;
+  const isWithinCompletionRadius =
+    activeAllocation
+      ? canDriverCompleteAllocationTrip(
+        activeAllocation,
+          driverLocation ?? trackedDriverLocation ?? undefined
+        )
+      : false;
+  const remainingDistanceMeters =
+    activeAllocation && tripStage === 'in_transit'
+      ? getDriverAllocationRemainingDistanceMeters(
+          activeAllocation,
+          liveRemainingDistanceKm
+        )
+      : null;
+  const hasPendingStopRequest =
+    activeAllocation?.stopRequest?.status === 'pending';
+  const stageMessage =
+    tripStage === 'in_transit'
+      ? isWithinCompletionRadius
+        ? 'Trip is active on the live route. End Trip is available once delivery is complete within the 500-meter destination radius.'
+        : `Trip is active on the live route. Notify the admin or supervisor until your live location is within 500 meters of the destination${
+            typeof destinationRadiusMeters === 'number'
+              ? ` (${destinationRadiusMeters} m from drop-off).`
+              : typeof remainingDistanceMeters === 'number'
+                ? ` (${remainingDistanceMeters} m left on route).`
+              : '.'
+          }`
+      : getStageMessage(tripStage);
+  const isWaitingForBooking = tripStage === 'waiting_for_booking';
+  const dashboardMapChipLabel = isWaitingForBooking
+    ? 'Standby Coverage'
+    : getMapChipLabel(tripStage);
+  const compactMeta =
+    isWaitingForBooking
+      ? 'Available'
+      : tripStage === 'pending_acceptance'
+        ? 'Pending'
+        : activeAllocation
+          ? liveMetrics.etaLabel ?? formatDriverAllocationEta(activeAllocation)
+          : 'On Route';
+  const trackingMetaLabel =
+    trackingStatus === 'tracking' && lastUpdatedAt
+      ? `Updated ${lastUpdatedAt.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+        })}`
+      : trackingStatus === 'tracking'
+        ? 'Live GPS Active'
+        : trackingStatus === 'permission_denied'
+          ? 'Location Access Needed'
+          : trackingStatus === 'disabled'
+            ? 'Location Services Off'
+            : trackingStatus === 'error'
+              ? 'Live GPS Delayed'
+              : 'Live GPS Standby';
+
+  const refreshActiveAllocation = () => {
+    setRefreshKey((current) => current + 1);
+  };
+
+  const handleRefreshDashboard = async () => {
+    if (isRefreshingDashboard) {
+      return;
+    }
+
+    try {
+      setIsRefreshingDashboard(true);
+      await loadDriverAllocations();
+      refreshActiveAllocation();
+    } catch (error) {
+      Alert.alert(
+        'Unable to refresh dashboard',
+        error instanceof Error
+          ? error.message
+          : 'The latest trip details could not be loaded right now.'
+      );
+    } finally {
+      setIsRefreshingDashboard(false);
+    }
+  };
+
+  const handleAcceptBooking = async () => {
+    if (!activeAllocation || isSubmittingTripAction) {
+      return;
+    }
+
+    try {
+      setIsSubmittingTripAction(true);
+      await acceptDriverAllocation(activeAllocation.id);
+      refreshActiveAllocation();
+      Alert.alert(
+        'Booking Accepted',
+        'The booking is now accepted. Start the trip when ready.'
+      );
+    } catch (error) {
+      Alert.alert(
+        'Unable to accept booking',
+        error instanceof Error
+          ? error.message
+          : 'The booking could not be accepted right now.'
+      );
+    } finally {
+      setIsSubmittingTripAction(false);
+    }
+  };
+
+  const handleStartTrip = async () => {
+    if (!activeAllocation || isSubmittingTripAction) {
+      return;
+    }
+
+    try {
+      setIsSubmittingTripAction(true);
+      await startDriverAllocationTrip(activeAllocation.id);
+      refreshActiveAllocation();
+      Alert.alert(
+        'Trip Started',
+        'The booking is now marked as In Transit and live tracking is active.'
+      );
+    } catch (error) {
+      Alert.alert(
+        'Unable to start trip',
+        error instanceof Error
+          ? error.message
+          : 'The trip could not be started right now.'
+      );
+    } finally {
+      setIsSubmittingTripAction(false);
+    }
+  };
+
+  const handleEndTrip = async () => {
+    if (!activeAllocation || isSubmittingTripAction) {
+      return;
+    }
+
+    try {
+      setIsSubmittingTripAction(true);
+      await completeDriverAllocationTrip(activeAllocation.id);
+      refreshActiveAllocation();
+      Alert.alert(
+        'Trip Ended',
+        'The trip is now completed and the stock unit is marked as Available.'
+      );
+    } catch (error) {
+      Alert.alert(
+        'Unable to complete trip',
+        error instanceof Error
+          ? error.message
+          : 'The trip could not be completed right now.'
+      );
+    } finally {
+      setIsSubmittingTripAction(false);
+    }
+  };
+
+  const handleNotifyAdminSupervisor = async () => {
+    if (!activeAllocation || isSubmittingTripAction) {
+      return;
+    }
+
+    try {
+      setIsSubmittingTripAction(true);
+      await notifyDriverAllocationCompletionRequest(activeAllocation.id);
+      Alert.alert(
+        'Admin/Supervisor Notified',
+        'A trip completion review was sent. End Trip will appear automatically once your live location is within 500 meters of the destination.'
+      );
+    } catch (error) {
+      Alert.alert(
+        'Unable to notify admin/supervisor',
+        error instanceof Error
+          ? error.message
+          : 'The trip completion request could not be sent right now.'
+      );
+    } finally {
+      setIsSubmittingTripAction(false);
+    }
+  };
+
+  const handleRequestStopTrip = () => {
+    if (!activeAllocation || isSubmittingTripAction || hasPendingStopRequest) {
+      return;
+    }
+
+    Alert.alert(
+      'Request trip stop?',
+      'This will notify admin/supervisor so they can contact you and approve or reject the stop request.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Notify Admin',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsSubmittingTripAction(true);
+              await requestDriverAllocationStop(
+                activeAllocation.id,
+                'Driver requested admin approval to stop the trip.'
+              );
+              refreshActiveAllocation();
+              Alert.alert(
+                'Stop Request Sent',
+                'Admin/supervisor has been notified. Please wait for confirmation before stopping the trip.'
+              );
+            } catch (error) {
+              Alert.alert(
+                'Unable to request trip stop',
+                error instanceof Error
+                  ? error.message
+                  : 'The stop trip request could not be sent right now.'
+              );
+            } finally {
+              setIsSubmittingTripAction(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const refreshButton = (
+    <Button
+      title="Refresh"
+      variant="secondary"
+      size="small"
+      onPress={handleRefreshDashboard}
+      loading={isRefreshingDashboard}
+      icon={
+        <Ionicons
+          name="refresh-outline"
+          size={16}
+          color={theme.colors.text}
+        />
+      }
+      style={styles.refreshButton}
+    />
+  );
+
+  return (
+    <View style={styles.container}>
+      <MapViewComponent
+        markers={markers}
+        routes={routes}
+        initialRegion={initialRegion}
+        mapChipLabel={dashboardMapChipLabel}
+        legendItems={
+          isWaitingForBooking
+            ? []
+            : [
+                {
+                  label: 'Pickup',
+                  color: theme.colors.info,
+                  iconName: 'ellipse',
+                },
+                {
+                  label: 'Destination',
+                  color: theme.colors.success,
+                  iconName: 'flag',
+                },
+                {
+                  label: 'Live Vehicle',
+                  color: theme.colors.primary,
+                  iconName: 'car-sport',
+                },
+              ]
+        }
+        style={styles.map}
+      />
+
+      <SafeAreaView pointerEvents="box-none" style={styles.overlay}>
+        <View style={styles.topOverlay}>
+          <View style={styles.topOverlayActions}>
+            {refreshButton}
+          </View>
+
+          {activeAllocation ? (
+            <View style={styles.headerCard}>
+              <View style={styles.headerRow}>
+                <Text style={styles.headerLabel}>Assigned Booking</Text>
+                <StatusBadge
+                  status={getStageBadgeStatus(tripStage)}
+                  label={getStageLabel(tripStage)}
+                  size="small"
+                />
+              </View>
+
+              <View style={styles.routeSummaryRow}>
+                <View style={styles.routeSummaryPill}>
+                  <Text style={styles.routeSummaryKey}>Pickup</Text>
+                  <Text style={styles.routeSummaryValue} numberOfLines={1}>
+                    {activeAllocation.pickupLabel}
+                  </Text>
+                </View>
+
+                <Ionicons
+                  name="arrow-forward-outline"
+                  size={16}
+                  color={theme.colors.primaryDark}
+                />
+
+                <View style={styles.routeSummaryPill}>
+                  <Text style={styles.routeSummaryKey}>Destination</Text>
+                  <Text style={styles.routeSummaryValue} numberOfLines={1}>
+                    {activeAllocation.destinationLabel}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.bottomOverlay}>
+          {tripStage === 'waiting_for_booking' ? (
+            <View style={[styles.controlCard, styles.waitingCard]}>
+              <View style={styles.waitingCardTop}>
+                <View style={styles.waitingIconWrap}>
+                  <Ionicons
+                    name="time-outline"
+                    size={22}
+                    color={theme.colors.primary}
+                  />
+                </View>
+
+                <StatusBadge
+                  status="inactive"
+                  label="Standby"
+                  size="small"
+                />
+              </View>
+
+              <Text style={styles.waitingTitle}>Waiting for Booking</Text>
+              <Text style={styles.waitingSubtitle}>{stageMessage}</Text>
+
+              <View style={styles.waitingInfoRow}>
+                <View style={styles.waitingInfoChip}>
+                  <Ionicons
+                    name="radio-outline"
+                    size={14}
+                    color={theme.colors.primaryDark}
+                  />
+                  <Text style={styles.waitingInfoText}>Available now</Text>
+                </View>
+
+                <View style={styles.waitingInfoChip}>
+                  <Ionicons
+                    name="car-sport-outline"
+                    size={14}
+                    color={theme.colors.primaryDark}
+                  />
+                  <Text style={styles.waitingInfoText}>
+                    One active driving booking at a time
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.waitingTipCard}>
+                <Ionicons
+                  name="notifications-outline"
+                  size={18}
+                  color={theme.colors.primary}
+                />
+                <View style={styles.waitingTipCopy}>
+                  <Text style={styles.waitingTipTitle}>
+                    Keep notifications on
+                  </Text>
+                  <Text style={styles.waitingTipText}>
+                    New assignments will show here as soon as they are sent to
+                    this driver account.
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.controlCard}>
+              <View style={styles.controlHeader}>
+                <View style={styles.controlTitleWrap}>
+                  <Text style={styles.controlTitle}>
+                    {tripStage === 'pending_acceptance'
+                      ? 'Accept Booking'
+                      : tripStage === 'accepted'
+                        ? 'Trip Ready'
+                        : 'Driving'}
+                  </Text>
+                  <Text style={styles.controlSubtitle}>{stageMessage}</Text>
+                </View>
+
+                <View style={styles.timeChip}>
+                  <Ionicons
+                    name="navigate-outline"
+                    size={14}
+                    color={theme.colors.primaryDark}
+                  />
+                  <Text style={styles.timeChipText}>{compactMeta}</Text>
+                </View>
+              </View>
+
+              <View style={styles.trackingCard}>
+                <View style={styles.trackingCardTop}>
+                  <View style={styles.trackingIconWrap}>
+                    <Ionicons
+                      name={
+                        trackingStatus === 'tracking'
+                          ? 'locate'
+                          : trackingStatus === 'permission_denied'
+                            ? 'alert-circle-outline'
+                            : 'location-outline'
+                      }
+                      size={16}
+                      color={
+                        trackingStatus === 'tracking'
+                          ? theme.colors.success
+                          : trackingStatus === 'permission_denied'
+                            ? theme.colors.error
+                            : theme.colors.primary
+                      }
+                    />
+                  </View>
+
+                  <View style={styles.trackingCopy}>
+                    <Text style={styles.trackingTitle}>Realtime Location</Text>
+                    <Text style={styles.trackingSubtitle}>
+                      {trackingStatusMessage}
+                    </Text>
+                  </View>
+
+                  <StatusBadge
+                    status={
+                      trackingStatus === 'tracking'
+                        ? 'verified'
+                        : trackingStatus === 'permission_denied' ||
+                            trackingStatus === 'error'
+                          ? 'cancelled'
+                          : 'inactive'
+                    }
+                    label={trackingMetaLabel}
+                    size="small"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.actionStack}>
+                {tripStage === 'pending_acceptance' ? (
+                  <Button
+                    title="Accept Booking"
+                    variant="primary"
+                    onPress={handleAcceptBooking}
+                    loading={isSubmittingTripAction}
+                    fullWidth
+                    icon={
+                      <Ionicons
+                        name="checkmark-circle-outline"
+                        size={18}
+                        color={theme.colors.white}
+                      />
+                    }
+                  />
+                ) : null}
+
+                {tripStage === 'accepted' ? (
+                  <Button
+                    title="Start Trip"
+                    variant="primary"
+                    onPress={handleStartTrip}
+                    loading={isSubmittingTripAction}
+                    fullWidth
+                    icon={
+                      <Ionicons
+                        name="play-outline"
+                        size={18}
+                        color={theme.colors.white}
+                      />
+                    }
+                  />
+                ) : null}
+
+                {tripStage === 'in_transit' ? (
+                  <>
+                    <Button
+                      title={
+                        isWithinCompletionRadius
+                          ? 'End Trip'
+                          : 'Notify Admin/Supervisor'
+                      }
+                      variant={isWithinCompletionRadius ? 'danger' : 'secondary'}
+                      onPress={
+                        isWithinCompletionRadius
+                          ? handleEndTrip
+                          : handleNotifyAdminSupervisor
+                      }
+                      loading={isSubmittingTripAction}
+                      fullWidth
+                      icon={
+                        <Ionicons
+                          name={
+                            isWithinCompletionRadius
+                              ? 'stop-circle-outline'
+                              : 'notifications-outline'
+                          }
+                          size={18}
+                          color={
+                            isWithinCompletionRadius
+                              ? theme.colors.white
+                              : theme.colors.text
+                          }
+                        />
+                      }
+                    />
+                    <Button
+                      title={
+                        hasPendingStopRequest
+                          ? 'Stop Request Pending'
+                          : 'Request Stop Trip'
+                      }
+                      variant="secondary"
+                      onPress={handleRequestStopTrip}
+                      loading={isSubmittingTripAction}
+                      disabled={hasPendingStopRequest}
+                      fullWidth
+                      icon={
+                        <Ionicons
+                          name="alert-circle-outline"
+                          size={18}
+                          color={theme.colors.text}
+                        />
+                      }
+                    />
+                  </>
+                ) : null}
+              </View>
+            </View>
+          )}
+        </View>
+      </SafeAreaView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.black,
+  },
+  map: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    borderRadius: 0,
+    borderWidth: 0,
+    backgroundColor: theme.colors.gray100,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'space-between',
+  },
+  topOverlay: {
+    paddingHorizontal: theme.spacing.base,
+    paddingTop: theme.spacing.sm,
+  },
+  topOverlayActions: {
+    alignItems: 'flex-end',
+    marginBottom: theme.spacing.sm,
+  },
+  headerCard: {
+    borderRadius: 22,
+    padding: theme.spacing.sm,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    ...theme.shadows.md,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.base,
+    marginBottom: theme.spacing.xs,
+  },
+  headerLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
+    color: theme.colors.primaryDark,
+    fontFamily: theme.fonts.family.sans,
+  },
+  routeSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  routeSummaryPill: {
+    flex: 1,
+    borderRadius: 16,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 10,
+    backgroundColor: theme.colors.surfaceOverlay,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+  },
+  routeSummaryKey: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    color: theme.colors.textSubtle,
+    marginBottom: 2,
+    fontFamily: theme.fonts.family.sans,
+  },
+  routeSummaryValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
+  },
+  bottomOverlay: {
+    paddingHorizontal: theme.spacing.base,
+    paddingBottom: theme.spacing.base,
+  },
+  controlCard: {
+    borderRadius: 28,
+    padding: theme.spacing.sm,
+    backgroundColor: 'rgba(247, 248, 252, 0.96)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.7)',
+    ...theme.shadows.lg,
+  },
+  controlHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: theme.spacing.base,
+    marginBottom: theme.spacing.xs,
+  },
+  controlTitleWrap: {
+    flex: 1,
+  },
+  controlTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: 2,
+    fontFamily: theme.fonts.family.sans,
+  },
+  controlSubtitle: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: theme.colors.textMuted,
+    fontFamily: theme.fonts.family.sans,
+  },
+  timeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    borderRadius: theme.radius.full,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    backgroundColor: theme.colors.primarySurface,
+    borderWidth: 1,
+    borderColor: theme.colors.primarySurfaceStrong,
+  },
+  timeChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.primaryDark,
+    fontFamily: theme.fonts.family.sans,
+  },
+  trackingCard: {
+    marginBottom: theme.spacing.sm,
+    borderRadius: 20,
+    paddingHorizontal: theme.spacing.base,
+    paddingVertical: theme.spacing.sm,
+    backgroundColor: theme.colors.white,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+  },
+  trackingCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  trackingIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primarySurface,
+    borderWidth: 1,
+    borderColor: theme.colors.primarySurfaceStrong,
+  },
+  trackingCopy: {
+    flex: 1,
+  },
+  trackingTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: 2,
+    fontFamily: theme.fonts.family.sans,
+  },
+  trackingSubtitle: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: theme.colors.textMuted,
+    fontFamily: theme.fonts.family.sans,
+  },
+  actionStack: {
+    gap: theme.spacing.sm,
+  },
+  waitingCard: {
+    padding: theme.spacing.base,
+  },
+  waitingCardTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: theme.spacing.base,
+    marginBottom: theme.spacing.base,
+  },
+  waitingIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primarySurface,
+    borderWidth: 1,
+    borderColor: theme.colors.primarySurfaceStrong,
+  },
+  waitingTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: theme.spacing.xs,
+    fontFamily: theme.fonts.family.sans,
+  },
+  waitingSubtitle: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: theme.colors.textMuted,
+    marginBottom: theme.spacing.base,
+    fontFamily: theme.fonts.family.sans,
+  },
+  waitingInfoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.base,
+  },
+  waitingInfoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    borderRadius: theme.radius.full,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    backgroundColor: theme.colors.surfaceOverlay,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+  },
+  waitingInfoText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
+  },
+  waitingTipCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: theme.spacing.sm,
+    borderRadius: 22,
+    paddingHorizontal: theme.spacing.base,
+    paddingVertical: theme.spacing.base,
+    backgroundColor: theme.colors.primarySurface,
+    borderWidth: 1,
+    borderColor: theme.colors.primarySurfaceStrong,
+  },
+  waitingTipCopy: {
+    flex: 1,
+  },
+  waitingTipTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.primaryDark,
+    marginBottom: 4,
+    fontFamily: theme.fonts.family.sans,
+  },
+  waitingTipText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: theme.colors.textMuted,
+    fontFamily: theme.fonts.family.sans,
+  },
+  refreshButton: {
+    minWidth: 112,
+  },
+});

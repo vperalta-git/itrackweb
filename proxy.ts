@@ -16,6 +16,13 @@ export async function proxy(request: NextRequest) {
     request.cookies.get(SERVER_SESSION_COOKIE_NAME)?.value
   )
 
+  if (serverSession?.mustChangePassword) {
+    const passwordPath = buildRolePath(serverSession.routeRole, 'profile');
+    if (pathname !== passwordPath) {
+      return NextResponse.redirect(new URL(passwordPath, request.url));
+    }
+  }
+
   if (pathname === '/login' && serverSession) {
     return NextResponse.redirect(new URL(buildRolePath(serverSession.routeRole, 'dashboard'), request.url))
   }

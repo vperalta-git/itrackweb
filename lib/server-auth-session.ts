@@ -8,6 +8,7 @@ const decoder = new TextDecoder()
 
 type SignedSessionPayload = {
   userId: string
+  mustChangePassword?: boolean
   routeRole: Role
   issuedAt: number
   expiresAt: number
@@ -15,6 +16,7 @@ type SignedSessionPayload = {
 
 type CreateSignedSessionInput = {
   userId: string
+  mustChangePassword?: boolean
   routeRole: Role
   remember: boolean
 }
@@ -105,6 +107,7 @@ export async function createSignedSessionValue(input: CreateSignedSessionInput) 
     issuedAt + (input.remember ? COOKIE_MAX_AGE_SECONDS : SESSION_TTL_SECONDS) * 1000
   const payload: SignedSessionPayload = {
     userId: input.userId.trim(),
+    mustChangePassword: input.mustChangePassword === true,
     routeRole: input.routeRole,
     issuedAt,
     expiresAt,

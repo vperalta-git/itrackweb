@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "571786340218",
+    "project_id": "i-track-44a77",
+    "storage_bucket": "i-track-44a77.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:571786340218:android:53421c8944f0d7588518c3",
+        "android_client_info": {
+          "package_name": "com.itrack.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBI3pblb7tp2edFVs6DlrQjpp0iodySDkE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

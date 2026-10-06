@@ -212,7 +212,7 @@ export function getSessionUser() {
   return loadSession()?.user ?? null
 }
 
-export async function persistServerSession(session: Pick<AuthSession, 'remember' | 'user'>) {
+export async function persistServerSession(session: Pick<AuthSession, 'token' | 'remember' | 'user'>) {
   const response = await fetch('/api/auth/session', {
     method: 'POST',
     headers: {
@@ -220,7 +220,9 @@ export async function persistServerSession(session: Pick<AuthSession, 'remember'
       Accept: 'application/json',
     },
     body: JSON.stringify({
+      token: session.token,
       userId: session.user.id,
+      mustChangePassword: session.user.mustChangePassword,
       routeRole: session.user.routeRole,
       remember: session.remember,
     }),
