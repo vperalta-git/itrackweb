@@ -1,7 +1,5 @@
 'use client'
 
-import { getChecklistCompletion } from '@/lib/checklist-progress'
-
 import * as React from 'react'
 import { ColumnDef } from '@tanstack/react-table'
 import { usePathname } from 'next/navigation'
@@ -107,14 +105,50 @@ const initialRequestForm = {
   notes: '',
 }
 
-const getChecklistProgress = (request: PreparationRequest) =>
-  getChecklistCompletion(request.dispatcherChecklist ?? []).progress
+const getChecklistProgress = (request: PreparationRequest) => {
+  const checklist = request.dispatcherChecklist ?? []
 
-const isReadyForReleaseEligible = (request: PreparationRequest, _now = Date.now()) =>
-  getChecklistProgress(request) >= 100
+  if (checklist.length === 0) {
+    return 0
+  }
 
-const getRunningProgress = (request: PreparationRequest, _now = Date.now()) =>
-  getChecklistProgress(request)
+  const completedCount = checklist.filter((item) => item.completed).length
+  return Math.round((completedCount / checklist.length) * 100)
+}
+
+const isReadyForReleaseEligible = (request: PreparationRequest, now = Date.now()) =>
+  getRunningProgress(request, now) >= 100
+
+const getRunningProgress = (request: PreparationRequest, now = Date.now()) => {
+  const checklistProgress = getChecklistProgress(request)
+
+  if (request.status === 'completed' || request.status === 'ready-for-release') {
+    return 100
+  }
+
+  if (request.status !== 'in-dispatch') {
+    return checklistProgress
+  }
+
+  const elapsedMinutes = getMinutesBetween(request.inDispatchAt, now)
+  const totalMinutes =
+    typeof request.predictedTotalMinutes === 'number' && Number.isFinite(request.predictedTotalMinutes)
+      ? Math.max(1, Math.round(request.predictedTotalMinutes))
+      : null
+
+  if (elapsedMinutes === null || totalMinutes === null) {
+    return checklistProgress
+  }
+
+  const timeProgress = Math.round((Math.max(elapsedMinutes, 0) / totalMinutes) * 100)
+  const combinedProgress = Math.max(checklistProgress, timeProgress)
+
+  if (checklistProgress >= 100 || timeProgress >= 100) {
+    return 100
+  }
+
+  return Math.min(combinedProgress, 99)
+}
 
 const formatDurationLabel = (totalMinutes: number) => {
   const roundedMinutes = Math.max(0, Math.round(totalMinutes))
@@ -803,7 +837,7 @@ export default function PreparationPage() {
         { header: 'Contact Number', value: (row) => row.contactNumber },
         { header: 'Status', value: (row) => row.status },
         { header: 'Estimated Time', value: (row) => row.estimatedTime },
-        { header: 'Checklist Progress', value: (row) => `${getRunningProgress(row, liveNow)}%` },
+        { header: 'Progress', value: (row) => `${getRunningProgress(row, liveNow)}%` },
       ],
       rows: filteredRequests,
     })
@@ -1203,8 +1237,8 @@ export default function PreparationPage() {
                         </p>
                       </div>
                       <div className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-                        {getChecklistCompletion(selectedChecklist).completed}/
-                        {getChecklistCompletion(selectedChecklist).total} completed
+                        {selectedChecklist.filter((c) => c.completed).length}/
+                        {selectedChecklist.length} completed
                       </div>
                     </div>
 

@@ -1,7 +1,5 @@
 'use client'
 
-import { validTrackingPoint, remainingRouteKey, formatRemainingRouteDistance } from '@/lib/tracking-metrics'
-
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -38,7 +36,9 @@ import {
   DRIVER_ALLOCATIONS_UPDATED_EVENT,
   DriverAllocationRecord,
   getDriverAllocationEtaLabel,
+  getDriverAllocationLiveCoordinates,
   getDriverAllocationProgress,
+  getDriverAllocationRemainingDistanceLabel,
   loadDriverAllocations,
   syncDriverAllocationsFromBackend,
 } from '@/lib/driver-allocation-data'
@@ -64,7 +64,8 @@ type TrackingDriver = {
   destination: string
   progress: number
   eta: string
-  coordinates: { lat: number; lng: number } | null
+  distanceLeft: string
+  coordinates: { lat: number; lng: number }
   originCoordinates: { lat: number; lng: number } | null
   destinationCoordinates: { lat: number; lng: number } | null
   currentLocationUpdatedAt: string | null
@@ -73,19 +74,19 @@ type TrackingDriver = {
 
 function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord): TrackingDriver {
   const vehicleLabel = `${allocation.unitName} ${allocation.variation}`.trim()
-  const liveCoordinates = validTrackingPoint(allocation.currentLocation ? { lat: allocation.currentLocation.latitude, lng: allocation.currentLocation.longitude } : null)
-  const originCoordinates = validTrackingPoint(allocation.pickupLocationDetails
+  const liveCoordinates = getDriverAllocationLiveCoordinates(allocation)
+  const originCoordinates = allocation.pickupLocationDetails
     ? {
         lat: allocation.pickupLocationDetails.latitude,
         lng: allocation.pickupLocationDetails.longitude,
       }
-    : null)
-  const destinationCoordinates = validTrackingPoint(allocation.destinationLocationDetails
+    : null
+  const destinationCoordinates = allocation.destinationLocationDetails
     ? {
         lat: allocation.destinationLocationDetails.latitude,
         lng: allocation.destinationLocationDetails.longitude,
       }
-    : null)
+    : null
 
   return {
     id: allocation.id,
@@ -100,11 +101,22 @@ function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord): Trac
     destination: allocation.destination,
     progress: Math.round(getDriverAllocationProgress(allocation) * 100),
     eta: getDriverAllocationEtaLabel(allocation),
-    coordinates: liveCoordinates ?? originCoordinates ?? destinationCoordinates,
+    distanceLeft:
+      getDriverAllocationRemainingDistanceLabel(allocation) ??
+      (allocation.status === 'pending'
+        ? 'Not started'
+        : allocation.status === 'assigned'
+        ? 'Preparing departure'
+        : allocation.status === 'available'
+        ? 'At destination'
+        : 'Completed'),
+    coordinates: liveCoordinates
+      ? { lat: liveCoordinates.latitude, lng: liveCoordinates.longitude }
+      : originCoordinates ?? destinationCoordinates ?? { lat: 14.575, lng: 121.085 },
     originCoordinates,
     destinationCoordinates,
     currentLocationUpdatedAt: allocation.currentLocation?.updatedAt ?? null,
-    hasLiveGps: Boolean(liveCoordinates),
+    hasLiveGps: Boolean(allocation.currentLocation),
   }
 }
 
@@ -130,8 +142,9 @@ export default function LiveTrackingPage() {
   const [managerFilter, setManagerFilter] = React.useState('all')
   const [isRefreshing, setIsRefreshing] = React.useState(false)
   const [lastUpdatedAt, setLastUpdatedAt] = React.useState<string | null>(null)
-  const [routeDistances, setRouteDistances] = React.useState<Record<string, number | null>>({})
-
+  const [selectedDriverRouteDistanceKm, setSelectedDriverRouteDistanceKm] = React.useState<
+    number | null
+  >(null)
 
   React.useEffect(() => {
     const syncAllocations = () => {
@@ -213,29 +226,73 @@ export default function LiveTrackingPage() {
     setSelectedDriver(null)
   }, [scopedDrivers])
 
-  const routeKey = (driver: TrackingDriver) => remainingRouteKey(
-    driver.hasLiveGps ? driver.coordinates : driver.originCoordinates, driver.destinationCoordinates
-  )
   React.useEffect(() => {
-    const controller = new AbortController()
-    const keys = [...new Set(scopedDrivers.map(routeKey).filter((key): key is string => key !== null))]
-    setRouteDistances({})
-    void Promise.all(keys.map(async (key) => {
-      try {
-        const response = await fetch(`/api/maps/route?points=${encodeURIComponent(key)}`, { cache: 'no-store', signal: controller.signal })
-        const payload: LiveRouteMetricsResponse = response.ok ? await response.json() : {}
-        const distance = typeof payload.distanceKm === 'number' && Number.isFinite(payload.distanceKm) && payload.distanceKm >= 0 ? payload.distanceKm : null
-        if (!controller.signal.aborted) setRouteDistances((current) => ({ ...current, [key]: distance }))
-      } catch {
-        if (!controller.signal.aborted) setRouteDistances((current) => ({ ...current, [key]: null }))
-      }
-    }))
-    return () => controller.abort()
-  }, [scopedDrivers])
+    if (!selectedDriver?.destinationCoordinates) {
+      setSelectedDriverRouteDistanceKm(null)
+      return
+    }
 
-  const distanceLabel = (driver: TrackingDriver) => formatRemainingRouteDistance(routeDistances[routeKey(driver) ?? ''], driver.hasLiveGps)
+    const routeStart =
+      selectedDriver.hasLiveGps && selectedDriver.coordinates
+        ? selectedDriver.coordinates
+        : selectedDriver.originCoordinates
+
+    if (!routeStart) {
+      setSelectedDriverRouteDistanceKm(null)
+      return
+    }
+
+    let isCancelled = false
+
+    const url = new URL('/api/maps/route', window.location.origin)
+    url.searchParams.set(
+      'points',
+      [
+        `${routeStart.lat.toFixed(6)},${routeStart.lng.toFixed(6)}`,
+        `${selectedDriver.destinationCoordinates.lat.toFixed(6)},${selectedDriver.destinationCoordinates.lng.toFixed(6)}`,
+      ].join(';')
+    )
+
+    void fetch(url, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) {
+          return null
+        }
+
+        const payload = (await response.json()) as LiveRouteMetricsResponse
+        return typeof payload.distanceKm === 'number' && Number.isFinite(payload.distanceKm)
+          ? payload.distanceKm
+          : null
+      })
+      .then((distanceKm) => {
+        if (isCancelled) {
+          return
+        }
+
+        setSelectedDriverRouteDistanceKm(distanceKm)
+      })
+      .catch(() => {
+        if (isCancelled) {
+          return
+        }
+
+        setSelectedDriverRouteDistanceKm(null)
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [selectedDriver])
+
   const mapPreviewUrl = React.useMemo(() => getMapPreviewUrl(selectedDriver), [selectedDriver])
-  const selectedDriverDistanceLeft = selectedDriver ? distanceLabel(selectedDriver) : 'Distance unavailable'
+
+  const selectedDriverDistanceLeft = React.useMemo(() => {
+    if (selectedDriverRouteDistanceKm !== null) {
+      return `${selectedDriverRouteDistanceKm.toFixed(1)} km left`
+    }
+
+    return selectedDriver?.distanceLeft ?? null
+  }, [selectedDriver, selectedDriverRouteDistanceKm])
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
@@ -368,7 +425,7 @@ export default function LiveTrackingPage() {
                           <span className="text-xs text-muted-foreground">{driver.progress}%</span>
                         </div>
                         <p className="mt-1 text-[10px] text-muted-foreground">
-                          ETA: {driver.eta} &bull; {distanceLabel(driver)}
+                          ETA: {driver.eta} &bull; {driver.distanceLeft}
                         </p>
                       </div>
                     </div>
@@ -458,14 +515,14 @@ export default function LiveTrackingPage() {
                           <p className="font-semibold">{selectedDriver.eta}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">{selectedDriver.hasLiveGps ? 'Distance Left' : 'Dispatch Route Distance'}</p>
+                          <p className="text-xs text-muted-foreground">Distance Left</p>
                           <p className="font-semibold">{selectedDriverDistanceLeft}</p>
                         </div>
                       </div>
                       <div className="mt-3 flex items-center justify-between gap-4 text-[11px] text-muted-foreground">
                         <span>
-                          {selectedDriver.hasLiveGps ? 'GPS position:' : 'Dispatch fallback:'} {selectedDriver.coordinates?.lat.toFixed(4) ?? 'Unavailable'},{' '}
-                          {selectedDriver.coordinates?.lng.toFixed(4) ?? 'Unavailable'}
+                          Driver position: {selectedDriver.coordinates.lat.toFixed(4)},{' '}
+                          {selectedDriver.coordinates.lng.toFixed(4)}
                         </span>
                         <span className="hidden sm:inline">{gpsStatusLabel}</span>
                       </div>

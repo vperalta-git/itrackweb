@@ -1,8 +1,5 @@
 'use client'
 
-import { validTrackingPoint } from '@/lib/tracking-metrics'
-import { createScriptLoader } from '@/lib/mapbox-script-loader'
-
 import * as React from 'react'
 
 import type { MapCoordinatesInput } from '@/lib/map-location'
@@ -95,11 +92,7 @@ const ROUTE_SOURCE_ID = 'itrack-route-source'
 const ROUTE_CASING_LAYER_ID = 'itrack-route-casing-layer'
 const ROUTE_LAYER_ID = 'itrack-route-layer'
 
-const loadMapboxScript = createScriptLoader<MapboxGlobal>(
-  MAPBOX_SCRIPT_ID,
-  'https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.js',
-  () => window.mapboxgl
-)
+let mapboxScriptPromise: Promise<MapboxGlobal> | null = null
 
 declare global {
   interface Window {
@@ -108,8 +101,19 @@ declare global {
 }
 
 function normalizePoint(point: MapCoordinatesInput | null | undefined): NormalizedPoint | null {
-  const valid = validTrackingPoint(point ? ('lat' in point ? point : { lat: point.latitude, lng: point.longitude }) : null)
-  return valid ? { latitude: valid.lat, longitude: valid.lng } : null
+  if (!point) {
+    return null
+  }
+
+  return 'lat' in point
+    ? {
+        latitude: point.lat,
+        longitude: point.lng,
+      }
+    : {
+        latitude: point.latitude,
+        longitude: point.longitude,
+      }
 }
 
 function ensureMapboxStylesheet() {
@@ -121,8 +125,54 @@ function ensureMapboxStylesheet() {
   link.id = MAPBOX_STYLESHEET_ID
   link.rel = 'stylesheet'
   link.href = 'https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.css'
-  link.addEventListener('error', () => link.remove(), { once: true })
   document.head.appendChild(link)
+}
+
+function loadMapboxScript() {
+  if (typeof window !== 'undefined' && window.mapboxgl) {
+    return Promise.resolve(window.mapboxgl)
+  }
+
+  if (mapboxScriptPromise) {
+    return mapboxScriptPromise
+  }
+
+  mapboxScriptPromise = new Promise<MapboxGlobal>((resolve, reject) => {
+    const existingScript = document.getElementById(MAPBOX_SCRIPT_ID) as HTMLScriptElement | null
+
+    const handleReady = () => {
+      if (window.mapboxgl) {
+        resolve(window.mapboxgl)
+        return
+      }
+
+      reject(new Error('Mapbox GL JS did not initialize.'))
+    }
+
+    if (existingScript) {
+      existingScript.addEventListener('load', handleReady, { once: true })
+      existingScript.addEventListener(
+        'error',
+        () => reject(new Error('Unable to load Mapbox GL JS.')),
+        { once: true }
+      )
+      return
+    }
+
+    const script = document.createElement('script')
+    script.id = MAPBOX_SCRIPT_ID
+    script.async = true
+    script.src = 'https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.js'
+    script.addEventListener('load', handleReady, { once: true })
+    script.addEventListener(
+      'error',
+      () => reject(new Error('Unable to load Mapbox GL JS.')),
+      { once: true }
+    )
+    document.body.appendChild(script)
+  })
+
+  return mapboxScriptPromise
 }
 
 function toLngLat(point: NormalizedPoint): [number, number] {
@@ -228,7 +278,6 @@ function serializePoint(point: NormalizedPoint) {
 async function fetchMapConfig() {
   const response = await fetch('/api/maps/config', {
     cache: 'no-store',
-    signal: AbortSignal.timeout(20000),
   })
 
   if (!response.ok) {
@@ -264,7 +313,6 @@ export function RouteMapFrame({
   const mapboxRef = React.useRef<MapboxGlobal | null>(null)
   const hasMapLoadedRef = React.useRef(false)
   const hadPointsRef = React.useRef(false)
-  const [retryAttempt, setRetryAttempt] = React.useState(0)
   const [config, setConfig] = React.useState<MapConfig | null>(null)
   const [isInitializing, setIsInitializing] = React.useState(true)
   const [mapError, setMapError] = React.useState<string | null>(null)
@@ -289,7 +337,6 @@ export function RouteMapFrame({
     let isCancelled = false
 
     setIsInitializing(true)
-    setMapError(null)
     void fetchMapConfig()
       .then((nextConfig) => {
         if (isCancelled) {
@@ -313,7 +360,7 @@ export function RouteMapFrame({
     return () => {
       isCancelled = true
     }
-  }, [retryAttempt])
+  }, [])
 
   React.useEffect(() => {
     if (routeRequestPoints.length < 2) {
@@ -364,9 +411,6 @@ export function RouteMapFrame({
     }
 
     let isCancelled = false
-    const initializationTimer = window.setTimeout(() => {
-      if (!isCancelled && !hasMapLoadedRef.current) setMapError('Map initialization timed out. Check connectivity and token configuration, then retry.')
-    }, 30000)
     ensureMapboxStylesheet()
 
     void loadMapboxScript()
@@ -388,35 +432,25 @@ export function RouteMapFrame({
           pitchWithRotate: false,
         })
 
-        mapRef.current = map
-        map.on('error', () => {
-          if (!isCancelled) setMapError('Mapbox could not load map resources. Check token permissions, allowed URLs, and network access, then retry.')
-        })
         map.addControl(new mapboxgl.NavigationControl({ visualizePitch: false }), 'top-right')
         map.on('load', () => {
-          if (isCancelled) return
-          window.clearTimeout(initializationTimer)
-          setMapError(null)
           hasMapLoadedRef.current = true
           map.resize()
           setMapReady(true)
         })
 
+        mapRef.current = map
       })
       .catch((error) => {
         if (isCancelled) {
           return
         }
 
-        window.clearTimeout(initializationTimer)
-        mapRef.current?.remove()
-        mapRef.current = null
         setMapError(error instanceof Error ? error.message : 'Unable to load the interactive map.')
       })
 
     return () => {
       isCancelled = true
-      window.clearTimeout(initializationTimer)
       markersRef.current.forEach((marker) => marker.remove())
       markersRef.current = []
       mapRef.current?.remove()
@@ -424,7 +458,7 @@ export function RouteMapFrame({
       hasMapLoadedRef.current = false
       setMapReady(false)
     }
-  }, [config, retryAttempt])
+  }, [config])
 
   React.useEffect(() => {
     const handleResize = () => {
@@ -620,10 +654,7 @@ export function RouteMapFrame({
       ) : null}
       {mapError ? (
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 p-4 text-center text-sm text-muted-foreground">
-          <div role="alert">
-            <p>{mapError}</p>
-            <button type="button" className="mt-3 rounded border bg-background px-3 py-2" onClick={() => setRetryAttempt((attempt) => attempt + 1)}>Retry map</button>
-          </div>
+          {mapError}
         </div>
       ) : null}
     </div>

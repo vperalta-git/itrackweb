@@ -1,7 +1,5 @@
 'use client'
 
-import { getChecklistCompletion } from '@/lib/checklist-progress'
-
 import { apiRequest } from '@/lib/api-client'
 import {
   BackendPreparation,
@@ -105,17 +103,23 @@ const getEstimatedTimeLabel = (preparation: BackendPreparation, serviceCount: nu
 const calculatePreparationProgress = (
   dispatcherChecklist: BackendPreparation['dispatcherChecklist']
 ) => {
-  return getChecklistCompletion(dispatcherChecklist ?? []).progress
+  const checklist = dispatcherChecklist ?? []
+
+  if (checklist.length === 0) {
+    return 0
+  }
+
+  const completedCount = checklist.filter((item) => item.completed).length
+  return Math.round((completedCount / checklist.length) * 100)
 }
 
 export function loadPreparationRecords() {
   if (typeof window === 'undefined') return [] as PreparationRequestRecord[]
 
   try {
-    const records = JSON.parse(
+    return JSON.parse(
       window.localStorage.getItem(storageKey) ?? '[]'
     ) as PreparationRequestRecord[]
-    return records.map((record) => ({ ...record, progress: getChecklistCompletion(record.dispatcherChecklist ?? []).progress }))
   } catch {
     return []
   }
