@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { normalizeApiBaseUrl } from '@/lib/api-base-url'
+import { getBackendApiBaseUrl } from '@/lib/api-base-url'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,7 +31,7 @@ function buildBackendUrl(
   pathSegments: string[],
   searchParams: URLSearchParams
 ) {
-  const backendBaseUrl = normalizeApiBaseUrl(process.env.BACKEND_URL)
+  const backendBaseUrl = getBackendApiBaseUrl()
   const backendUrl = new URL(`${backendBaseUrl}/${pathSegments.join('/')}`)
 
   for (const [key, value] of searchParams.entries()) {

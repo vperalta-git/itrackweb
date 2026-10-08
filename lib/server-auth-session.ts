@@ -7,6 +7,7 @@ const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
 type SignedSessionPayload = {
+  backendToken?: string
   userId: string
   mustChangePassword?: boolean
   routeRole: Role
@@ -15,22 +16,25 @@ type SignedSessionPayload = {
 }
 
 type CreateSignedSessionInput = {
+  backendToken?: string
   userId: string
   mustChangePassword?: boolean
   routeRole: Role
   remember: boolean
 }
 
-const getSessionSecret = () =>
-  process.env.AUTH_SESSION_SECRET ??
-  process.env.NEXTAUTH_SECRET ??
-  'itrack-web-dashboard-session'
+const getSessionSecret = () => {
+  const secret = process.env.AUTH_SESSION_SECRET?.trim() || process.env.NEXTAUTH_SECRET?.trim()
+  if (secret) return secret
+  if (process.env.NODE_ENV === 'production') throw new Error('AUTH_SESSION_SECRET must be configured in production.')
+  return 'itrack-local-development-only'
+}
 
 const toHex = (bytes: Uint8Array) =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
 
 const fromHex = (value: string) => {
-  if (value.length === 0 || value.length % 2 !== 0) {
+  if (!/^[0-9a-f]+$/i.test(value) || value.length % 2 !== 0) {
     return null
   }
 
@@ -106,6 +110,7 @@ export async function createSignedSessionValue(input: CreateSignedSessionInput) 
   const expiresAt =
     issuedAt + (input.remember ? COOKIE_MAX_AGE_SECONDS : SESSION_TTL_SECONDS) * 1000
   const payload: SignedSessionPayload = {
+    backendToken: input.backendToken,
     userId: input.userId.trim(),
     mustChangePassword: input.mustChangePassword === true,
     routeRole: input.routeRole,
@@ -128,17 +133,15 @@ export async function verifySignedSessionValue(
     return null
   }
 
-  const [payloadHex, signature] = value.split('.')
-
-  if (!payloadHex || !signature) {
-    return null
-  }
-
-  const expectedSignature = await signValue(payloadHex)
-
-  if (expectedSignature !== signature) {
-    return null
-  }
+  const parts = value.split('.')
+  if (parts.length !== 2) return null
+  const [payloadHex, signature] = parts
+  const signatureBytes = fromHex(signature)
+  if (!payloadHex || !signatureBytes || signatureBytes.length !== 32) return null
+  try {
+    const key = await importSigningKey()
+    if (!(await crypto.subtle.verify('HMAC', key, signatureBytes, encoder.encode(payloadHex)))) return null
+  } catch { return null }
 
   const payloadBytes = fromHex(payloadHex)
 

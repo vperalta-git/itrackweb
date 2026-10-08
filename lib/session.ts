@@ -146,7 +146,7 @@ export function mapBackendRoleToUserRole(role: string): UserRole {
     case 'driver':
       return 'driver'
     default:
-      return 'admin'
+      return 'driver'
   }
 }
 

@@ -6,7 +6,9 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "node tests/auth.test.cjs && node backend/tests/accountAccess.test.js && node backend/tests/authFlow.test.js",
+    "test:production": "node tests/production-auth-smoke.cjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

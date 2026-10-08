@@ -378,19 +378,10 @@ export function AppNavbar() {
 
   const handleSignOut = async () => {
     try {
-      if (currentUser) {
-        await apiRequest('/auth/logout', {
-          method: 'POST',
-          body: {
-            userId: currentUser.id,
-            name: userName,
-            email: currentUser.email,
-            role: currentUser.backendRole,
-          },
-        })
-      }
+      await clearServerSession()
     } catch {
-      // Keep sign-out resilient even if the backend auth event fails.
+      toast.error('Sign out could not be completed. Please try again.')
+      return
     }
 
     logAuditEvent({
@@ -399,7 +390,6 @@ export function AppNavbar() {
       module: 'Authentication',
       description: `${getAuditActor(role)} signed out.`,
     })
-    await clearServerSession().catch(() => null)
     clearSession()
     window.location.assign('/login')
   }

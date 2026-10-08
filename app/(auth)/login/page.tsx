@@ -10,11 +10,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { API_BASE_URL } from '@/lib/api-base-url'
-import { apiRequest, ApiError } from '@/lib/api-client'
+import { ApiError } from '@/lib/api-client'
 import { logAuditEvent } from '@/lib/audit-log'
 import { buildRolePath } from '@/lib/rbac'
-import { mapAuthUserFromBackend, persistServerSession, saveSession } from '@/lib/session'
+import { mapAuthUserFromBackend, saveSession } from '@/lib/session'
 import { recordUserLastLogin, syncUsersFromBackend } from '@/lib/user-data'
 
 type LoginResponse = {
@@ -68,20 +67,22 @@ export default function LoginPage() {
     let response: LoginResponse | null = null
 
     try {
-      response = (await apiRequest('/auth/login', {
+      const loginResponse = await fetch('/api/auth/login', {
         method: 'POST',
-        body: {
-          email: formData.email.trim().toLowerCase(),
-          password: formData.password,
-        },
-      })) as LoginResponse
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ ...formData, email: formData.email.trim().toLowerCase() }),
+      })
+      const payload = await loginResponse.json().catch(() => null)
+      if (!loginResponse.ok) throw new ApiError(payload?.message || 'Unable to sign in.', loginResponse.status, null)
+      response = payload?.data as LoginResponse
     } catch (error) {
       console.error('Login request failed', error)
       setError(
         error instanceof ApiError
           ? error.message
           : error instanceof TypeError
-          ? `Cannot reach the backend at ${API_BASE_URL}. If you changed the frontend environment on Render, redeploy the frontend and try again.`
+          ? 'Cannot reach the sign-in service. Please try again.'
           : error instanceof Error
           ? error.message
           : 'Unable to sign in right now.'
@@ -106,19 +107,6 @@ export default function LoginPage() {
     if (!user.routeRole) {
       setError(
         'This account does not have access to the web dashboard. Use an admin, supervisor, manager, or sales agent account.'
-      )
-      setIsLoading(false)
-      return
-    }
-
-    try {
-      await persistServerSession(nextSession)
-    } catch (error) {
-      console.error('Web session bootstrap failed', error)
-      setError(
-        error instanceof Error
-          ? `Sign in succeeded, but the web session could not be started: ${error.message}`
-          : 'Sign in succeeded, but the web session could not be started.'
       )
       setIsLoading(false)
       return
