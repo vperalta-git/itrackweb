@@ -79,7 +79,7 @@ const mainNavItems: NavConfigItem[] = [
     url: '/allocation/drivers',
     icon: MapPin,
     subItems: [
-      { title: 'Allocations', url: '/allocation/drivers' },
+      { title: 'Delivery Assignment', url: '/allocation/drivers' },
       { title: 'Live Tracking', url: '/allocation/drivers/tracking' },
     ],
   },

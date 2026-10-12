@@ -1031,7 +1031,7 @@ export default function DriverAllocationPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Driver Allocation"
+        title="Delivery Assignmment"
         description="Manage assigned drivers for released or in-transit units"
       >
         <Button variant="outline" size="sm" asChild>
