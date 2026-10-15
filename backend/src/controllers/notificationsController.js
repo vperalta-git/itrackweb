@@ -1,6 +1,7 @@
 import { Notification } from '../models/Notification.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { sendSuccess } from '../utils/apiResponse.js';
+import { authenticatedId, accessError } from '../middleware/operationAccess.js';
 import {
   createNotificationsForUsers,
   registerUserPushToken,
@@ -13,13 +14,11 @@ const createHttpError = (message, statusCode = 400) => {
   return error;
 };
 
-const requireUserId = (value) => {
-  const userId = String(value ?? '').trim();
-
-  if (!userId) {
-    throw createHttpError('User id is required.');
-  }
-
+const requireUserId = (req) => {
+  const userId = authenticatedId(req);
+  if (!userId) throw accessError('Please sign in again.', 401);
+  const suppliedId = req.body?.userId ?? req.query?.userId;
+  if (suppliedId !== undefined && String(suppliedId) !== userId) throw accessError('Notifications and push tokens belong to the signed-in account.');
   return userId;
 };
 
@@ -37,7 +36,7 @@ const requireNotificationForUser = async (notificationId, userId) => {
 };
 
 export const listNotifications = asyncHandler(async (req, res) => {
-  const userId = requireUserId(req.query.userId);
+  const userId = requireUserId(req);
   const notifications = await Notification.find({
     userId,
   }).sort({ createdAt: -1 });
@@ -49,7 +48,7 @@ export const listNotifications = asyncHandler(async (req, res) => {
 });
 
 export const markNotificationRead = asyncHandler(async (req, res) => {
-  const userId = requireUserId(req.body?.userId ?? req.query.userId);
+  const userId = requireUserId(req);
   const notification = await requireNotificationForUser(req.params.id, userId);
 
   if (!notification.read) {
@@ -65,7 +64,7 @@ export const markNotificationRead = asyncHandler(async (req, res) => {
 });
 
 export const markAllNotificationsRead = asyncHandler(async (req, res) => {
-  const userId = requireUserId(req.body?.userId ?? req.query.userId);
+  const userId = requireUserId(req);
   const readAt = new Date();
 
   await Notification.updateMany(
@@ -92,7 +91,7 @@ export const markAllNotificationsRead = asyncHandler(async (req, res) => {
 });
 
 export const deleteNotification = asyncHandler(async (req, res) => {
-  const userId = requireUserId(req.body?.userId ?? req.query.userId);
+  const userId = requireUserId(req);
   const notification = await Notification.findOneAndDelete({
     _id: req.params.id,
     userId,
@@ -109,7 +108,7 @@ export const deleteNotification = asyncHandler(async (req, res) => {
 });
 
 export const clearNotifications = asyncHandler(async (req, res) => {
-  const userId = requireUserId(req.body?.userId ?? req.query.userId);
+  const userId = requireUserId(req);
   const result = await Notification.deleteMany({
     userId,
   });
@@ -123,7 +122,7 @@ export const clearNotifications = asyncHandler(async (req, res) => {
 });
 
 export const registerPushToken = asyncHandler(async (req, res) => {
-  const userId = requireUserId(req.body?.userId);
+  const userId = requireUserId(req);
   const pushTokens = await registerUserPushToken({
     userId,
     token: req.body?.token,
@@ -139,7 +138,7 @@ export const registerPushToken = asyncHandler(async (req, res) => {
 });
 
 export const unregisterPushToken = asyncHandler(async (req, res) => {
-  const userId = requireUserId(req.body?.userId);
+  const userId = requireUserId(req);
   const pushTokens = await unregisterUserPushToken({
     userId,
     token: req.body?.token,
@@ -152,7 +151,7 @@ export const unregisterPushToken = asyncHandler(async (req, res) => {
 });
 
 export const sendTestNotification = asyncHandler(async (req, res) => {
-  const userId = requireUserId(req.body?.userId);
+  const userId = requireUserId(req);
   const issuedAt = new Date().toISOString();
   const notifications = await createNotificationsForUsers({
     userIds: [userId],

@@ -13,6 +13,7 @@ import {
   FileDown,
   ArrowUpDown,
   Filter,
+  RefreshCw,
 } from 'lucide-react'
 
 import { PageHeader } from '@/components/page-header'
@@ -22,6 +23,7 @@ import { StatusBadge } from '@/components/status-badge'
 import { DataTable } from '@/components/data-table'
 import { ConfirmActionDialog } from '@/components/confirm-action-dialog'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,16 +56,13 @@ import {
   createInventoryVehicleRecord,
   deleteInventoryVehicleRecord,
   loadInventoryVehicles,
+  getVisibleInventoryVehicles,
+  summarizeInventory,
   syncInventoryVehiclesFromBackend,
   updateInventoryVehicleRecord,
   type InventoryVehicle as Vehicle,
 } from '@/lib/inventory-data'
 import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
-import {
-  getScopedRoleData,
-  matchesScopedAgent,
-  matchesScopedManager,
-} from '@/lib/role-scope'
 import {
   loadUnitSetupConfig,
   subscribeToUnitSetup,
@@ -202,7 +201,6 @@ function reconcileVehicleForm<
 export default function InventoryPage() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
-  const scope = getScopedRoleData(role)
   const [unitSetup, setUnitSetup] = React.useState<UnitSetupRecord[]>(() => loadUnitSetupConfig())
   const [vehicles, setVehicles] = React.useState<Vehicle[]>(() => loadInventoryVehicles())
   const [selectedVehicle, setSelectedVehicle] = React.useState<Vehicle | null>(null)
@@ -215,6 +213,23 @@ export default function InventoryPage() {
   const [addVehicleForm, setAddVehicleForm] = React.useState(initialAddVehicleForm)
   const [editVehicleForm, setEditVehicleForm] = React.useState(emptyEditVehicleForm)
   const [users, setUsers] = React.useState(() => loadUsers())
+  const [isRefreshing, setIsRefreshing] = React.useState(false)
+  const [isSaving, setIsSaving] = React.useState(false)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
+  const [lastRefreshed, setLastRefreshed] = React.useState<string | null>(null)
+
+  const refreshInventory = React.useCallback(async () => {
+    setIsRefreshing(true)
+    try {
+      setVehicles(await syncInventoryVehiclesFromBackend())
+      setLoadError(null)
+      setLastRefreshed(new Date().toLocaleTimeString())
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Unable to refresh vehicle stocks.')
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [])
 
   React.useEffect(() => subscribeToUnitSetup(setUnitSetup), [])
 
@@ -270,6 +285,7 @@ export default function InventoryPage() {
   }
 
   const handleAddVehicle = async () => {
+    if (isSaving) return
     if (
       !addVehicleForm.unitName ||
       !addVehicleForm.variation ||
@@ -277,6 +293,7 @@ export default function InventoryPage() {
       !addVehicleForm.bodyColor ||
       !addVehicleForm.status
     ) {
+      toast.error('Complete the required fields and enter a 6–7 character conduction number.')
       return
     }
 
@@ -290,24 +307,31 @@ export default function InventoryPage() {
       return
     }
 
-    const nextVehicles = await createInventoryVehicleRecord({
-      unitName: addVehicleForm.unitName,
-      variation: addVehicleForm.variation,
-      conductionNumber: normalizedConductionNumber,
-      bodyColor: addVehicleForm.bodyColor.trim(),
-      status: addVehicleForm.status as Vehicle['status'],
-      notes: addVehicleForm.notes.trim(),
-    })
+    try {
+      setIsSaving(true)
+      const nextVehicles = await createInventoryVehicleRecord({
+        unitName: addVehicleForm.unitName,
+        variation: addVehicleForm.variation,
+        conductionNumber: normalizedConductionNumber,
+        bodyColor: addVehicleForm.bodyColor.trim(),
+        status: addVehicleForm.status as Vehicle['status'],
+        notes: addVehicleForm.notes.trim(),
+      })
 
-    setVehicles(nextVehicles)
-    handleAddDialogChange(false)
-    logAuditEvent({
-      user: getAuditActor(role),
-      action: 'CREATE',
-      module: 'Inventory',
-      description: `Added vehicle ${normalizedConductionNumber} (${addVehicleForm.unitName} ${addVehicleForm.variation}).`,
-    })
-    toast.success('Vehicle added to stocks.')
+      setVehicles(nextVehicles)
+      handleAddDialogChange(false)
+      logAuditEvent({
+        user: getAuditActor(role),
+        action: 'CREATE',
+        module: 'Inventory',
+        description: `Added vehicle ${normalizedConductionNumber} (${addVehicleForm.unitName} ${addVehicleForm.variation}).`,
+      })
+      toast.success('Vehicle added to stocks.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to add the vehicle.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const editVariationOptions = React.useMemo(
@@ -342,8 +366,12 @@ export default function InventoryPage() {
   }
 
   const handleSaveEdit = async () => {
+    if (isSaving) return
     if (!selectedVehicle) return
-    if (!editVehicleForm.unitName || !editVehicleForm.status) return
+    if (!editVehicleForm.unitName || !editVehicleForm.variation || !editVehicleForm.bodyColor || !editVehicleForm.status) {
+      toast.error('Complete the required vehicle details.')
+      return
+    }
 
     const normalizedConductionNumber = editVehicleForm.conductionNumber.trim().toUpperCase()
     const conductionNumberExists = vehicles.some(
@@ -357,51 +385,66 @@ export default function InventoryPage() {
       return
     }
 
-    const nextVehicles = await updateInventoryVehicleRecord(selectedVehicle.id, {
-      unitName: editVehicleForm.unitName,
-      variation: editVehicleForm.variation,
-      conductionNumber: normalizedConductionNumber,
-      bodyColor: editVehicleForm.bodyColor.trim(),
-      status: editVehicleForm.status,
-      notes: editVehicleForm.notes.trim(),
-    })
+    try {
+      setIsSaving(true)
+      const nextVehicles = await updateInventoryVehicleRecord(selectedVehicle.id, {
+        unitName: editVehicleForm.unitName,
+        variation: editVehicleForm.variation,
+        conductionNumber: normalizedConductionNumber,
+        bodyColor: editVehicleForm.bodyColor.trim(),
+        status: editVehicleForm.status,
+        notes: editVehicleForm.notes.trim(),
+      })
 
-    const updatedVehicle =
-      nextVehicles.find((vehicle) => vehicle.id === selectedVehicle.id) ?? null
+      const updatedVehicle =
+        nextVehicles.find((vehicle) => vehicle.id === selectedVehicle.id) ?? null
 
-    setVehicles(nextVehicles)
-    setSelectedVehicle(updatedVehicle)
+      setVehicles(nextVehicles)
+      setSelectedVehicle(updatedVehicle)
 
-    handleEditDialogChange(false)
-    logAuditEvent({
-      user: getAuditActor(role),
-      action: 'UPDATE',
-      module: 'Inventory',
-      description: `Updated vehicle ${updatedVehicle?.conductionNumber ?? normalizedConductionNumber}.`,
-    })
-    toast.success('Vehicle details updated.')
+      handleEditDialogChange(false)
+      logAuditEvent({
+        user: getAuditActor(role),
+        action: 'UPDATE',
+        module: 'Inventory',
+        description: `Updated vehicle ${updatedVehicle?.conductionNumber ?? normalizedConductionNumber}.`,
+      })
+      toast.success('Vehicle details updated.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to update the vehicle.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleDeleteVehicle = async () => {
+    if (isSaving) return
     if (!vehicleToDelete) return
 
-    const nextVehicles = await deleteInventoryVehicleRecord(vehicleToDelete.id)
-    setVehicles(nextVehicles)
+    try {
+      setIsSaving(true)
+      const nextVehicles = await deleteInventoryVehicleRecord(vehicleToDelete.id)
+      setVehicles(nextVehicles)
 
-    if (selectedVehicle?.id === vehicleToDelete.id) {
-      setSelectedVehicle(null)
-      setIsViewDetailsOpen(false)
-      setIsEditDialogOpen(false)
+      if (selectedVehicle?.id === vehicleToDelete.id) {
+        setSelectedVehicle(null)
+        setIsViewDetailsOpen(false)
+        setIsEditDialogOpen(false)
+      }
+
+      logAuditEvent({
+        user: getAuditActor(role),
+        action: 'DELETE',
+        module: 'Inventory',
+        description: `Deleted vehicle ${vehicleToDelete.conductionNumber} from stocks.`,
+      })
+      toast.success('Vehicle deleted from stocks.')
+      setVehicleToDelete(null)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to delete the vehicle.')
+    } finally {
+      setIsSaving(false)
     }
-
-    logAuditEvent({
-      user: getAuditActor(role),
-      action: 'DELETE',
-      module: 'Inventory',
-      description: `Deleted vehicle ${vehicleToDelete.conductionNumber} from stocks.`,
-    })
-    toast.success('Vehicle deleted from stocks.')
-    setVehicleToDelete(null)
   }
 
   // Column definitions
@@ -614,37 +657,16 @@ export default function InventoryPage() {
     },
   ]
 
-  // Filter data based on status
-  const filteredVehicles = React.useMemo(() => {
-    if (role === 'sales-agent' || role === 'manager') {
-      const sharedVisibleVehicles = vehicles.filter((vehicle) => {
-        const isVisibleStatus =
-          vehicle.status === 'in-stockyard' || vehicle.status === 'available'
-
-        const isAllocatedToAnotherAgent =
-          role === 'sales-agent'
-            ? vehicle.assignedAgent !== 'Unassigned' &&
-              vehicle.assignedAgent !== scope.agentName
-            : vehicle.assignedAgent !== 'Unassigned' &&
-              !scope.agentNames.includes(vehicle.assignedAgent)
-
-        return isVisibleStatus && !isAllocatedToAnotherAgent
-      })
-
-      if (statusFilter === 'all') return sharedVisibleVehicles
-      return sharedVisibleVehicles.filter((vehicle) => vehicle.status === statusFilter)
-    }
-
-    const scopedVehicles = vehicles.filter(
-      (vehicle) =>
-        vehicle.status !== 'released' &&
-        matchesScopedAgent(role, vehicle.assignedAgent) &&
-        matchesScopedManager(role, vehicle.manager)
-    )
-
-    if (statusFilter === 'all') return scopedVehicles
-    return scopedVehicles.filter((v) => v.status === statusFilter)
-  }, [role, scope.agentName, scope.agentNames, vehicles, statusFilter])
+  const visibleVehicles = React.useMemo(
+    () => getVisibleInventoryVehicles(vehicles, role), [vehicles, role]
+  )
+  const summary = React.useMemo(() => summarizeInventory(visibleVehicles), [visibleVehicles])
+  const filteredVehicles = React.useMemo(
+    () => visibleVehicles.filter((vehicle) => statusFilter === 'all'
+      ? vehicle.status !== 'released'
+      : vehicle.status === statusFilter),
+    [visibleVehicles, statusFilter]
+  )
 
   const stockCountRows = React.useMemo(() => {
     const groupedRows = new Map<string, StockCountRow>()
@@ -684,25 +706,8 @@ export default function InventoryPage() {
   }, [filteredVehicles])
 
   React.useEffect(() => {
-    let isMounted = true
-
-    const loadBackendVehicles = async () => {
-      try {
-        const nextVehicles = await syncInventoryVehiclesFromBackend()
-        if (isMounted) {
-          setVehicles(nextVehicles)
-        }
-      } catch {
-        return
-      }
-    }
-
-    void loadBackendVehicles()
-
-    return () => {
-      isMounted = false
-    }
-  }, [])
+    void refreshInventory()
+  }, [refreshInventory])
 
   const handleExportPdf = () => {
     logAuditEvent({
@@ -713,7 +718,7 @@ export default function InventoryPage() {
     })
     exportPdfReport({
       title: 'Vehicle Stocks Report',
-      subtitle: 'Current vehicle stock listing',
+      subtitle: `Vehicle stock listing - Status: ${statusFilter === 'all' ? 'Current Stock' : statusFilter}`,
       filename: 'vehicle-stocks-report',
       columns: [
         { header: 'Unit Name', value: (row) => row.unitName },
@@ -777,16 +782,15 @@ export default function InventoryPage() {
           <SelectValue placeholder="All Status" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="all">All Status</SelectItem>
+          <SelectItem value="all">Current Stock</SelectItem>
           <SelectItem value="in-stockyard">In Stockyard</SelectItem>
           <SelectItem value="available">Available</SelectItem>
-          {(role === 'admin' || role === 'supervisor') && (
-            <>
-              <SelectItem value="in-transit">In Transit</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="in-dispatch">In Dispatch</SelectItem>
-            </>
-          )}
+          <SelectItem value="in-transit">In Transit</SelectItem>
+          <SelectItem value="pending">Pending</SelectItem>
+          <SelectItem value="in-dispatch">Under Preparation</SelectItem>
+          <SelectItem value="ready-for-release">Ready for Release</SelectItem>
+          <SelectItem value="maintenance">Maintenance</SelectItem>
+          <SelectItem value="released">Released / Completed</SelectItem>
         </SelectContent>
       </Select>
     </div>
@@ -798,14 +802,18 @@ export default function InventoryPage() {
         title="Vehicle Stocks"
         description={
           role === 'sales-agent'
-            ? 'View-only stock list for available and stockyard units not reserved by other agents'
+            ? 'Your assigned units and eligible shared stock'
             : role === 'manager'
-            ? 'View-only stock list for available and stockyard units not reserved by agents outside your team'
-            : role !== 'admin'
+            ? "Your team's assigned units and eligible shared stock"
+            : role !== 'admin' && role !== 'supervisor'
             ? 'View-only inventory for your allocated units'
             : 'Manage your vehicle inventory'
         }
       >
+        <Button variant="outline" disabled={isRefreshing} onClick={() => void refreshInventory()}>
+          <RefreshCw className={`mr-2 size-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
         {(role === 'admin' || role === 'supervisor') && (
           <Dialog open={isAddDialogOpen} onOpenChange={handleAddDialogChange}>
             <DialogTrigger asChild>
@@ -963,7 +971,7 @@ export default function InventoryPage() {
                 <Button
                   onClick={handleAddVehicle}
                   disabled={
-                    !addVehicleForm.unitName ||
+                    isSaving || !addVehicleForm.unitName ||
                     !addVehicleForm.variation ||
                     addVehicleForm.conductionNumber.length < 6 ||
                     !addVehicleForm.bodyColor ||
@@ -978,6 +986,35 @@ export default function InventoryPage() {
         )}
       </PageHeader>
 
+      {loadError && (
+        <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+          {loadError} Displayed records may be out of date. Use Refresh to retry.
+        </p>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        {[
+          ['Total Current Stock', summary.current], ['Available Units', summary.available],
+          ['Allocated Units', summary.allocated], ['In Transit', summary.inTransit],
+          ['Under Preparation', summary.underPreparation], ['Released / Completed', summary.released],
+        ].map(([label, value]) => (
+          <Card key={label}><CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">{label}</p>
+            <p className="mt-1 text-2xl font-semibold">{value}</p>
+          </CardContent></Card>
+        ))}
+      </div>
+      <div className="rounded-lg border p-4 text-sm">
+        <p className="font-medium">Current Stock by Vehicle Model</p>
+        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+          {summary.byModel.length ? summary.byModel.map(({ model, count }) => (
+            <span key={model}>{model}: <strong>{count}</strong></span>
+          )) : <span className="text-muted-foreground">No current stock in your visible records.</span>}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Totals cover all records visible to your account; table filters apply below. Allocated units overlap status totals.
+          {lastRefreshed ? ` Last refreshed ${lastRefreshed}.` : ''}
+        </p>
+      </div>
       {stockViewMode === 'vehicles' ? (
         <DataTable
           columns={columns}
@@ -987,7 +1024,7 @@ export default function InventoryPage() {
           searchPlaceholder="Search by conduction number..."
           exportConfig={{
             title: 'Vehicle Stocks Report',
-            subtitle: 'Current vehicle stock listing',
+            subtitle: `Vehicle stock listing - Status: ${statusFilter === 'all' ? 'Current Stock' : statusFilter}`,
             filename: 'vehicle-stocks-report',
           }}
           filterComponent={inventoryFilterComponent}
@@ -1001,7 +1038,7 @@ export default function InventoryPage() {
           searchPlaceholder="Search by unit name..."
           exportConfig={{
             title: 'Vehicle Stock Count Report',
-            subtitle: 'Grouped by unit, variation, and body color',
+            subtitle: `Grouped by unit, variation, and body color - Status: ${statusFilter === 'all' ? 'Current Stock' : statusFilter}`,
             filename: 'vehicle-stock-count-report',
           }}
           filterComponent={inventoryFilterComponent}

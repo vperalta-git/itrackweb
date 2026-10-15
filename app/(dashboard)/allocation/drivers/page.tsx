@@ -697,20 +697,24 @@ export default function DriverAllocationPage() {
   const handleCancelAllocation = async () => {
     if (!allocationToCancel) return
 
-    const nextAllocations = await deleteDriverAllocationRecord(allocationToCancel.id)
-    setAllocations(nextAllocations)
-    setSelectedAllocation((current) =>
-      current?.id === allocationToCancel.id ? null : current
-    )
-    setIsViewDetailsOpen(false)
-    logAuditEvent({
-      user: getAuditActor(role),
-      action: 'DELETE',
-      module: 'Allocation',
-      description: `Cancelled driver allocation ${allocationToCancel.conductionNumber}.`,
-    })
-    setAllocationToCancel(null)
-    toast.success('Driver allocation cancelled.')
+    try {
+      const nextAllocations = await deleteDriverAllocationRecord(allocationToCancel.id)
+      setAllocations(nextAllocations)
+      setSelectedAllocation((current) =>
+        current?.id === allocationToCancel.id ? null : current
+      )
+      setIsViewDetailsOpen(false)
+      logAuditEvent({
+        user: getAuditActor(role),
+        action: 'DELETE',
+        module: 'Allocation',
+        description: `Cancelled driver allocation ${allocationToCancel.conductionNumber}.`,
+      })
+      setAllocationToCancel(null)
+      toast.success('Driver allocation cancelled.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to cancel this allocation.')
+    }
   }
 
   const handleReviewStopRequest = async (
@@ -1031,7 +1035,7 @@ export default function DriverAllocationPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Delivery Assignmment"
+        title="Driver Allocation"
         description="Manage assigned drivers for released or in-transit units"
       >
         <Button variant="outline" size="sm" asChild>

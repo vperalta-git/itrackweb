@@ -1,6 +1,7 @@
 'use client'
 
 import { apiRequest } from '@/lib/api-client'
+import { buildInventoryVehiclesFromRecords, summarizeInventory } from '@/lib/inventory-data'
 import {
   BackendDriverAllocation,
   BackendPreparation,
@@ -59,6 +60,7 @@ export interface ReleaseHistoryEvent {
 
 export interface ReleaseHistoryRecord {
   id: string
+  vehicleId: string
   vehicleAddedAt: string
   vehicleAddedAtIso: string
   unitName: string
@@ -209,9 +211,19 @@ const formatPreparationSteps = (
       completedAtIso,
     }))
 
-const resolveReleaseStatus = (status?: string): ReleaseHistoryStatus => {
-  if (status === 'completed') return 'ready-for-pickup'
-  if (status === 'ready_for_release') return 'released'
+const resolveReleaseStatus = (
+  preparation: BackendPreparation,
+  vehicle?: BackendVehicle | null
+): ReleaseHistoryStatus => {
+  if (
+    preparation.status === 'completed' &&
+    (preparation.readyForReleaseAt || vehicle?.status === 'completed')
+  ) {
+    return 'released'
+  }
+  if (preparation.status === 'completed' || preparation.status === 'ready_for_release') {
+    return 'ready-for-pickup'
+  }
   return 'in-preparation'
 }
 
@@ -258,8 +270,8 @@ export function deriveReleaseHistoryRecords(snapshot: ReportSnapshot): ReleaseHi
       const deliveryPickupAtIso =
         preparation.approvedAt ?? preparation.createdAt ?? new Date(0).toISOString()
       const releasedAtIso =
+        (preparation.status === 'completed' ? preparation.completedAt : null) ??
         preparation.readyForReleaseAt ??
-        preparation.completedAt ??
         preparation.updatedAt ??
         preparation.createdAt ??
         new Date(0).toISOString()
@@ -272,7 +284,7 @@ export function deriveReleaseHistoryRecords(snapshot: ReportSnapshot): ReleaseHi
         preparation.updatedAt ??
         preparation.createdAt ??
         new Date(0).toISOString()
-      const status = resolveReleaseStatus(preparation.status)
+      const status = resolveReleaseStatus(preparation, vehicle)
       const historyEvents: ReleaseHistoryEvent[] = [
         {
           id: `${id}-timeline-1`,
@@ -318,6 +330,7 @@ export function deriveReleaseHistoryRecords(snapshot: ReportSnapshot): ReleaseHi
 
       return {
         id: `VH-${id}`,
+        vehicleId,
         vehicleAddedAt: formatDateTimeLabel(vehicleAddedAtIso),
         vehicleAddedAtIso,
         unitName: vehicle?.unitName ?? '',
@@ -332,7 +345,7 @@ export function deriveReleaseHistoryRecords(snapshot: ReportSnapshot): ReleaseHi
         agentAssignedAtIso,
         customerName: preparation.customerName ?? '',
         customerContact: preparation.customerContactNo ?? '',
-        releasedAt: formatDateTimeLabel(releasedAtIso),
+        releasedAt: status === 'released' ? formatDateTimeLabel(releasedAtIso) : 'Not released',
         releasedAtIso,
         status,
         historyEvents,
@@ -448,10 +461,8 @@ export function deriveActivityRecords(snapshot: ReportSnapshot): DerivedActivity
     }
   })
 
-  const releaseHistoryRecords = releaseHistory.map((record) => {
-    const relatedAllocation = latestAllocationByVehicleId.get(
-      Array.from(vehicleById.entries()).find(([, vehicle]) => vehicle.conductionNumber === record.conductionNumber)?.[0] ?? ''
-    )
+  const releaseHistoryRecords = releaseHistory.filter((record) => record.status === 'released').map((record) => {
+    const relatedAllocation = latestAllocationByVehicleId.get(record.vehicleId)
 
     return {
       id: `release-${record.id}`,
@@ -487,7 +498,14 @@ const average = (values: number[]) =>
   values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0
 
 export function deriveReportsDashboardData(snapshot: ReportSnapshot): ReportsDashboardData {
-  const releaseHistory = deriveReleaseHistoryRecords(snapshot)
+  const stockSummary = summarizeInventory(buildInventoryVehiclesFromRecords(
+    snapshot.vehicles, snapshot.unitAllocations, snapshot.driverAllocations, snapshot.preparations
+  ))
+  const releaseHistory = deriveReleaseHistoryRecords(snapshot).filter((record) => record.status === 'released')
+  const releasedVehicleIds = new Set(releaseHistory.map((record) => record.vehicleId))
+  const currentVehicles = snapshot.vehicles.filter(
+    (vehicle) => vehicle.status !== 'completed' && !releasedVehicleIds.has(getEntityId(vehicle))
+  )
   const activityRecords = deriveActivityRecords(snapshot)
   const monthKeys = rangeMonthKeys()
   const releaseCountsByMonth = new Map<string, number>()
@@ -518,12 +536,12 @@ export function deriveReportsDashboardData(snapshot: ReportSnapshot): ReportsDas
     }
   })
 
-  const inventoryByModelSource = snapshot.vehicles.reduce<Record<string, number>>((accumulator, vehicle) => {
+  const inventoryByModelSource = currentVehicles.reduce<Record<string, number>>((accumulator, vehicle) => {
     const model = vehicle.unitName ?? 'Unknown'
     accumulator[model] = (accumulator[model] ?? 0) + 1
     return accumulator
   }, {})
-  const totalInventory = snapshot.vehicles.length
+  const totalInventory = currentVehicles.length
   const inventoryByModel = Object.entries(inventoryByModelSource)
     .map(([model, count]) => ({
       model,
@@ -649,7 +667,7 @@ export function deriveReportsDashboardData(snapshot: ReportSnapshot): ReportsDas
     unitsSold,
     unitsSoldDelta: unitsSold - previousUnitsSold,
     currentInventory: totalInventory,
-    currentInventoryAvailable: snapshot.vehicles.filter((vehicle) => vehicle.status === 'available').length,
+    currentInventoryAvailable: stockSummary.available,
     activeAgents,
     averagePreparationTimeDays,
     averagePreparationTimeDelta: currentAveragePreparation - previousAveragePreparation,

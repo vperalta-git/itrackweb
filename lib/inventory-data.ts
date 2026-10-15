@@ -1,6 +1,8 @@
 'use client'
 
 import { apiRequest } from '@/lib/api-client'
+import { getSessionUser } from '@/lib/session'
+import type { Role } from '@/lib/rbac'
 import {
   BackendDriverAllocation,
   BackendPreparation,
@@ -22,6 +24,10 @@ export interface InventoryVehicle {
   variation: string
   assignedAgent: string
   manager: string
+  assignedAgentId?: string | null
+  managerId?: string | null
+  assignedAt?: string | null
+  releasedAt?: string | null
   ageInStorage: number
   status:
     | 'in-stockyard'
@@ -29,6 +35,8 @@ export interface InventoryVehicle {
     | 'pending'
     | 'available'
     | 'in-dispatch'
+    | 'ready-for-release'
+    | 'maintenance'
     | 'released'
   dateAdded: string
   notes?: string
@@ -75,20 +83,26 @@ const mapVehicleRecord = (
 
   let derivedStatus = rawVehicleStatus
 
-  if (latestPreparation?.status === 'ready_for_release') {
+  if (
+    vehicle.status === 'completed' ||
+    (latestPreparation?.status === 'completed' && latestPreparation.readyForReleaseAt)
+  ) {
     derivedStatus = 'released'
+  } else if (latestPreparation?.status === 'ready_for_release') {
+    derivedStatus = 'ready-for-release'
   } else if (
     latestPreparation?.status === 'in_dispatch' ||
     latestPreparation?.status === 'completed'
   ) {
     derivedStatus = 'in-dispatch'
   } else if (
-    latestDriverAllocation?.status === 'in_transit' ||
-    latestDriverAllocation?.status === 'assigned'
+    latestDriverAllocation?.status === 'in_transit'
   ) {
     derivedStatus = 'in-transit'
   } else if (latestDriverAllocation?.status === 'pending') {
     derivedStatus = 'pending'
+  } else if (latestDriverAllocation?.status === 'assigned') {
+    derivedStatus = 'in-stockyard'
   }
 
   return {
@@ -99,6 +113,12 @@ const mapVehicleRecord = (
     variation: vehicle.variation ?? '',
     assignedAgent: getFullName(allocation?.salesAgentId) || 'Unassigned',
     manager: getFullName(allocation?.managerId) || 'Unassigned',
+    assignedAgentId: getEntityId(allocation?.salesAgentId) || null,
+    managerId: getEntityId(allocation?.managerId) || null,
+    assignedAt: allocation?.createdAt ?? null,
+    releasedAt: derivedStatus === 'released'
+      ? latestPreparation?.completedAt ?? latestPreparation?.readyForReleaseAt ?? vehicle.updatedAt ?? null
+      : null,
     ageInStorage: getDaysSince(vehicle.createdAt),
     status: derivedStatus,
     dateAdded: getIsoDate(vehicle.createdAt),
@@ -106,17 +126,49 @@ const mapVehicleRecord = (
   }
 }
 
+export function getVisibleInventoryVehicles(vehicles: InventoryVehicle[], role: Role) {
+  if (role === 'admin' || role === 'supervisor') return vehicles
+  const user = getSessionUser()
+  if (!user?.id) return []
+  return vehicles.filter((vehicle) => {
+    const own = role === 'manager'
+      ? vehicle.managerId === user.id
+      : vehicle.assignedAgentId === user.id
+    const shared = !vehicle.assignedAgentId &&
+      (vehicle.status === 'available' || vehicle.status === 'in-stockyard')
+    return own || shared
+  })
+}
+
+export function summarizeInventory(vehicles: InventoryVehicle[]) {
+  const current = vehicles.filter((vehicle) => vehicle.status !== 'released')
+  const byModel = new Map<string, number>()
+  current.forEach((vehicle) => {
+    const model = vehicle.unitName.trim() || 'Unspecified'
+    byModel.set(model, (byModel.get(model) ?? 0) + 1)
+  })
+  return {
+    current: current.length,
+    available: current.filter((vehicle) => vehicle.status === 'available').length,
+    allocated: current.filter((vehicle) => Boolean(vehicle.assignedAgentId)).length,
+    inTransit: current.filter((vehicle) => vehicle.status === 'in-transit').length,
+    underPreparation: current.filter((vehicle) =>
+      vehicle.status === 'in-dispatch' || vehicle.status === 'ready-for-release').length,
+    released: vehicles.length - current.length,
+    byModel: [...byModel].map(([model, count]) => ({ model, count }))
+      .sort((a, b) => a.model.localeCompare(b.model)),
+  }
+}
+
 const sortVehicles = (vehicles: InventoryVehicle[]) =>
   [...vehicles].sort((left, right) => right.dateAdded.localeCompare(left.dateAdded))
 
-export async function syncInventoryVehiclesFromBackend() {
-  const [vehicles, unitAgentAllocations, driverAllocations, preparations] = await Promise.all([
-    apiRequest<BackendVehicle[]>('/vehicles'),
-    apiRequest<BackendUnitAgentAllocation[]>('/unit-agent-allocations'),
-    apiRequest<BackendDriverAllocation[]>('/driver-allocations'),
-    apiRequest<BackendPreparation[]>('/preparations'),
-  ])
-
+export function buildInventoryVehiclesFromRecords(
+  vehicles: BackendVehicle[],
+  unitAgentAllocations: BackendUnitAgentAllocation[],
+  driverAllocations: BackendDriverAllocation[],
+  preparations: BackendPreparation[]
+) {
   const allocationByVehicleId = new Map(
     unitAgentAllocations.map((allocation) => [getEntityId(allocation.vehicleId), allocation])
   )
@@ -160,6 +212,18 @@ export async function syncInventoryVehiclesFromBackend() {
     )
   )
 
+  return mappedVehicles
+}
+
+export async function syncInventoryVehiclesFromBackend() {
+  const [vehicles, unitAgentAllocations, driverAllocations, preparations] = await Promise.all([
+    apiRequest<BackendVehicle[]>('/vehicles'),
+    apiRequest<BackendUnitAgentAllocation[]>('/unit-agent-allocations'),
+    apiRequest<BackendDriverAllocation[]>('/driver-allocations'),
+    apiRequest<BackendPreparation[]>('/preparations'),
+  ])
+
+  const mappedVehicles = buildInventoryVehiclesFromRecords(vehicles, unitAgentAllocations, driverAllocations, preparations)
   persistInventoryVehicles(mappedVehicles)
   return mappedVehicles
 }

@@ -1,13 +1,13 @@
 'use client'
 
 import * as React from 'react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import {
   Settings,
   Bell,
   Shield,
-  Palette,
   Database,
-  Mail,
   Save,
 } from 'lucide-react'
 
@@ -33,8 +33,11 @@ import {
   saveWebNotificationPreferences,
 } from '@/lib/notification-preferences'
 import { toast } from 'sonner'
+import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
 
 export default function SettingsPage() {
+  const pathname = usePathname()
+  const profilePath = buildRolePath(getRoleFromPathname(pathname), 'profile')
   const [isSaving, setIsSaving] = React.useState(false)
   const [notificationPreferences, setNotificationPreferences] = React.useState(
     loadWebNotificationPreferences
@@ -82,7 +85,9 @@ export default function SettingsPage() {
       }
 
       saveWebNotificationPreferences(nextNotificationPreferences)
-      toast.success('Settings saved successfully')
+      toast.success('Notification preferences saved in this browser')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to save notification preferences.')
     } finally {
       setIsSaving(false)
     }
@@ -92,11 +97,11 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        description="Manage your system preferences and configurations"
+        description="Save notification preferences for this browser and view settings availability"
       >
         <Button onClick={handleSave} disabled={isSaving}>
           <Save className="mr-2 size-4" />
-          {isSaving ? 'Saving...' : 'Save Changes'}
+          {isSaving ? 'Saving...' : 'Save Notification Preferences'}
         </Button>
       </PageHeader>
 
@@ -117,18 +122,18 @@ export default function SettingsPage() {
                 General Settings
               </CardTitle>
               <CardDescription>
-                Configure basic system settings and preferences.
+                General settings are unavailable in this release. These disabled controls cannot be saved.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="companyName">Company Name</Label>
-                  <Input id="companyName" defaultValue="I-TRACK Auto Sales" />
+                  <Input disabled id="companyName" defaultValue="I-TRACK Auto Sales" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="timezone">Timezone</Label>
-                  <Select defaultValue="asia-manila">
+                  <Select disabled defaultValue="asia-manila">
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -143,7 +148,7 @@ export default function SettingsPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="dateFormat">Date Format</Label>
-                  <Select defaultValue="dd-mm-yyyy">
+                  <Select disabled defaultValue="dd-mm-yyyy">
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -156,7 +161,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="currency">Currency</Label>
-                  <Select defaultValue="php">
+                  <Select disabled defaultValue="php">
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -178,7 +183,7 @@ export default function SettingsPage() {
                       Reduce spacing and padding throughout the interface
                     </p>
                   </div>
-                  <Switch />
+                  <Switch disabled />
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
@@ -187,7 +192,7 @@ export default function SettingsPage() {
                       Display greeting message on dashboard
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch disabled />
                 </div>
               </div>
             </CardContent>
@@ -203,12 +208,12 @@ export default function SettingsPage() {
                 Notification Preferences
               </CardTitle>
               <CardDescription>
-                Choose what notifications you want to receive.
+                In-app preferences are saved in this browser. Email notification settings are unavailable.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-4">
-                <h4 className="text-sm font-medium">Email Notifications</h4>
+                <h4 className="text-sm font-medium">Email Notifications ? Unavailable</h4>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
@@ -217,7 +222,7 @@ export default function SettingsPage() {
                         Get notified when a new vehicle is added to inventory
                       </p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch disabled />
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
@@ -226,7 +231,7 @@ export default function SettingsPage() {
                         Notify when vehicle preparation is completed
                       </p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch disabled />
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
@@ -235,7 +240,7 @@ export default function SettingsPage() {
                         Alert when a new test drive is scheduled
                       </p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch disabled />
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
@@ -244,7 +249,7 @@ export default function SettingsPage() {
                         Receive daily activity summary
                       </p>
                     </div>
-                    <Switch />
+                    <Switch disabled />
                   </div>
                 </div>
               </div>
@@ -330,29 +335,17 @@ export default function SettingsPage() {
                 Security Settings
               </CardTitle>
               <CardDescription>
-                Manage your account security and authentication preferences.
+                Change your password in Profile. Two-factor authentication and inactivity settings are unavailable here.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-4">
                 <h4 className="text-sm font-medium">Password</h4>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="currentPassword">Current Password</Label>
-                    <Input id="currentPassword" type="password" />
-                  </div>
-                  <div />
-                  <div className="space-y-2">
-                    <Label htmlFor="newPassword">New Password</Label>
-                    <Input id="newPassword" type="password" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="confirmPassword">Confirm Password</Label>
-                    <Input id="confirmPassword" type="password" />
-                  </div>
-                </div>
-                <Button variant="outline" size="sm">
-                  Update Password
+                <p className="text-sm text-muted-foreground">
+                  Use the authenticated password change form on your profile.
+                </p>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={profilePath}>Open Password Settings</Link>
                 </Button>
               </div>
               <Separator />
@@ -365,7 +358,7 @@ export default function SettingsPage() {
                       Add an extra layer of security to your account
                     </p>
                   </div>
-                  <Switch />
+                  <Switch disabled />
                 </div>
               </div>
               <Separator />
@@ -378,7 +371,7 @@ export default function SettingsPage() {
                       Automatically logout after 30 minutes of inactivity
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch disabled />
                 </div>
               </div>
             </CardContent>
@@ -386,67 +379,6 @@ export default function SettingsPage() {
         </TabsContent>
 
         {/* System Settings */}
-        <TabsContent value="security" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="size-5 text-primary" />
-                System Configuration
-              </CardTitle>
-              <CardDescription>
-                Advanced system settings and maintenance options.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Pagination Size</Label>
-                  <Select defaultValue="10">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="10">10 items per page</SelectItem>
-                      <SelectItem value="25">25 items per page</SelectItem>
-                      <SelectItem value="50">50 items per page</SelectItem>
-                      <SelectItem value="100">100 items per page</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Data Retention</Label>
-                  <Select defaultValue="365">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="90">90 days</SelectItem>
-                      <SelectItem value="180">180 days</SelectItem>
-                      <SelectItem value="365">1 year</SelectItem>
-                      <SelectItem value="730">2 years</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <Separator />
-              <div className="space-y-4">
-                <h4 className="text-sm font-medium">Maintenance</h4>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
-                    Clear Cache
-                  </Button>
-                  <Button variant="outline" size="sm">
-                    Export Data
-                  </Button>
-                  <Button variant="outline" size="sm" className="text-destructive">
-                    Reset Settings
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         <TabsContent value="system" className="space-y-6">
           <Card>
             <CardHeader>
@@ -455,14 +387,14 @@ export default function SettingsPage() {
                 System Configuration
               </CardTitle>
               <CardDescription>
-                Advanced system settings and maintenance options.
+                These system controls are unavailable. Deployment and email configuration must be managed outside this page.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Pagination Size</Label>
-                  <Select defaultValue="10">
+                  <Select disabled defaultValue="10">
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -476,7 +408,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Data Retention</Label>
-                  <Select defaultValue="365">
+                  <Select disabled defaultValue="365">
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -495,25 +427,25 @@ export default function SettingsPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="smtpHost">SMTP Host</Label>
-                    <Input id="smtpHost" placeholder="smtp.example.com" />
+                    <Input disabled id="smtpHost" placeholder="smtp.example.com" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="smtpPort">SMTP Port</Label>
-                    <Input id="smtpPort" placeholder="587" />
+                    <Input disabled id="smtpPort" placeholder="587" />
                   </div>
                 </div>
               </div>
               <Separator />
               <div className="space-y-4">
-                <h4 className="text-sm font-medium">Maintenance</h4>
+                <h4 className="text-sm font-medium">Maintenance ? Unavailable</h4>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm">
+                  <Button disabled variant="outline" size="sm">
                     Clear Cache
                   </Button>
-                  <Button variant="outline" size="sm">
+                  <Button disabled variant="outline" size="sm">
                     Export Data
                   </Button>
-                  <Button variant="outline" size="sm" className="text-destructive">
+                  <Button disabled variant="outline" size="sm" className="text-destructive">
                     Reset Settings
                   </Button>
                 </div>

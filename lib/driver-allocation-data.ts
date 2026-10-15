@@ -59,7 +59,6 @@ export interface DriverAllocationLiveLocation {
 
 export const DRIVER_ALLOCATIONS_STORAGE_KEY = 'itrack.driver.allocations'
 export const DRIVER_ALLOCATIONS_UPDATED_EVENT = 'driver-allocations-updated'
-export const DEFAULT_IN_TRANSIT_PROGRESS = 0.62
 
 const EARTH_RADIUS_KM = 6371
 const DEFAULT_URBAN_SPEED_KMH = 28
@@ -76,7 +75,8 @@ const hasValidCoordinates = (
       typeof value.latitude === 'number' &&
       typeof value.longitude === 'number' &&
       Number.isFinite(value.latitude) &&
-      Number.isFinite(value.longitude)
+      Number.isFinite(value.longitude) &&
+      Math.abs(value.latitude) <= 90 && Math.abs(value.longitude) <= 180
   )
 
 const EMPTY_DRIVER_ALLOCATIONS: DriverAllocationRecord[] = []
@@ -339,7 +339,7 @@ export function getDriverAllocationProgress(allocation: DriverAllocationRecord) 
     case 'pending':
       return 0
     case 'assigned':
-      return 0.15
+      return 0
     case 'in-transit': {
       const liveProgress = getLiveProgress(allocation)
 
@@ -347,7 +347,7 @@ export function getDriverAllocationProgress(allocation: DriverAllocationRecord) 
         return liveProgress
       }
 
-      return Math.min(Math.max(allocation.routeProgress ?? DEFAULT_IN_TRANSIT_PROGRESS, 0), 1)
+      return 0
     }
     case 'available':
     case 'completed':
@@ -358,20 +358,6 @@ export function getDriverAllocationProgress(allocation: DriverAllocationRecord) 
 }
 
 export function getDriverAllocationLiveCoordinates(allocation: DriverAllocationRecord) {
-  const pickup = allocation.pickupLocationDetails
-  const destination = allocation.destinationLocationDetails
-
-  if (allocation.status === 'available' || allocation.status === 'completed') {
-    if (!hasValidCoordinates(destination)) {
-      return null
-    }
-
-    return {
-      latitude: destination.latitude,
-      longitude: destination.longitude,
-    }
-  }
-
   if (hasValidCoordinates(allocation.currentLocation)) {
     return {
       latitude: allocation.currentLocation.latitude,
@@ -379,18 +365,22 @@ export function getDriverAllocationLiveCoordinates(allocation: DriverAllocationR
     }
   }
 
-  if (!hasValidCoordinates(pickup) || !hasValidCoordinates(destination)) {
-    return null
-  }
+  return null
+}
 
-  const progress = getDriverAllocationProgress(allocation)
-
-  return {
-    latitude:
-      pickup.latitude + (destination.latitude - pickup.latitude) * progress,
-    longitude:
-      pickup.longitude + (destination.longitude - pickup.longitude) * progress,
+export function getDriverAllocationGpsState(allocation: DriverAllocationRecord, now = Date.now()) {
+  const location = getDriverAllocationLiveCoordinates(allocation)
+  if (!location) return { state: 'unavailable' as const, location: null, label: 'GPS unavailable' }
+  const timestamp = new Date(allocation.currentLocation?.updatedAt ?? '').getTime()
+  const age = now - timestamp
+  if (!Number.isFinite(timestamp) || age < 0) {
+    return { state: 'last-known' as const, location, label: 'Last known GPS · timestamp unavailable or invalid' }
   }
+  if (age > 300_000) return { state: 'stale' as const, location, label: 'Stale GPS · last known position' }
+  if (age > 60_000 || allocation.status !== 'in-transit') {
+    return { state: 'last-known' as const, location, label: 'Last known GPS position' }
+  }
+  return { state: 'live' as const, location, label: 'Live GPS position' }
 }
 
 export function getDriverAllocationRemainingDistanceKm(allocation: DriverAllocationRecord) {
@@ -405,13 +395,7 @@ export function getDriverAllocationRemainingDistanceKm(allocation: DriverAllocat
     return Math.max(getDistanceBetweenLocationsKm(currentLocation, destination), 0)
   }
 
-  const routeDistanceKm = getRouteDistanceKm(allocation)
-
-  if (routeDistanceKm === null) {
-    return null
-  }
-
-  return Math.max(routeDistanceKm * (1 - getDriverAllocationProgress(allocation)), 0)
+  return null
 }
 
 export function getDriverAllocationRemainingDistanceLabel(allocation: DriverAllocationRecord) {
@@ -469,13 +453,8 @@ export function getDriverAllocationEtaLabel(allocation: DriverAllocationRecord) 
       return `${liveRemainingMinutes} mins`
     }
 
-    const remainingMinutes = Math.max(
-      1,
-      Math.round(estimatedDuration * (1 - getDriverAllocationProgress(allocation)))
-    )
-
-    return `${remainingMinutes} mins`
+    return 'Unavailable — no GPS fix'
   }
 
-  return 'Pending'
+  return allocation.status === 'cancelled' ? 'Cancelled' : 'Pending'
 }

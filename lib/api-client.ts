@@ -29,15 +29,23 @@ export class ApiError extends Error {
   }
 }
 
-const parseApiResponse = <T,>(rawText: string) => {
+const parseApiResponse = (rawText: string): unknown => {
   if (!rawText) return null
 
   try {
-    return JSON.parse(rawText) as ApiEnvelope<T> | { message?: string }
+    return JSON.parse(rawText) as unknown
   } catch {
     return { message: rawText }
   }
 }
+
+const hasApiData = <T,>(value: unknown): value is ApiEnvelope<T> =>
+  typeof value === 'object' && value !== null && 'data' in value &&
+  (!('success' in value) || value.success !== false)
+
+const responseMessage = (value: unknown) =>
+  typeof value === 'object' && value !== null && 'message' in value &&
+  typeof value.message === 'string' ? value.message : null
 
 const appendQuery = (
   url: URL,
@@ -72,7 +80,7 @@ const buildDirectUrl = (
   return appendQuery(url, query).toString()
 }
 
-export async function apiRequest<T>(path: string, options: RequestOptions = {}) {
+export async function apiRequest<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
   const session = loadSession()
   const headers = new Headers(options.headers)
 
@@ -123,20 +131,18 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}) 
   }
 
   const rawText = await response.text()
-  const parsed = parseApiResponse<T>(rawText)
+  const parsed = parseApiResponse(rawText)
 
   if (!response.ok) {
     throw new ApiError(
-      parsed && 'message' in parsed && parsed.message
-        ? parsed.message
-        : `Request failed with status ${response.status}.`,
+      responseMessage(parsed) ?? `Request failed with status ${response.status}.`,
       response.status,
       parsed
     )
   }
 
-  if (!parsed || !('data' in parsed)) {
-    throw new Error('The server returned an unexpected response.')
+  if (!hasApiData<T>(parsed)) {
+    throw new Error(responseMessage(parsed) ?? 'The server returned an unexpected response.')
   }
 
   return parsed.data

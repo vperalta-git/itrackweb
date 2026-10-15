@@ -3,7 +3,7 @@
 import type { Role } from '@/lib/rbac'
 import { getSessionUserFullName, getSessionUser } from '@/lib/session'
 
-export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'EXPORT'
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'APPROVE' | 'REJECT'
 
 export interface AuditLogEntry {
   id: string

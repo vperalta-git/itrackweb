@@ -49,6 +49,8 @@ export interface PreparationRequestRecord {
   predictedTotalMinutes?: number
   predictedRemainingMinutes?: number
   predictionGeneratedAt?: string
+  predictionSource?: 'model' | 'fallback'
+  predictionFallbackReason?: string | null
   dispatcherChecklist: Array<{
     id: string
     label: string
@@ -60,6 +62,12 @@ export interface PreparationRequestRecord {
 const storageKey = 'itrack.preparations.records'
 export const PREPARATIONS_UPDATED_EVENT = 'preparations-updated'
 const COMPLETION_NOTIFIED_STORAGE_KEY = 'itrack.preparations.completion-notified'
+
+export function getPreparationPredictionLabel(record: Pick<PreparationRequestRecord, 'predictionSource'>) {
+  if (record.predictionSource === 'model') return 'Trained model estimate'
+  if (record.predictionSource === 'fallback') return 'Rule-based estimate'
+  return 'Estimate (source not verified)'
+}
 
 const formatMinutesAsEta = (minutes?: number | null) => {
   if (!Number.isFinite(minutes) || minutes === null || minutes === undefined) {
@@ -250,6 +258,8 @@ const mapPreparation = (
     predictedTotalMinutes: preparation.predictedTotalMinutes ?? undefined,
     predictedRemainingMinutes: preparation.predictedRemainingMinutes ?? undefined,
     predictionGeneratedAt: preparation.predictionGeneratedAt ?? undefined,
+    predictionSource: preparation.predictionSource,
+    predictionFallbackReason: preparation.predictionFallbackReason ?? null,
     dispatcherChecklist:
       preparation.dispatcherChecklist?.map((item) => ({
         ...item,

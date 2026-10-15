@@ -120,6 +120,8 @@ export type BackendPreparation = {
   predictedTotalMinutes?: number | null
   predictedRemainingMinutes?: number | null
   predictionGeneratedAt?: string | null
+  predictionSource?: 'model' | 'fallback'
+  predictionFallbackReason?: string | null
   createdAt?: string
   updatedAt?: string
 }
@@ -155,7 +157,7 @@ const vehicleStatusMap: Record<string, string> = {
   in_transit: 'in-transit',
   under_preparation: 'in-dispatch',
   completed: 'released',
-  maintenance: 'pending',
+  maintenance: 'maintenance',
 }
 
 const uiVehicleStatusMap: Record<string, string> = {
@@ -163,6 +165,8 @@ const uiVehicleStatusMap: Record<string, string> = {
   'in-stockyard': 'in_stockyard',
   'in-transit': 'in_transit',
   'in-dispatch': 'under_preparation',
+  'ready-for-release': 'under_preparation',
+  maintenance: 'maintenance',
   released: 'completed',
   pending: 'maintenance',
 }

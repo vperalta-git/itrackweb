@@ -60,6 +60,7 @@ import {
 } from '@/lib/inventory-data'
 import {
   createPreparationRecord,
+  getPreparationPredictionLabel,
   deletePreparationRecord,
   loadPreparationRecords,
   PreparationRequestRecord,
@@ -225,20 +226,20 @@ const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => 
         remainingMinutes !== null
           ? `${formatDurationLabel(remainingMinutes)}`
           : request.estimatedTime,
-      supporting: null,
+      supporting: getPreparationPredictionLabel(request),
     }
   }
 
   if ((request.status === 'completed' || request.status === 'ready-for-release') && request.inDispatchAt) {
     return {
       headline: formatDurationLabel(0),
-      supporting: null,
+      supporting: request.status === 'completed' ? 'Released / Completed' : 'Ready for Release',
     }
   }
 
   return {
     headline: request.estimatedTime,
-    supporting: null,
+    supporting: getPreparationPredictionLabel(request),
   }
 }
 
@@ -836,7 +837,7 @@ export default function PreparationPage() {
         { header: 'Customer Name', value: (row) => row.customerName },
         { header: 'Contact Number', value: (row) => row.contactNumber },
         { header: 'Status', value: (row) => row.status },
-        { header: 'Estimated Time', value: (row) => row.estimatedTime },
+        { header: 'Estimated Time', value: (row) => `${row.estimatedTime} (${getPreparationPredictionLabel(row)})` },
         { header: 'Progress', value: (row) => `${getRunningProgress(row, liveNow)}%` },
       ],
       rows: filteredRequests,

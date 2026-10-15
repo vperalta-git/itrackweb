@@ -206,7 +206,7 @@ export default function VehicleHistoryPage() {
   const handleExportPdf = () => {
     exportPdfReport({
       title: 'Release History Report',
-      subtitle: 'Complete unit history from backend preparation and release records',
+      subtitle: `Complete unit history; Status: ${statusFilter === 'all' ? 'All statuses' : statusLabels[statusFilter]}; Search: ${searchTerm.trim() || 'None'}`,
       filename: 'vehicle-history-report',
       layout: 'table',
       columns: [
@@ -232,7 +232,7 @@ export default function VehicleHistoryPage() {
   const handleExportSingleRecord = (record: ReleaseHistoryRecord) => {
     exportPdfReport({
       title: 'Release History Report',
-      subtitle: 'Complete unit history from backend preparation and release records',
+      subtitle: `Single record: ${record.conductionNumber}; Status: ${statusLabels[record.status]}`,
       filename: `vehicle-history-${record.conductionNumber.toLowerCase()}`,
       layout: 'table',
       columns: [

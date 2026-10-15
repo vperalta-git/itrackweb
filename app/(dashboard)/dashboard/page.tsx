@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { usePathname } from 'next/navigation'
-import { BarChart3, Car, ClipboardCheck, Package, TrendingUp, Users } from 'lucide-react'
+import { BarChart3, Car, ClipboardCheck, Package, TrendingUp, Users, RefreshCw } from 'lucide-react'
 import {
   Bar,
   BarChart,
@@ -15,6 +15,7 @@ import {
   YAxis,
 } from 'recharts'
 
+import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/page-header'
 import { MetricCard } from '@/components/metric-card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -45,6 +46,8 @@ import {
   INVENTORY_UPDATED_EVENT,
   loadInventoryVehicles,
   syncInventoryVehiclesFromBackend,
+  getVisibleInventoryVehicles,
+  summarizeInventory,
   type InventoryVehicle,
 } from '@/lib/inventory-data'
 import { getRoleFromPathname } from '@/lib/rbac'
@@ -57,7 +60,9 @@ const statusLabels: Record<InventoryVehicle['status'], string> = {
   'in-stockyard': 'In Stockyard',
   'in-transit': 'In Transit',
   pending: 'Pending',
-  'in-dispatch': 'In Dispatch',
+  'in-dispatch': 'Under Preparation',
+  'ready-for-release': 'Ready for Release',
+  maintenance: 'Maintenance',
   released: 'Released',
 }
 
@@ -67,6 +72,8 @@ const statusColors: Record<InventoryVehicle['status'], string> = {
   'in-transit': 'var(--chart-2)',
   pending: 'var(--chart-5)',
   'in-dispatch': 'var(--chart-3)',
+  'ready-for-release': 'var(--chart-4)',
+  maintenance: 'var(--chart-5)',
   released: 'var(--muted)',
 }
 
@@ -76,6 +83,8 @@ const statusOrder: InventoryVehicle['status'][] = [
   'in-transit',
   'pending',
   'in-dispatch',
+  'ready-for-release',
+  'maintenance',
   'released',
 ]
 
@@ -86,12 +95,14 @@ const barChartConfig: ChartConfig = {
   },
 }
 
-type PeriodFilter = 'week' | 'month' | 'year'
+type PeriodFilter = 'all' | 'week' | 'month' | 'year'
 
 const getPeriodStartDate = (period: PeriodFilter) => {
   const now = new Date()
 
   switch (period) {
+    case 'all':
+      return new Date(0)
     case 'week':
       return new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7)
     case 'year':
@@ -123,9 +134,9 @@ export default function DashboardPage() {
   const [vehicles, setVehicles] = React.useState<InventoryVehicle[]>(() => loadInventoryVehicles())
   const [users, setUsers] = React.useState<SystemUser[]>(() => loadUsers())
   const [vehicleStatusFilter, setVehicleStatusFilter] =
-    React.useState<'week' | 'month' | 'year'>('month')
+    React.useState<PeriodFilter>('all')
   const [modelPeriodFilter, setModelPeriodFilter] =
-    React.useState<'week' | 'month' | 'year'>('month')
+    React.useState<PeriodFilter>('all')
   const [agentManagerFilter, setAgentManagerFilter] = React.useState('all')
   const [agentPeriodFilter, setAgentPeriodFilter] =
     React.useState<'week' | 'month' | 'year'>('month')
@@ -135,39 +146,34 @@ export default function DashboardPage() {
   const [agentLimit, setAgentLimit] = React.useState('5')
   const [unitLimit, setUnitLimit] = React.useState('5')
 
-  React.useEffect(() => {
-    const syncInventory = () => {
-      setVehicles(loadInventoryVehicles())
+  const [isRefreshing, setIsRefreshing] = React.useState(false)
+  const [refreshError, setRefreshError] = React.useState<string | null>(null)
+  const refreshDashboard = React.useCallback(async () => {
+    setIsRefreshing(true)
+    try {
+      const [nextVehicles, nextUsers] = await Promise.all([
+        syncInventoryVehiclesFromBackend(), syncUsersFromBackend(),
+      ])
+      setVehicles(nextVehicles)
+      setUsers(nextUsers)
+      setRefreshError(null)
+    } catch (error) {
+      setRefreshError(error instanceof Error ? error.message : 'Unable to refresh dashboard data.')
+    } finally {
+      setIsRefreshing(false)
     }
-
-    syncInventory()
-    void syncInventoryVehiclesFromBackend()
-      .then((nextVehicles) => {
-        setVehicles(nextVehicles)
-      })
-      .catch(() => {
-        return null
-      })
+  }, [])
+  React.useEffect(() => {
+    void refreshDashboard()
+    const syncInventory = () => setVehicles(loadInventoryVehicles())
+    const syncUsers = () => setUsers(loadUsers())
     window.addEventListener(INVENTORY_UPDATED_EVENT, syncInventory)
-
+    window.addEventListener(USERS_UPDATED_EVENT, syncUsers)
     return () => {
       window.removeEventListener(INVENTORY_UPDATED_EVENT, syncInventory)
-    }
-  }, [])
-
-  React.useEffect(() => {
-    const syncUsers = () => {
-      setUsers(loadUsers())
-    }
-
-    syncUsers()
-    void syncUsersFromBackend().then(setUsers).catch(() => null)
-    window.addEventListener(USERS_UPDATED_EVENT, syncUsers)
-
-    return () => {
       window.removeEventListener(USERS_UPDATED_EVENT, syncUsers)
     }
-  }, [])
+  }, [refreshDashboard])
 
   const userAvatarByName = React.useMemo(
     () =>
@@ -181,14 +187,12 @@ export default function DashboardPage() {
   )
 
   const scopedVehicles = React.useMemo(
-    () =>
-      vehicles.filter(
-        (vehicle) =>
-          matchesScopedAgent(role, vehicle.assignedAgent) &&
-          matchesScopedManager(role, vehicle.manager)
-      ),
-    [role, vehicles]
+    () => getVisibleInventoryVehicles(vehicles, role), [role, vehicles]
   )
+  const currentStock = React.useMemo(
+    () => scopedVehicles.filter((vehicle) => vehicle.status !== 'released'), [scopedVehicles]
+  )
+  const summary = React.useMemo(() => summarizeInventory(scopedVehicles), [scopedVehicles])
 
   const vehiclesForStatusOverview = React.useMemo(
     () => scopedVehicles.filter((vehicle) => isWithinPeriod(vehicle.dateAdded, vehicleStatusFilter)),
@@ -196,27 +200,24 @@ export default function DashboardPage() {
   )
 
   const vehiclesForModelDistribution = React.useMemo(
-    () => scopedVehicles.filter((vehicle) => isWithinPeriod(vehicle.dateAdded, modelPeriodFilter)),
-    [modelPeriodFilter, scopedVehicles]
+    () => currentStock.filter((vehicle) => isWithinPeriod(vehicle.dateAdded, modelPeriodFilter)),
+    [modelPeriodFilter, currentStock]
   )
 
   const vehiclesForAgentPerformance = React.useMemo(
-    () => scopedVehicles.filter((vehicle) => isWithinPeriod(vehicle.dateAdded, agentPeriodFilter)),
+    () => scopedVehicles.filter((vehicle) => isWithinPeriod(vehicle.assignedAt ?? '', agentPeriodFilter)),
     [agentPeriodFilter, scopedVehicles]
   )
 
-  const vehiclesForTopSellingUnits = React.useMemo(() => {
-    const sourceVehicles = isSalesAgent || isManager ? vehicles : scopedVehicles
-
-    return sourceVehicles.filter((vehicle) => isWithinPeriod(vehicle.dateAdded, unitPeriodFilter))
-  }, [isManager, isSalesAgent, scopedVehicles, unitPeriodFilter, vehicles])
-
-  const totalVehicles = scopedVehicles.length
-  const availableVehicles = scopedVehicles.filter((vehicle) => vehicle.status === 'available').length
-  const ongoingShipment = scopedVehicles.filter((vehicle) => vehicle.status === 'in-transit').length
-  const ongoingPreparation = scopedVehicles.filter(
-    (vehicle) => vehicle.status === 'in-dispatch'
-  ).length
+  const vehiclesForTopSellingUnits = React.useMemo(
+    () => scopedVehicles.filter((vehicle) =>
+      vehicle.status === 'released' && isWithinPeriod(vehicle.releasedAt ?? '', unitPeriodFilter)),
+    [scopedVehicles, unitPeriodFilter]
+  )
+  const totalVehicles = summary.current
+  const availableVehicles = summary.available
+  const ongoingShipment = summary.inTransit
+  const ongoingPreparation = summary.underPreparation
 
   const displayedVehicleStats = React.useMemo(
     () =>
@@ -331,13 +332,19 @@ export default function DashboardPage() {
               ? `Vehicle analytics for agents under ${scope.managerName}.`
               : `Vehicle analytics for ${scope.agentName}.`
           }
-      />
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+       >
+        <Button variant="outline" onClick={() => void refreshDashboard()} disabled={isRefreshing}>
+          <RefreshCw className={`mr-2 size-4 ${isRefreshing ? 'animate-spin' : ''}`} />Refresh
+        </Button>
+      </PageHeader>
+      {refreshError && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
+        {refreshError} Displayed data may be out of date. Use Refresh to retry.
+      </p>}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <MetricCard
-          title="Total Vehicles"
+          title="Total Current Stock"
           value={totalVehicles}
-          description="In inventory"
+          description="Excludes released / completed units"
           icon={Car}
         />
         <MetricCard
@@ -355,9 +362,11 @@ export default function DashboardPage() {
         <MetricCard
           title="Active Vehicle Preparation"
           value={ongoingPreparation}
-          description="Units in dispatch"
+          description="Includes units ready for release"
           icon={ClipboardCheck}
         />
+        <MetricCard title="Allocated Units" value={summary.allocated} description="Assigned current stock; overlaps status totals" icon={Users} />
+        <MetricCard title="Released / Completed" value={summary.released} description="Shown separately from current stock" icon={Car} />
       </div>
 
       {isAdminOrSupervisor ? (
@@ -372,18 +381,19 @@ export default function DashboardPage() {
                       Vehicle Status Overview
                     </CardTitle>
                     <CardDescription>
-                      Distribution of vehicles by current inventory status
+                      Statuses of visible records; released units are separate from current stock
                     </CardDescription>
                   </div>
                   <Select
                     value={vehicleStatusFilter}
-                    onValueChange={(value: 'week' | 'month' | 'year') => setVehicleStatusFilter(value)}
+                    onValueChange={(value: PeriodFilter) => setVehicleStatusFilter(value)}
                   >
                     <SelectTrigger className="w-full sm:w-32">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="week">Week</SelectItem>
+                      <SelectItem value="all">All Dates</SelectItem>
+                       <SelectItem value="week">Week</SelectItem>
                       <SelectItem value="month">Month</SelectItem>
                       <SelectItem value="year">Year</SelectItem>
                     </SelectContent>
@@ -447,13 +457,14 @@ export default function DashboardPage() {
                   <div className="flex gap-2">
                     <Select
                       value={modelPeriodFilter}
-                      onValueChange={(value: 'week' | 'month' | 'year') => setModelPeriodFilter(value)}
+                      onValueChange={(value: PeriodFilter) => setModelPeriodFilter(value)}
                     >
                       <SelectTrigger className="w-full sm:w-32">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="week">Week</SelectItem>
+                        <SelectItem value="all">All Dates</SelectItem>
+                       <SelectItem value="week">Week</SelectItem>
                         <SelectItem value="month">Month</SelectItem>
                         <SelectItem value="year">Year</SelectItem>
                       </SelectContent>
@@ -701,7 +712,7 @@ export default function DashboardPage() {
               <div className="flex gap-2">
                 <Select
                   value={modelPeriodFilter}
-                  onValueChange={(value: 'week' | 'month' | 'year') => setModelPeriodFilter(value)}
+                  onValueChange={(value: PeriodFilter) => setModelPeriodFilter(value)}
                 >
                   <SelectTrigger className="w-full sm:w-32">
                     <SelectValue />
@@ -773,7 +784,7 @@ export default function DashboardPage() {
                 </CardTitle>
                 <CardDescription>
                   {isSalesAgent || isManager
-                    ? 'Company-wide released inventory grouped by unit and variation'
+                    ? 'Visible released inventory grouped by unit and variation'
                     : 'Released inventory grouped by unit and variation'}
                 </CardDescription>
               </div>

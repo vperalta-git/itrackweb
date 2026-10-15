@@ -292,7 +292,7 @@ export default function AuditTrailPage() {
             }
             exportConfig={{
               title: 'Audit Trail Report',
-              subtitle: 'Saved system activity log',
+              subtitle: `Saved system activity log; Action: ${actionFilter === 'all' ? 'All actions' : actionFilter}; Module: ${moduleFilter === 'all' ? 'All modules' : moduleFilter}; Search: ${searchTerm.trim() || 'None'}`,
               filename: 'audit-trail-report',
             }}
           />

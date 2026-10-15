@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node tests/auth.test.cjs && node backend/tests/accountAccess.test.js && node backend/tests/authFlow.test.js",
+    "test": "node tests/auth.test.cjs && node tests/compliance-web.test.cjs && node tests/report-export.test.cjs && node backend/tests/accountAccess.test.js && node backend/tests/authFlow.test.js && node backend/tests/operationAccess.test.js && node backend/tests/complianceValidation.test.js",
     "test:production": "node tests/production-auth-smoke.cjs"
   },
   "dependencies": {

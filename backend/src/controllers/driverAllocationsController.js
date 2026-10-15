@@ -1,6 +1,7 @@
 import { ACTIVE_ALLOCATION_STATUSES } from '../constants/enums.js';
 import { DRIVER_AI_THRESHOLDS } from '../config/driverAiConfig.js';
 import { DriverAllocation } from '../models/DriverAllocation.js';
+import { Preparation } from '../models/Preparation.js';
 import { User } from '../models/User.js';
 import { Vehicle } from '../models/Vehicle.js';
 import { analyzeDriverBehavior } from '../services/driverAi/behaviorAnalysisService.js';
@@ -16,6 +17,8 @@ import {
 } from '../services/notificationDispatchers.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { sendSuccess } from '../utils/apiResponse.js';
+import { parseFiniteNumber, parseCoordinates } from '../utils/inputValidation.js';
+import { withAccessScope } from '../middleware/operationAccess.js';
 import { scanDriverSafetyAlerts } from '../services/driverSafetyMonitorService.js';
 
 const dispatchNotificationTask = (task, label) => {
@@ -119,19 +122,6 @@ const assertRouteStops = ({ pickupLocation, destinationLocation }) => {
     error.statusCode = 400;
     throw error;
   }
-};
-
-const parseFiniteNumber = (value, label) => {
-  const parsedValue =
-    typeof value === 'number' ? value : Number(String(value ?? '').trim());
-
-  if (!Number.isFinite(parsedValue)) {
-    const error = new Error(`${label} is required.`);
-    error.statusCode = 400;
-    throw error;
-  }
-
-  return parsedValue;
 };
 
 const parseOptionalDate = (value, label) => {
@@ -288,9 +278,25 @@ const reconcileVehicleStatus = async (vehicleId) => {
     status: { $in: ACTIVE_ALLOCATION_STATUSES },
   }).sort({ createdAt: -1 });
 
-  const nextStatus = latestActiveAllocation
-    ? resolveVehicleStatus(latestActiveAllocation.status)
-    : 'available';
+  let nextStatus;
+  if (latestActiveAllocation) {
+    nextStatus = resolveVehicleStatus(latestActiveAllocation.status);
+  } else {
+    const [vehicle, latestPreparation] = await Promise.all([
+      Vehicle.findById(vehicleId),
+      Preparation.findOne({ vehicleId, status: { $ne: 'rejected' } })
+        .sort({ updatedAt: -1, createdAt: -1 }),
+    ]);
+    if (vehicle?.status === 'maintenance') {
+      nextStatus = 'maintenance';
+    } else if (latestPreparation?.status === 'completed') {
+      nextStatus = 'completed';
+    } else if (['pending', 'in_dispatch', 'ready_for_release'].includes(latestPreparation?.status)) {
+      nextStatus = 'under_preparation';
+    } else {
+      nextStatus = vehicle?.status === 'completed' ? 'completed' : 'available';
+    }
+  }
 
   await Vehicle.findByIdAndUpdate(vehicleId, {
     status: nextStatus,
@@ -349,6 +355,8 @@ const prepareAllocationPayload = async (payload, currentAllocationId = null) => 
   } = payload;
 
   assertRouteStops({ pickupLocation, destinationLocation });
+  const pickupCoordinates = parseCoordinates(pickupLocation, 'Pickup location');
+  const destinationCoordinates = parseCoordinates(destinationLocation, 'Destination location');
 
   const [vehicle, driver] = await Promise.all([
     requireVehicleDocument(vehicleId),
@@ -371,6 +379,8 @@ const prepareAllocationPayload = async (payload, currentAllocationId = null) => 
 
   return {
     ...payload,
+    pickupLocation: { ...pickupLocation, ...pickupCoordinates },
+    destinationLocation: { ...destinationLocation, ...destinationCoordinates },
     managerId: managerId ?? null,
     vehicleId: vehicle.id,
     driverId: driver.id,
@@ -410,7 +420,7 @@ export const listDriverAllocations = asyncHandler(async (req, res) => {
     );
   });
 
-  const allocations = await DriverAllocation.find(buildAllocationFilters(req.query))
+  const allocations = await DriverAllocation.find(withAccessScope(req, buildAllocationFilters(req.query)))
     .populate(allocationPopulation)
     .sort({ createdAt: -1 });
 
@@ -688,7 +698,7 @@ export const reviewDriverAllocationStopRequest = asyncHandler(async (req, res) =
         {}),
       status: approved ? 'approved' : 'rejected',
       reviewedAt: new Date(),
-      reviewedBy: req.user?.id ?? req.body?.reviewedBy ?? null,
+      reviewedBy: req.authUser.id,
       reviewNotes: normalizeActionText(req.body?.reviewNotes),
     },
   };

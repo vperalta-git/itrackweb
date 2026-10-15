@@ -250,6 +250,9 @@ export const logout = asyncHandler(async (req, res) => {
 });
 
 export const listAuthEvents = asyncHandler(async (req, res) => {
+  if (!['admin', 'supervisor'].includes(req.authUser?.role)) {
+    return sendSuccess(res, { data: [], message: 'No authentication events available to your account.' });
+  }
   const authEvents = await AuthEvent.find().sort({
     createdAt: -1,
   });

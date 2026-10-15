@@ -37,7 +37,8 @@ import {
   fetchReportSnapshot,
   type ReportSnapshot,
 } from '@/lib/report-data'
-import { getEntityId, getFullName } from '@/lib/backend-helpers'
+import { formatDateTimeLabel, getEntityId, getFullName } from '@/lib/backend-helpers'
+import { exportPdfReport } from '@/lib/export-pdf'
 
 const currentYear = String(new Date().getFullYear())
 
@@ -64,6 +65,7 @@ export default function VehicleReportsPage() {
   const [snapshot, setSnapshot] = React.useState<ReportSnapshot | null>(null)
   const [selectedYear, setSelectedYear] = React.useState(currentYear)
   const [selectedModel, setSelectedModel] = React.useState('all')
+  const [loadError, setLoadError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let isMounted = true
@@ -74,9 +76,10 @@ export default function VehicleReportsPage() {
         if (!isMounted) return
 
         setSnapshot(nextSnapshot)
-      } catch {
+      } catch (error) {
         if (!isMounted) return
         setSnapshot(null)
+        setLoadError(error instanceof Error ? error.message : 'Unable to load report data.')
       }
     }
 
@@ -89,6 +92,11 @@ export default function VehicleReportsPage() {
 
   const releaseHistory = React.useMemo(
     () => (snapshot ? deriveReleaseHistoryRecords(snapshot) : []),
+    [snapshot]
+  )
+
+  const vehicleById = React.useMemo(
+    () => new Map(snapshot?.vehicles.map((vehicle) => [getEntityId(vehicle), vehicle]) ?? []),
     [snapshot]
   )
 
@@ -111,9 +119,10 @@ export default function VehicleReportsPage() {
     return Array.from(
       new Set(
         [
+          currentYear,
           ...snapshot.vehicles.map((vehicle) => getYear(vehicle.createdAt)),
           ...snapshot.unitAllocations.map((allocation) => getYear(allocation.createdAt)),
-          ...releaseHistory.map((record) => record.releasedAtIso.slice(0, 4)),
+          ...releaseHistory.filter((record) => record.status === 'released').map((record) => getYear(record.releasedAtIso)),
         ].filter(Boolean)
       )
     ).sort((left, right) => Number(right) - Number(left))
@@ -122,17 +131,23 @@ export default function VehicleReportsPage() {
   const filteredVehicles = React.useMemo(() => {
     if (!snapshot) return []
 
+    const releasedVehicleIds = new Set(
+      releaseHistory.filter((record) => record.status === 'released').map((record) => record.vehicleId)
+    )
     return snapshot.vehicles.filter(
       (vehicle) =>
-        selectedModel === 'all' || normalizeModelKey(vehicle.unitName ?? '') === selectedModel
+        vehicle.status !== 'completed' &&
+        !releasedVehicleIds.has(getEntityId(vehicle)) &&
+        (selectedModel === 'all' || normalizeModelKey(vehicle.unitName ?? '') === selectedModel)
     )
-  }, [selectedModel, snapshot])
+  }, [releaseHistory, selectedModel, snapshot])
 
   const filteredReleaseHistory = React.useMemo(
     () =>
       releaseHistory.filter(
         (record) =>
-          record.releasedAtIso.slice(0, 4) === selectedYear &&
+          record.status === 'released' &&
+          getYear(record.releasedAtIso) === selectedYear &&
           (selectedModel === 'all' || normalizeModelKey(record.unitName) === selectedModel)
       ),
     [releaseHistory, selectedModel, selectedYear]
@@ -142,7 +157,8 @@ export default function VehicleReportsPage() {
     () =>
       releaseHistory.filter(
         (record) =>
-          record.releasedAtIso.slice(0, 4) === String(Number(selectedYear) - 1) &&
+          record.status === 'released' &&
+          getYear(record.releasedAtIso) === String(Number(selectedYear) - 1) &&
           (selectedModel === 'all' || normalizeModelKey(record.unitName) === selectedModel)
       ),
     [releaseHistory, selectedModel, selectedYear]
@@ -153,28 +169,32 @@ export default function VehicleReportsPage() {
 
     return snapshot.unitAllocations.filter((allocation) => {
       const vehicle =
-        allocation.vehicleId && typeof allocation.vehicleId === 'object' ? allocation.vehicleId : null
+        allocation.vehicleId && typeof allocation.vehicleId === 'object'
+          ? allocation.vehicleId
+          : vehicleById.get(getEntityId(allocation.vehicleId))
 
       return (
         getYear(allocation.createdAt) === selectedYear &&
         (selectedModel === 'all' || normalizeModelKey(vehicle?.unitName ?? '') === selectedModel)
       )
     })
-  }, [selectedModel, selectedYear, snapshot])
+  }, [selectedModel, selectedYear, snapshot, vehicleById])
 
   const previousAllocations = React.useMemo(() => {
     if (!snapshot) return []
 
     return snapshot.unitAllocations.filter((allocation) => {
       const vehicle =
-        allocation.vehicleId && typeof allocation.vehicleId === 'object' ? allocation.vehicleId : null
+        allocation.vehicleId && typeof allocation.vehicleId === 'object'
+          ? allocation.vehicleId
+          : vehicleById.get(getEntityId(allocation.vehicleId))
 
       return (
         getYear(allocation.createdAt) === String(Number(selectedYear) - 1) &&
         (selectedModel === 'all' || normalizeModelKey(vehicle?.unitName ?? '') === selectedModel)
       )
     })
-  }, [selectedModel, selectedYear, snapshot])
+  }, [selectedModel, selectedYear, snapshot, vehicleById])
 
   const modelDistribution = React.useMemo(() => {
     const total = filteredVehicles.length
@@ -203,7 +223,6 @@ export default function VehicleReportsPage() {
     return Object.entries(grouped)
       .map(([unit, sold]) => ({ unit, sold }))
       .sort((left, right) => right.sold - left.sold)
-      .slice(0, 5)
   }, [filteredReleaseHistory])
 
   const agentPerformance = React.useMemo(() => {
@@ -216,17 +235,29 @@ export default function VehicleReportsPage() {
       accumulator[record.agentAssigned] = (accumulator[record.agentAssigned] ?? 0) + 1
       return accumulator
     }, {})
+    const releasedVehicleIds = new Set(
+      releaseHistory.filter((record) => record.status === 'released').map((record) => record.vehicleId)
+    )
+    const activeByAgent = filteredAllocations.reduce<Record<string, number>>((accumulator, allocation) => {
+      if (
+        ['pending', 'assigned', 'in_transit'].includes(allocation.status ?? '') &&
+        !releasedVehicleIds.has(getEntityId(allocation.vehicleId))
+      ) {
+        const agentName = getFullName(allocation.salesAgentId) || 'Unassigned'
+        accumulator[agentName] = (accumulator[agentName] ?? 0) + 1
+      }
+      return accumulator
+    }, {})
 
     return Object.entries(totalByAgent)
       .map(([name, allocations]) => ({
         name,
         allocations,
         completed: completedByAgent[name] ?? 0,
-        pending: Math.max(allocations - (completedByAgent[name] ?? 0), 0),
+        pending: activeByAgent[name] ?? 0,
       }))
       .sort((left, right) => right.allocations - left.allocations)
-      .slice(0, 5)
-  }, [filteredAllocations, filteredReleaseHistory])
+  }, [filteredAllocations, filteredReleaseHistory, releaseHistory])
 
   const averageDaysInStock = React.useMemo(
     () =>
@@ -264,17 +295,55 @@ export default function VehicleReportsPage() {
   const allocationsTrend = safePercentageDelta(filteredAllocations.length, previousAllocations.length)
   const stockDaysTrend = previousAverageDaysInStock === 0 ? 0 : averageDaysInStock - previousAverageDaysInStock
 
+  const handleExportReport = () => {
+    if (!snapshot) return
+
+    const modelLabel = modelOptions.find((model) => model.value === selectedModel)?.label ?? 'All Models'
+    const rows = [
+      { section: 'Summary', item: 'Current stock', value: String(filteredVehicles.length), details: 'Current stock for the selected model; excludes released/completed vehicles. All inventory dates.' },
+      { section: 'Summary', item: 'Vehicles released', value: String(filteredReleaseHistory.length), details: `Released in ${selectedYear}; ${soldTrend.toFixed(1)}% change from previous year.` },
+      { section: 'Summary', item: 'Average days in stock', value: averageDaysInStock.toFixed(1), details: 'Based on selected-year release dates and vehicle creation dates.' },
+      { section: 'Summary', item: 'Total allocations', value: String(filteredAllocations.length), details: `Created in ${selectedYear}; ${allocationsTrend.toFixed(1)}% change from previous year.` },
+      ...modelDistribution.map((model) => ({ section: 'Model distribution', item: model.model, value: String(model.count), details: `${model.percentage}% of current stock.` })),
+      ...agentPerformance.map((agent) => ({ section: 'Agent performance', item: agent.name, value: String(agent.allocations), details: `${agent.completed} releases in ${selectedYear}; ${agent.pending} active allocations created in ${selectedYear}.` })),
+      ...topSellingUnits.map((unit) => ({ section: 'Units released by model', item: unit.unit, value: String(unit.sold), details: `Released in ${selectedYear}.` })),
+      ...filteredVehicles.map((vehicle) => ({ section: 'Current stock detail', item: vehicle.conductionNumber || getEntityId(vehicle), value: vehicle.unitName || 'Unknown model', details: `${vehicle.variation || '-'}; ${vehicle.bodyColor || '-'}; status: ${vehicle.status || 'unknown'}. Added: ${formatDateTimeLabel(vehicle.createdAt)}.` })),
+      ...filteredAllocations.map((allocation) => {
+        const vehicle = allocation.vehicleId && typeof allocation.vehicleId === 'object'
+          ? allocation.vehicleId
+          : vehicleById.get(getEntityId(allocation.vehicleId))
+        return { section: 'Allocation detail', item: vehicle?.conductionNumber || getEntityId(allocation), value: getFullName(allocation.salesAgentId) || 'Unassigned', details: `${vehicle?.unitName || 'Unknown model'}; status: ${allocation.status || 'unknown'}. Created: ${formatDateTimeLabel(allocation.createdAt)}.` }
+      }),
+      ...filteredReleaseHistory.map((record) => ({ section: 'Release detail', item: record.conductionNumber || record.vehicleId, value: `${record.unitName} ${record.variation}`.trim(), details: `Released: ${record.releasedAt}. Agent: ${record.agentAssigned}.` })),
+    ]
+
+    exportPdfReport({
+      title: 'Vehicle and Allocation Analytics Report',
+      subtitle: `Year: ${selectedYear}; Model: ${modelLabel}. Year applies to releases and allocation creation dates. Inventory reflects current stock across all dates. Full selected data, including agents and models beyond the top five.`,
+      filename: `vehicle-allocation-report-${selectedYear}-${selectedModel}`,
+      columns: [
+        { header: 'Section', value: (row) => row.section },
+        { header: 'Item', value: (row) => row.item },
+        { header: 'Value', value: (row) => row.value },
+        { header: 'Details', value: (row) => row.details },
+      ],
+      rows,
+    })
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Vehicle/Allocation Reports"
         description="Vehicle inventory analytics and agent allocation performance"
       >
-        <Button variant="outline">
+        <Button variant="outline" onClick={handleExportReport} disabled={!snapshot}>
           <FileDown className="mr-2 size-4" />
           Export Report
         </Button>
       </PageHeader>
+
+      {loadError && <p role="alert" className="text-sm text-destructive">{loadError} Reload this page to retry.</p>}
 
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex items-center gap-2">
@@ -308,12 +377,16 @@ export default function VehicleReportsPage() {
         </Select>
       </div>
 
+      <p className="text-sm text-muted-foreground">
+        Inventory shows current stock for the selected model across all dates. Releases and allocations use the selected year.
+      </p>
+
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Inventory</p>
+                <p className="text-sm text-muted-foreground">Current Stock</p>
                 <p className="text-2xl font-bold">{filteredVehicles.length}</p>
               </div>
               <div className="flex items-center text-sm text-green-600">
@@ -328,7 +401,7 @@ export default function VehicleReportsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Vehicles Sold</p>
+                <p className="text-sm text-muted-foreground">Vehicles Released</p>
                 <p className="text-2xl font-bold">{filteredReleaseHistory.length}</p>
               </div>
               <div className="flex items-center text-sm text-green-600">
@@ -386,12 +459,12 @@ export default function VehicleReportsPage() {
                 <TableRow>
                   <TableHead>Agent</TableHead>
                   <TableHead className="text-right">Total Allocations</TableHead>
-                  <TableHead className="text-right">Completed</TableHead>
-                  <TableHead className="text-right">Pending</TableHead>
+                  <TableHead className="text-right">Releases</TableHead>
+                  <TableHead className="text-right">Active Allocations</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {agentPerformance.map((agent) => (
+                {agentPerformance.slice(0, 5).map((agent) => (
                   <TableRow key={agent.name}>
                     <TableCell>
                       <div className="flex items-center gap-3">
@@ -470,7 +543,7 @@ export default function VehicleReportsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {topSellingUnits.map((item, index) => (
+              {topSellingUnits.slice(0, 5).map((item, index) => (
                 <TableRow key={item.unit}>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
