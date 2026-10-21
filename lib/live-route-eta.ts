@@ -42,7 +42,7 @@ export function formatRoadTravelTime(seconds: number) {
 }
 
 export function getRoadEstimateSource(estimate: LiveRoadEstimate) {
-  return estimate.trafficAware ? 'Traffic-aware road estimate'
+  return estimate.trafficAware && estimate.source === 'mapbox-traffic' ? 'Traffic-aware road estimate'
     : estimate.source === 'osrm' ? 'Standard road estimate · OSRM fallback, no traffic'
       : 'Standard road estimate · Traffic data unavailable'
 }

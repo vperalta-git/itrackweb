@@ -64,6 +64,7 @@ const EARTH_RADIUS_KM = 6371
 // Match the existing backend safety monitor: five minutes stale, two minutes
 // to receive the first GPS fix after departure.
 export const GPS_STALE_AFTER_MS = 300_000
+export const GPS_FRESH_FOR_MS = 60_000
 export const GPS_MISSING_AFTER_START_MS = 120_000
 
 const toRadians = (value: number) => (value * Math.PI) / 180
@@ -378,7 +379,7 @@ export function getDriverAllocationGpsState(allocation: DriverAllocationRecord, 
     return { state: 'last-known' as const, location, label: 'Last known GPS · timestamp unavailable or invalid' }
   }
   if (age >= GPS_STALE_AFTER_MS) return { state: 'stale' as const, location, label: 'GPS Signal Lost · last known position' }
-  if (age > 60_000 || allocation.status !== 'in-transit') {
+  if (age > GPS_FRESH_FOR_MS || allocation.status !== 'in-transit') {
     return { state: 'last-known' as const, location, label: 'Last known GPS position' }
   }
   return { state: 'live' as const, location, label: 'Live GPS position' }

@@ -239,11 +239,11 @@ export function AppNavbar() {
 
         newestNotificationsFirst.forEach((notification) => {
           const urgent = isUrgentTrackingNotification(notification)
-          const announceNotification = urgent ? toast.error : toast.info
+          const announceNotification = urgent ? toast.error : notification.isDeliveryDelay ? toast.warning : toast.info
           announceNotification(notification.title, {
             description: notification.message,
             duration: urgent ? 12000 : 6000,
-            ...(urgent ? { action: { label: 'View tracking', onClick: () => router.push(trackingNotificationHref(notification)) } } : {}),
+            ...(notification.trackingAllocationId ? { action: { label: 'View tracking', onClick: () => router.push(trackingNotificationHref(notification)) } } : {}),
           })
 
           if (
@@ -260,7 +260,7 @@ export function AppNavbar() {
             browserNotification.onclick = () => {
               window.focus()
               browserNotification.close()
-              if (isUrgentTrackingNotification(notification)) router.push(trackingNotificationHref(notification))
+              if (notification.trackingAllocationId) router.push(trackingNotificationHref(notification))
               else setIsNotificationsOpen(true)
             }
           }
@@ -515,10 +515,11 @@ export function AppNavbar() {
                     className={cn(
                       'flex cursor-pointer flex-col items-start gap-1 p-3',
                       !notification.read && 'bg-primary/5',
-                      isUrgentTrackingNotification(notification) && 'border-l-4 border-red-600 bg-red-50 text-red-950 focus:bg-red-100 dark:bg-red-950/40 dark:text-red-100 dark:focus:bg-red-950/60'
+                      isUrgentTrackingNotification(notification) && 'border-l-4 border-red-600 bg-red-50 text-red-950 focus:bg-red-100 dark:bg-red-950/40 dark:text-red-100 dark:focus:bg-red-950/60',
+                      notification.isDeliveryDelay && 'border-l-4 border-amber-500 bg-amber-50 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100'
                     )}
                     onSelect={() => {
-                      if (isUrgentTrackingNotification(notification)) router.push(trackingNotificationHref(notification))
+                      if (notification.trackingAllocationId) router.push(trackingNotificationHref(notification))
                     }}
                   >
                     <div className="flex w-full items-start justify-between gap-2">
@@ -550,6 +551,7 @@ export function AppNavbar() {
                       {notification.time}
                     </span>
                     {isUrgentTrackingNotification(notification) && <span className="text-xs font-semibold text-red-700 underline dark:text-red-400">High priority · View tracking</span>}
+                    {notification.isDeliveryDelay && <span className="text-xs font-semibold text-amber-700 underline dark:text-amber-400">Delay projection · View tracking</span>}
                     {notification.trackingAllocationId && notification.resolvedAt && <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Tracking restored · Alert history</span>}
                   </DropdownMenuItem>
                 ))
@@ -645,7 +647,7 @@ export function AppNavbar() {
               notifications.map((notification) => (
                 <div
                   key={notification.id}
-                  className={cn('rounded-xl border border-border/70 p-4 transition-colors hover:bg-muted/40', isUrgentTrackingNotification(notification) && 'border-red-400 bg-red-50 dark:border-red-800 dark:bg-red-950/40')}
+                  className={cn('rounded-xl border border-border/70 p-4 transition-colors hover:bg-muted/40', isUrgentTrackingNotification(notification) && 'border-red-400 bg-red-50 dark:border-red-800 dark:bg-red-950/40', notification.isDeliveryDelay && 'border-amber-400 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40')}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
@@ -657,6 +659,7 @@ export function AppNavbar() {
                       </div>
                       <p className="text-sm text-muted-foreground">{notification.message}</p>
                       {isUrgentTrackingNotification(notification) && <Link href={trackingNotificationHref(notification)} onClick={() => setIsNotificationsOpen(false)} className="inline-block text-sm font-semibold text-red-700 underline dark:text-red-400">High priority · View tracking</Link>}
+                      {notification.isDeliveryDelay && <Link href={trackingNotificationHref(notification)} onClick={() => setIsNotificationsOpen(false)} className="inline-block text-sm font-semibold text-amber-700 underline dark:text-amber-400">Delay projection · View tracking</Link>}
                       {notification.trackingAllocationId && notification.resolvedAt && <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Tracking restored · Alert history</p>}
                     </div>
                     <div className="flex items-center gap-2">

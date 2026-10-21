@@ -14,6 +14,9 @@ import {
   RefreshCw,
   Truck,
   TriangleAlert,
+  Clock,
+  CheckCircle2,
+  WifiOff,
 } from 'lucide-react'
 
 import { RouteMapFrame } from '@/components/route-map-frame'
@@ -45,6 +48,8 @@ import { buildRouteMapEmbedUrl } from '@/lib/map-location'
 import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
 import { matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
 import { requestLiveRoadEstimate, getCurrentRoadEstimate, formatRoadTravelTime, getRoadEstimateSource, type LiveRoadEstimate } from '@/lib/live-route-eta'
+import { getGpsHealthIndicator, getEtaReliability, getDeliveryDelay, summarizeDeliveries, matchesDeliveryMonitoringFilter, isActiveDelivery, notifySignificantDeliveryDelay, type DeliveryMonitoringFilter } from '@/lib/delivery-monitoring'
+import { getSessionUser } from '@/lib/session'
 
 type TrackingDriver = {
   id: string
@@ -64,6 +69,9 @@ type TrackingDriver = {
   lastKnownEta: string | null
   routeEstimate: LiveRoadEstimate | null
   routeSource: string | null
+  etaReliability: string
+  etaCalculatedAt: string | null
+  delay: ReturnType<typeof getDeliveryDelay>
   coordinates: { lat: number; lng: number } | null
   originCoordinates: { lat: number; lng: number } | null
   destinationCoordinates: { lat: number; lng: number } | null
@@ -71,6 +79,7 @@ type TrackingDriver = {
   hasGps: boolean
   gpsState: 'live' | 'last-known' | 'stale' | 'unavailable'
   gpsLabel: string
+  gpsColor: string
   trackingIssue: string | null
   urgent: boolean
   lastGpsAge: string
@@ -84,6 +93,8 @@ function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord, now: 
   const vehicleLabel = `${allocation.unitName} ${allocation.variation}`.trim()
   const gps = getDriverAllocationGpsState(allocation, now)
   const health = getDriverAllocationTrackingHealth(allocation, now)
+  const indicator = getGpsHealthIndicator(allocation, now)
+  const reliability = getEtaReliability(allocation, estimate, now)
   const liveCoordinates = gps.location
   const currentEstimate = getCurrentRoadEstimate(allocation, estimate, now)
   const knownEstimate = estimate && allocation.destinationLocationDetails &&
@@ -117,6 +128,8 @@ function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord, now: 
       typeof allocation.routeProgress === 'number' && Number.isFinite(allocation.routeProgress)
       ? Math.min(1, Math.max(0, allocation.routeProgress)) : getDriverAllocationProgress(allocation)) * 100) : null,
     eta: currentEstimate ? formatRoadTravelTime(currentEstimate.durationSeconds)
+      : allocation.status === 'pending' || allocation.status === 'assigned' ? 'Awaiting departure'
+      : allocation.status === 'available' || allocation.status === 'completed' ? 'Delivery completed'
       : gps.state !== 'live' ? 'ETA Unavailable: GPS Tracking Lost' : 'ETA Unavailable: Road estimate not available',
     distanceLeft: currentEstimate ? `${currentEstimate.distanceKm!.toFixed(1)} km`
       : knownEstimate ? `Last known: ${knownEstimate.distanceKm!.toFixed(1)} km` : 'Unavailable',
@@ -125,6 +138,9 @@ function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord, now: 
     lastKnownEta: !currentEstimate && knownEstimate ? `${formatRoadTravelTime(knownEstimate.durationSeconds)} (calculated ${new Date(knownEstimate.calculatedAt).toLocaleString()})` : null,
     routeEstimate: currentEstimate ?? knownEstimate,
     routeSource: currentEstimate ? getRoadEstimateSource(currentEstimate) : null,
+    etaReliability: reliability.label,
+    etaCalculatedAt: reliability.calculatedAt,
+    delay: getDeliveryDelay(allocation, estimate, now),
     coordinates: liveCoordinates
       ? { lat: liveCoordinates.latitude, lng: liveCoordinates.longitude }
       : null,
@@ -133,7 +149,8 @@ function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord, now: 
     currentLocationUpdatedAt: allocation.currentLocation?.updatedAt ?? null,
     hasGps: Boolean(liveCoordinates),
     gpsState: gps.state,
-    gpsLabel: gps.label,
+    gpsLabel: indicator.label,
+    gpsColor: indicator.color,
     trackingIssue: health.issue,
     urgent: health.urgent,
     lastGpsAge: health.lastGpsAge,
@@ -172,6 +189,7 @@ function LiveTrackingContent() {
   const [clockMs, setClockMs] = React.useState(Date.now)
   const [lastUpdatedAt, setLastUpdatedAt] = React.useState<string | null>(null)
   const [roadEstimates, setRoadEstimates] = React.useState<Record<string, LiveRoadEstimate>>({})
+  const [monitoringFilter, setMonitoringFilter] = React.useState<DeliveryMonitoringFilter>('active')
 
   React.useEffect(() => {
     const syncAllocations = () => {
@@ -229,33 +247,38 @@ function LiveTrackingContent() {
     return () => { isMounted = false }
   }, [driverAllocations, clockMs, roadEstimates])
 
-  const activeDrivers = React.useMemo(
-    () =>
-      driverAllocations
-        .filter((allocation) => allocation.status === 'in-transit')
-        .map((allocation) => mapAllocationToTrackingDriver(allocation, clockMs, roadEstimates?.[allocation.id])),
-    [driverAllocations, clockMs, roadEstimates]
-  )
+  const permittedAllocations = React.useMemo(() => [...new Map(driverAllocations.map((allocation) => [allocation.id, allocation])).values()]
+    .filter((allocation) => matchesScopedAgent(role, allocation.salesAgent) && matchesScopedManager(role, allocation.manager)), [driverAllocations, role])
+  const summary = React.useMemo(() => summarizeDeliveries(permittedAllocations, roadEstimates, clockMs), [permittedAllocations, roadEstimates, clockMs])
+
+  const matchingDrivers = React.useMemo(() => permittedAllocations
+    .filter((allocation) => matchesDeliveryMonitoringFilter(allocation, monitoringFilter, roadEstimates[allocation.id], clockMs))
+    .map((allocation) => mapAllocationToTrackingDriver(allocation, clockMs, roadEstimates[allocation.id])), [permittedAllocations, monitoringFilter, roadEstimates, clockMs])
 
   const availableManagers = React.useMemo(
-    () => Array.from(new Set(activeDrivers.map((driver) => driver.manager).filter(Boolean))),
-    [activeDrivers]
+    () => Array.from(new Set(permittedAllocations.map((allocation) => allocation.manager).filter(Boolean))),
+    [permittedAllocations]
   )
 
-  const roleScopedDrivers = React.useMemo(() => activeDrivers.filter(
-      (driver) =>
-        matchesScopedAgent(role, driver.salesAgent) &&
-        matchesScopedManager(role, driver.manager)
-    ), [activeDrivers, role])
-
-  const disconnectedDrivers = roleScopedDrivers.filter((driver) => driver.trackingIssue)
+  const disconnectedDrivers = React.useMemo(() => permittedAllocations.filter((allocation) => isActiveDelivery(allocation))
+    .map((allocation) => mapAllocationToTrackingDriver(allocation, clockMs, roadEstimates[allocation.id]))
+    .filter((driver) => driver.trackingIssue), [permittedAllocations, clockMs, roadEstimates])
   const urgentDrivers = disconnectedDrivers.filter((driver) => driver.urgent)
+
+  React.useEffect(() => {
+    if (role !== 'admin' && role !== 'supervisor') return
+    const user = getSessionUser()
+    if (!user?.id) return
+    for (const allocation of permittedAllocations) {
+      void notifySignificantDeliveryDelay(allocation, roadEstimates[allocation.id], user.id, clockMs)
+    }
+  }, [permittedAllocations, roadEstimates, clockMs, role])
 
   const scopedDrivers = React.useMemo(() => {
     const managerScopedDrivers =
       managerFilter === 'all'
-        ? roleScopedDrivers
-        : roleScopedDrivers.filter((driver) => driver.manager === managerFilter)
+        ? matchingDrivers
+        : matchingDrivers.filter((driver) => driver.manager === managerFilter)
 
     return managerScopedDrivers.filter((driver) =>
       [driver.name, driver.vehicle, driver.stockNumber, driver.salesAgent, driver.manager]
@@ -263,13 +286,14 @@ function LiveTrackingContent() {
         .toLowerCase()
         .includes(searchTerm.trim().toLowerCase())
     )
-  }, [roleScopedDrivers, managerFilter, searchTerm])
+  }, [matchingDrivers, managerFilter, searchTerm])
 
   const [selectedDriver, setSelectedDriver] = React.useState<TrackingDriver | null>(null)
 
   const selectDriver = (driver: TrackingDriver) => {
     setSearchTerm('')
     setManagerFilter('all')
+    setMonitoringFilter('active')
     setSelectedDriver(driver)
   }
 
@@ -277,6 +301,7 @@ function LiveTrackingContent() {
     if (requestedAllocationId) {
       setSearchTerm('')
       setManagerFilter('all')
+      setMonitoringFilter('active')
     }
   }, [requestedAllocationId])
 
@@ -319,10 +344,15 @@ function LiveTrackingContent() {
   }
 
   const gpsStatusLabel = selectedDriver
-    ? `${selectedDriver.trackingIssue ?? selectedDriver.gpsLabel} · Last GPS update: ${selectedDriver.lastGpsAge}`
+    ? `${selectedDriver.gpsLabel} · Last GPS update: ${selectedDriver.lastGpsAge}`
     : 'No shipment selected'
-  const isLastKnown = selectedDriver?.gpsState !== 'live'
-
+  const isLastKnown = selectedDriver?.gpsLabel !== 'Live'
+  const monitoringCards = [
+    { key: 'active' as const, label: 'Active Deliveries', count: summary.active, Icon: Truck, color: 'text-primary', detail: 'Pending, assigned, and in transit' },
+    { key: 'delayed' as const, label: 'Delayed Deliveries', count: summary.delayed, Icon: Clock, color: 'text-amber-700 dark:text-amber-400', detail: summary.active > 0 && summary.delayAssessable === 0 ? 'Delay status unavailable' : `${summary.delayAssessable} reliable arrival comparisons` },
+    { key: 'untrackable' as const, label: 'GPS Disconnected / Untrackable', count: summary.untrackable, Icon: WifiOff, color: 'text-red-600 dark:text-red-400', detail: 'Active trips with unavailable tracking' },
+    { key: 'completed' as const, label: 'Completed Deliveries', count: summary.completed, Icon: CheckCircle2, color: 'text-emerald-700 dark:text-emerald-400', detail: 'Delivered or completed records' },
+  ]
 
   return (
     <div className="space-y-6">
@@ -379,7 +409,7 @@ function LiveTrackingContent() {
       <p className="text-xs text-muted-foreground">{lastUpdatedAt ? `Records last refreshed ${lastUpdatedAt}. ` : 'Waiting for records. '}
         GPS labels use the fix timestamp, not the refresh time.
       </p>
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-3">
         <Input
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value)}
@@ -404,13 +434,26 @@ function LiveTrackingContent() {
         </Select>
       </div>
 
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Delivery monitoring summary">
+        {monitoringCards.map(({ key, label, count, Icon, color, detail }) => (
+          <Card key={key} className={`gap-0 overflow-hidden p-0 ${monitoringFilter === key ? 'border-primary ring-1 ring-primary/30' : ''}`}>
+            <button type="button" aria-pressed={monitoringFilter === key} className="h-full w-full p-4 text-left transition-colors hover:bg-muted/50"
+              onClick={() => { setMonitoringFilter(key); setSearchTerm(''); setManagerFilter('all') }}>
+              <span className="flex items-start justify-between gap-2 text-sm font-medium"><span>{label}</span><Icon className={`size-5 shrink-0 ${color}`} /></span>
+              <span className={`mt-2 block text-3xl font-bold tabular-nums ${color}`}>{count}</span>
+              <span className="mt-1 block text-xs text-muted-foreground">{detail}</span>
+            </button>
+          </Card>
+        ))}
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <Truck className="size-5 text-primary" />
-                {role === 'admin' || role === 'supervisor' ? 'Live Routes' : 'Tracked Units'}
+                {monitoringFilter === 'completed' ? 'Completed Deliveries' : monitoringFilter === 'delayed' ? 'Delayed Deliveries' : role === 'admin' || role === 'supervisor' ? 'Live Routes' : 'Tracked Units'}
               </span>
               <Badge variant="secondary">{scopedDrivers.length}</Badge>
             </CardTitle>
@@ -418,7 +461,7 @@ function LiveTrackingContent() {
           <CardContent className="p-0">
             <ScrollArea className={scopedDrivers.some((driver) => !driver.trackingIssue) ? 'h-[320px]' : 'h-auto'}>
               <div className="space-y-1 p-4 pt-0">
-                {scopedDrivers.length === 0 && <p className="p-4 text-sm text-muted-foreground">No in-transit shipments match your filters.</p>}
+                {scopedDrivers.length === 0 && <p className="p-4 text-sm text-muted-foreground">{monitoringFilter === 'delayed' && summary.delayAssessable === 0 ? 'Delay status unavailable. A recorded trip plan and current ETA are required.' : 'No deliveries match your filters.'}</p>}
                 {scopedDrivers.length > 0 && scopedDrivers.every((driver) => driver.trackingIssue) && <p className="p-4 text-sm text-muted-foreground">Active deliveries with unavailable GPS are listed below.</p>}
                 {scopedDrivers.filter((driver) => !driver.trackingIssue).map((driver) => (
                   <button
@@ -454,14 +497,17 @@ function LiveTrackingContent() {
                               style={{ width: `${driver.progress ?? 0}%` }}
                             />
                           </div>
-                          <span className="text-xs text-muted-foreground">{driver.progress === null ? 'Unknown' : `${driver.progress}%${driver.gpsState !== 'live' ? ' (last known)' : ''}`}</span>
+                          <span className="text-xs text-muted-foreground">{driver.progress === null ? 'Unavailable' : `${driver.progress}%${driver.gpsLabel !== 'Live' ? ' (last known)' : ''}`}</span>
                         </div>
-                        <p className={`mt-1 text-xs ${driver.gpsState === 'live' ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}>{driver.gpsLabel} · {driver.lastGpsAge}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2"><Badge variant="secondary" className={driver.gpsColor}>{driver.gpsLabel}</Badge><span className="text-xs text-muted-foreground">Updated {driver.lastGpsAge}</span></div>
                         <p className="mt-1 text-xs text-muted-foreground">Estimated Travel Time: {driver.eta}</p>
                         {driver.expectedArrival && <p className="mt-1 text-xs text-muted-foreground">Expected Arrival: {driver.expectedArrival}</p>}
                         <p className="mt-1 text-xs text-muted-foreground">Remaining Road Distance: {driver.distanceLeft}</p>
+                        <p className="mt-1 text-xs font-medium">{driver.etaReliability}</p>
+                        {driver.etaCalculatedAt && <p className="mt-1 text-xs text-muted-foreground">ETA calculated: {new Date(driver.etaCalculatedAt).toLocaleString()}</p>}
                         {driver.routeSource && <p className="mt-1 text-[10px] text-muted-foreground">{driver.routeSource}</p>}
                         {driver.lastKnownEta && <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">Last Known ETA: {driver.lastKnownEta}</p>}
+                        {isActiveDelivery(driver) && <p title={driver.delay.reason} className={`mt-2 rounded-md px-2 py-1 text-xs ${driver.delay.state === 'delayed' ? driver.delay.significant ? 'border border-orange-400 bg-orange-100 font-semibold text-orange-950 dark:border-orange-700 dark:bg-orange-950 dark:text-orange-200' : 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300' : 'text-muted-foreground'}`}>{driver.delay.state === 'delayed' && <TriangleAlert className="mr-1 inline size-3" />}{driver.delay.label}</p>}
                       </div>
                     </div>
                   </button>
@@ -483,11 +529,14 @@ function LiveTrackingContent() {
                       <span className="flex flex-wrap items-center gap-2 font-semibold"><TriangleAlert className="size-4 text-red-600 dark:text-red-400" />{driver.name || 'Unassigned driver'}<Badge className="bg-red-600 text-white hover:bg-red-600">{driver.urgent ? 'Alert' : 'Awaiting GPS'}</Badge></span>
                       <span className="mt-1 block text-xs text-muted-foreground">{driver.vehicle} · {driver.stockNumber}</span>
                       <span className="mt-2 block font-medium text-red-700 dark:text-red-400">{driver.trackingIssue}</span>
+                      <Badge variant="secondary" className={`mt-1 ${driver.gpsColor}`}>{driver.gpsLabel}</Badge>
                       <span className="mt-1 block text-xs">Last GPS update: {driver.lastGpsAge}</span>
                       <span className="mt-1 block text-xs text-muted-foreground">Last known location: {driver.coordinates ? `${driver.coordinates.lat.toFixed(5)}, ${driver.coordinates.lng.toFixed(5)}` : 'Unavailable — no GPS fix recorded'}</span>
                       <span className="mt-1 block text-xs text-muted-foreground">{driver.trackingGap}</span>
                       <span className="mt-1 block text-xs font-medium">{driver.eta}</span>
                       {driver.lastKnownEta && <span className="mt-1 block text-xs text-muted-foreground">Last Known ETA: {driver.lastKnownEta}</span>}
+                      <span className="mt-1 block text-xs text-muted-foreground">{driver.etaReliability}{driver.etaCalculatedAt ? ` · Calculated ${new Date(driver.etaCalculatedAt).toLocaleString()}` : ''}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">{driver.delay.label}</span>
                       <span className="mt-1 block text-xs text-muted-foreground">Last Known Road Distance: {driver.distanceLeft}</span>
                       <span className="mt-2 block text-xs font-medium underline">View delivery and last known position</span>
                     </button>
@@ -507,8 +556,9 @@ function LiveTrackingContent() {
           </CardHeader>
           <CardContent>
             <>
-              <div className="relative h-[400px] overflow-hidden rounded-xl border bg-background">
+              <div className="relative overflow-hidden rounded-xl border bg-background">
                 <RouteMapFrame
+                  className="h-[400px]"
                   title={
                     selectedDriver
                       ? `Shipment route for ${selectedDriver.name}`
@@ -518,17 +568,15 @@ function LiveTrackingContent() {
                   destination={selectedDriver?.destinationCoordinates}
                   focus={selectedDriver?.coordinates}
                   routeOrigin={selectedDriver?.hasGps ? selectedDriver.coordinates : undefined}
-                  focusState={selectedDriver?.gpsState === 'live' ? 'live' : 'warning'}
+                  focusState={selectedDriver?.gpsLabel === 'Live' ? 'live' : 'warning'}
                   focusLabel={selectedDriver ? `${selectedDriver.trackingIssue ?? selectedDriver.gpsLabel} — Last GPS update: ${selectedDriver.lastGpsAge}` : undefined}
                   resolvedRoute={selectedDriver?.routeEstimate?.coordinates ?? null}
                 />
 
                 <div className="absolute right-4 top-4 flex flex-col gap-2">
-                  <Badge variant="secondary" className={`max-w-[260px] justify-center whitespace-normal text-center ${selectedDriver?.trackingIssue ? 'bg-red-600 text-white' : selectedDriver && isLastKnown ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200' : 'bg-background/95'}`}>
-                    {selectedDriver
-                      ? `${selectedDriver.trackingIssue ?? selectedDriver.gpsLabel} · ${selectedDriver.lastGpsAge}`
-                      : 'Planned route map'}
-                  </Badge>
+                  {selectedDriver && <Badge variant="secondary" className={`max-w-[260px] justify-center whitespace-normal text-center ${selectedDriver.gpsColor}`}>
+                    {selectedDriver.gpsLabel} · {selectedDriver.lastGpsAge}
+                  </Badge>}
                   {selectedDriver && mapPreviewUrl ? (
                     <Button
                       variant="outline"
@@ -546,12 +594,11 @@ function LiveTrackingContent() {
 
                 {!selectedDriver ? (
                   <div className="pointer-events-none absolute left-4 top-4 max-w-xs rounded-lg border bg-background/90 px-3 py-2 text-xs text-muted-foreground shadow-sm">
-                    No in-transit routes are selected right now. The map stays available so you can
-                    move around and zoom before a route comes in.
+                    Select a delivery to view its route. The map remains available for navigation.
                   </div>
                 ) : (
-                  <div className="pointer-events-none absolute bottom-4 left-4 right-4">
-                    <div className="rounded-lg border bg-background/95 p-4 shadow-lg backdrop-blur">
+                  <div className="border-t bg-background">
+                    <div className="p-4">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex items-center gap-3">
                           <Avatar className="size-10">
@@ -568,7 +615,7 @@ function LiveTrackingContent() {
                           </div>
                         </div>
                       </div>
-                      <div className="mt-4 grid grid-cols-3 gap-4 text-center">
+                      <div className="mt-4 grid grid-cols-1 gap-3 text-center sm:grid-cols-3">
                         <div>
                           <p className="text-xs text-muted-foreground">{isLastKnown ? 'Last Known Progress' : 'Progress'}</p>
                           <p className="font-semibold text-primary">{selectedDriver.progress === null ? 'Unavailable' : `${selectedDriver.progress}%`}</p>
@@ -583,6 +630,7 @@ function LiveTrackingContent() {
                         </div>
                       </div>
                       {selectedDriver.expectedArrival && <p className="mt-2 text-center text-sm font-semibold">Expected Arrival: {selectedDriver.expectedArrival}</p>}
+                      <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-xs"><Badge variant={selectedDriver.etaReliability === 'Last Known ETA' ? 'outline' : 'secondary'}>{selectedDriver.etaReliability}</Badge>{selectedDriver.etaCalculatedAt && <span className="text-muted-foreground">Calculated {new Date(selectedDriver.etaCalculatedAt).toLocaleString()}</span>}</div>
                       {selectedDriver.routeSource && <p className="mt-1 text-center text-xs text-muted-foreground">{selectedDriver.routeSource}</p>}
                       {selectedDriver.lastKnownEta && <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">Last Known ETA: {selectedDriver.lastKnownEta}</p>}
                       <div className="mt-3 flex items-center justify-between gap-4 text-[11px] text-muted-foreground">
@@ -598,7 +646,7 @@ function LiveTrackingContent() {
                 )}
 
                 {selectedDriver?.hasGps ? (
-                  <div className="pointer-events-none absolute left-4 top-4 rounded-lg border bg-background/92 px-3 py-2 shadow-sm backdrop-blur">
+                  <div className="border-t bg-muted/30 px-4 py-3">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                       Map Legend
                     </p>
@@ -612,8 +660,8 @@ function LiveTrackingContent() {
                         <span>Destination</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`size-2.5 rounded-full ${selectedDriver.gpsState === 'live' ? 'bg-blue-600' : 'bg-red-600'}`} />
-                        <span>{selectedDriver.gpsState === 'live' ? 'Live Vehicle' : 'Last Known Vehicle'}</span>
+                        <span className={`size-2.5 rounded-full ${selectedDriver.gpsLabel === 'Live' ? 'bg-blue-600' : 'bg-red-600'}`} />
+                        <span>{selectedDriver.gpsLabel === 'Live' ? 'Live Vehicle' : 'Last Known Vehicle'}</span>
                       </div>
                     </div>
                   </div>
@@ -638,7 +686,13 @@ function LiveTrackingContent() {
                   </div>
                   <div className="rounded-lg bg-muted/50 p-4 text-sm sm:col-span-2">
                     <div className="mb-2 flex flex-wrap items-center gap-2"><span>Delivery Status:</span><StatusBadge status={selectedDriver.status} /></div>
-                    <p className={selectedDriver.trackingIssue ? 'font-semibold text-red-700 dark:text-red-400' : ''}>Tracking Status: {selectedDriver.trackingIssue ?? selectedDriver.gpsLabel}</p>
+                    <p>Tracking Status: <Badge variant="secondary" className={selectedDriver.gpsColor}>{selectedDriver.gpsLabel}</Badge></p>
+                    {isActiveDelivery(selectedDriver) && <div className={`mt-3 rounded-lg p-3 ${selectedDriver.delay.state === 'delayed' ? selectedDriver.delay.significant ? 'border-2 border-orange-500 bg-orange-100 text-orange-950 dark:bg-orange-950 dark:text-orange-200' : 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200' : 'border text-muted-foreground'}`}>
+                      <p className="font-medium">{selectedDriver.delay.state === 'delayed' && <TriangleAlert className="mr-1 inline size-4" />}{selectedDriver.delay.label}</p>
+                      {selectedDriver.delay.reason && <p className="mt-1 text-xs">{selectedDriver.delay.reason}</p>}
+                      {selectedDriver.delay.plannedArrivalAt && <p className="mt-1 text-xs">Expected Arrival (trip plan): {new Date(selectedDriver.delay.plannedArrivalAt).toLocaleString()}</p>}
+                      {selectedDriver.delay.calculatedArrivalAt && <p className="mt-1 text-xs">Updated Arrival: {new Date(selectedDriver.delay.calculatedArrivalAt).toLocaleString()}</p>}
+                    </div>}
                     <p className="mt-1">Last GPS update: {selectedDriver.lastGpsAge}{selectedDriver.currentLocationUpdatedAt && Number.isFinite(new Date(selectedDriver.currentLocationUpdatedAt).getTime()) ? ` (${new Date(selectedDriver.currentLocationUpdatedAt).toLocaleString()})` : ''}</p>
                     <p>Last known location: {selectedDriver.coordinates ? `${selectedDriver.coordinates.lat.toFixed(5)}, ${selectedDriver.coordinates.lng.toFixed(5)}` : 'Unavailable'}</p>
                     <p className="mt-1">Scheduled shipment: {selectedDriver.scheduledShipmentAt ? new Date(selectedDriver.scheduledShipmentAt).toLocaleString() : 'Not scheduled'}</p>

@@ -14,10 +14,11 @@ export interface AppNotification {
   trackingAllocationId?: string
   priority?: 'high'
   resolvedAt?: string
+  isDeliveryDelay?: boolean
 }
 
 export const isUrgentTrackingNotification = (notification: AppNotification) =>
-  Boolean(notification.trackingAllocationId) && !notification.resolvedAt
+  Boolean(notification.trackingAllocationId) && notification.priority === 'high' && !notification.resolvedAt
 
 const mapNotification = (notification: BackendNotification): AppNotification => ({
   id: getEntityId(notification),
@@ -28,10 +29,11 @@ const mapNotification = (notification: BackendNotification): AppNotification => 
   type: notification.type ?? 'system',
   createdAt: notification.createdAt ?? new Date().toISOString(),
   trackingAllocationId: notification.data?.entityType === 'driver_allocation' &&
-    notification.data?.safetyAlertType === 'gps_connection_lost' && typeof notification.data.entityId === 'string'
+    ['gps_connection_lost', 'delivery_delay'].includes(String(notification.data?.safetyAlertType)) && typeof notification.data.entityId === 'string'
     ? notification.data.entityId : undefined,
   priority: notification.data?.safetyAlertType === 'gps_connection_lost' ? 'high' : undefined,
   resolvedAt: typeof notification.data?.resolvedAt === 'string' ? notification.data.resolvedAt : undefined,
+  isDeliveryDelay: notification.data?.safetyAlertType === 'delivery_delay',
 })
 
 export async function fetchNotifications(userId: string) {

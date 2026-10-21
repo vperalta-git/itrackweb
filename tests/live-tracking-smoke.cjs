@@ -27,6 +27,10 @@ const tracking = load('lib/driver-allocation-data.ts', {
   '@/lib/inventory-data': {}, '@/lib/notification-preferences': {},
 })
 const roadEta = load('lib/live-route-eta.ts', { '@/lib/driver-allocation-data': tracking })
+const monitoring = load('lib/delivery-monitoring.ts', {
+  '@/lib/driver-allocation-data': tracking, '@/lib/live-route-eta': roadEta,
+  '@/lib/notifications-data': {}, '@/lib/notification-preferences': {},
+})
 const allocation = {
   id: 'trip-1', assignedDriver: 'Alex Driver', driverPhone: '', status: 'in-transit',
   unitName: 'D-MAX', variation: 'LS', conductionNumber: 'UNIT-001', salesAgent: 'Agent', manager: 'Manager',
@@ -59,6 +63,8 @@ const page = load('app/(dashboard)/allocation/drivers/tracking/page.tsx', {
   'next/navigation': { usePathname: () => '/admin/driver-allocation/live-tracking', useSearchParams: () => new URLSearchParams() },
   '@/lib/driver-allocation-data': tracking,
   '@/lib/live-route-eta': roadEta,
+  '@/lib/delivery-monitoring': monitoring,
+  '@/lib/session': {},
   '@/lib/map-location': { buildRouteMapEmbedUrl: () => '/fixture-map' },
   '@/lib/rbac': { getRoleFromPathname: () => 'admin', buildRolePath: (_, target) => `/admin/${target}` },
   '@/lib/role-scope': { matchesScopedAgent: () => true, matchesScopedManager: () => true },
@@ -75,7 +81,7 @@ function text(element) {
 function render(record) {
   const driver = record ? page.mapDriver(record, now) : null
   stateIndex = 0
-  states = [record ? [record] : [], '', 'all', false, null, now, null, null, driver]
+  states = [record ? [record] : [], '', 'all', false, null, now, null, {}, 'active', driver]
   return page.default().props.children.type()
 }
 const lostTree = render(allocation)
@@ -94,7 +100,8 @@ assert.equal(map.props.focusState, 'warning')
 assert.match(map.props.focusLabel, /5 days ago/)
 assert.equal(map.props.focus.lat, allocation.currentLocation.latitude)
 walk(banner, node => node.type === 'button')[0].props.onClick()
-assert.equal(stateWrites.get(8).id, allocation.id)
+assert.equal(stateWrites.get(9).id, allocation.id)
+assert.equal(stateWrites.get(8), 'active')
 assert.equal(stateWrites.get(1), '')
 assert.equal(stateWrites.get(2), 'all')
 const recoveredTree = render(recovered)
@@ -103,6 +110,12 @@ assert.match(text(recoveredTree), /All active drivers are trackable/)
 assert.equal(walk(recoveredTree, node => node.type === 'RouteMapFrame')[0].props.focusState, 'live')
 assert.equal(walk(render(noGps), node => node.type === 'RouteMapFrame')[0].props.focus, null)
 assert.match(text(render(null)), /All active drivers are trackable/)
+assert.match(text(lostTree), /Active Deliveries/)
+assert.match(text(lostTree), /Delayed Deliveries/)
+assert.match(text(lostTree), /GPS Disconnected \/ Untrackable/)
+assert.match(text(lostTree), /Completed Deliveries/)
+walk(lostTree, node => node.type === 'button' && text(node).includes('Completed Deliveries'))[0].props.onClick()
+assert.equal(stateWrites.get(8), 'completed')
 
 async function backendSmoke() {
   const source = fs.readFileSync(path.join(root, 'backend/src/services/driverSafetyMonitorService.js'), 'utf8')

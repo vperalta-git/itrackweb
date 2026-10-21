@@ -85,8 +85,9 @@ test('live ETA, arrival, distance and map share one result; jitter is throttled 
   assert.equal(eta.getCurrentRoadEstimate(moved, estimate, now + 30000), null)
   await eta.requestLiveRoadEstimate(moved, now + 35000)
   assert.equal(requests, 2, 'meaningful movement refreshes the road estimate after throttling')
+  const monitoring = load('lib/delivery-monitoring.ts', { dependencies: { '@/lib/driver-allocation-data': tracking, '@/lib/live-route-eta': eta } })
   const page = load('app/(dashboard)/allocation/drivers/tracking/page.tsx', {
-    dependencies: { 'next/navigation': {}, '@/lib/driver-allocation-data': tracking, '@/lib/live-route-eta': eta },
+    dependencies: { 'next/navigation': {}, '@/lib/driver-allocation-data': tracking, '@/lib/live-route-eta': eta, '@/lib/delivery-monitoring': monitoring },
     append: '\nexports.mapDriver = mapAllocationToTrackingDriver;',
   })
   const live = page.mapDriver(allocation, now, estimate)
