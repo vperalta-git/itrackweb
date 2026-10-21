@@ -48,6 +48,7 @@ export type BackendLiveLocation = {
   longitude?: number
   accuracy?: number | null
   updatedAt?: string | null
+  timestamp?: string | null
 }
 
 export type BackendUnitAgentAllocation = {
@@ -149,6 +150,7 @@ export type BackendNotification = {
   type?: string
   read?: boolean
   createdAt?: string
+  data?: Record<string, unknown>
 }
 
 const vehicleStatusMap: Record<string, string> = {

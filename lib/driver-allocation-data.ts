@@ -64,6 +64,10 @@ const EARTH_RADIUS_KM = 6371
 const DEFAULT_URBAN_SPEED_KMH = 28
 const MIN_REALISTIC_SPEED_KMH = 8
 const MAX_REALISTIC_SPEED_KMH = 80
+// Match the existing backend safety monitor: five minutes stale, two minutes
+// to receive the first GPS fix after departure.
+export const GPS_STALE_AFTER_MS = 300_000
+export const GPS_MISSING_AFTER_START_MS = 120_000
 
 const toRadians = (value: number) => (value * Math.PI) / 180
 
@@ -124,7 +128,7 @@ const mapDriverAllocationRecord = (
           latitude: currentLocationPayload.latitude,
           longitude: currentLocationPayload.longitude,
           accuracy: currentLocationPayload.accuracy ?? null,
-          updatedAt: currentLocationPayload.updatedAt ?? null,
+          updatedAt: currentLocationPayload.updatedAt ?? currentLocationPayload.timestamp ?? null,
         }
       : null
 
@@ -376,11 +380,37 @@ export function getDriverAllocationGpsState(allocation: DriverAllocationRecord, 
   if (!Number.isFinite(timestamp) || age < 0) {
     return { state: 'last-known' as const, location, label: 'Last known GPS · timestamp unavailable or invalid' }
   }
-  if (age > 300_000) return { state: 'stale' as const, location, label: 'Stale GPS · last known position' }
+  if (age >= GPS_STALE_AFTER_MS) return { state: 'stale' as const, location, label: 'GPS Signal Lost · last known position' }
   if (age > 60_000 || allocation.status !== 'in-transit') {
     return { state: 'last-known' as const, location, label: 'Last known GPS position' }
   }
   return { state: 'live' as const, location, label: 'Live GPS position' }
+}
+
+export function getDriverAllocationTrackingHealth(allocation: DriverAllocationRecord, now = Date.now()) {
+  const gps = getDriverAllocationGpsState(allocation, now)
+  const timestamp = new Date(allocation.currentLocation?.updatedAt ?? '').getTime()
+  const start = new Date(allocation.actualStartTime ?? '').getTime()
+  const validTimestamp = Number.isFinite(timestamp) && timestamp <= now
+  const validStart = Number.isFinite(start) && start <= now
+  const issue = allocation.status !== 'in-transit' ? null
+    : gps.state === 'stale' ? 'GPS Signal Lost'
+      : gps.state === 'unavailable' || !validTimestamp ? 'Tracking Unavailable' : null
+  const formatAge = (elapsed: number) => {
+    const seconds = Math.max(0, Math.floor(elapsed / 1000))
+    const [amount, unit] = seconds >= 86400 ? [Math.floor(seconds / 86400), 'day']
+      : seconds >= 3600 ? [Math.floor(seconds / 3600), 'hour']
+        : seconds >= 60 ? [Math.floor(seconds / 60), 'minute'] : [seconds, 'second']
+    return `${amount} ${unit}${amount === 1 ? '' : 's'}`
+  }
+  return {
+    issue,
+    urgent: Boolean(issue) && (gps.state === 'stale' || !validStart || now - start >= GPS_MISSING_AFTER_START_MS),
+    lastGpsAge: validTimestamp ? `${formatAge(now - timestamp)} ago` : 'Unknown — no valid GPS timestamp',
+    trackingGap: validTimestamp ? `No valid GPS update for ${formatAge(now - timestamp)}`
+      : validStart ? `No valid GPS update for ${formatAge(now - start)} since trip start`
+        : 'GPS tracking unavailable; duration unknown',
+  }
 }
 
 export function getDriverAllocationRemainingDistanceKm(allocation: DriverAllocationRecord) {

@@ -160,7 +160,7 @@ test('missing GPS never becomes a synthetic marker, distance, progress or ETA', 
 test('real GPS freshness distinguishes live, last-known, stale and invalid timestamps', () => {
   const tracking = createLoader().load('lib/driver-allocation-data.ts')
   const location = (ageSeconds) => ({ latitude: 14.55, longitude: 121.05, updatedAt: new Date(fixtureNow - ageSeconds * 1000).toISOString() })
-  for (const [age, expected] of [[0, 'live'], [60, 'live'], [61, 'last-known'], [300, 'last-known'], [301, 'stale']]) {
+  for (const [age, expected] of [[0, 'live'], [60, 'live'], [61, 'last-known'], [300, 'stale'], [301, 'stale']]) {
     const currentLocation = location(age)
     const allocation = { ...routeFixture, currentLocation }
     const state = tracking.getDriverAllocationGpsState(allocation)

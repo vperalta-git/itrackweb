@@ -11,6 +11,8 @@ type RouteMapFrameProps = {
   destination?: MapCoordinatesInput | null
   focus?: MapCoordinatesInput | null
   routeOrigin?: MapCoordinatesInput | null
+  focusState?: 'live' | 'warning'
+  focusLabel?: string
   onOriginChange?: (coordinates: { latitude: number; longitude: number }) => void
   onDestinationChange?: (coordinates: { latitude: number; longitude: number }) => void
   className?: string
@@ -303,6 +305,8 @@ export function RouteMapFrame({
   destination,
   focus,
   routeOrigin,
+  focusState,
+  focusLabel,
   onOriginChange,
   onDestinationChange,
   className,
@@ -529,11 +533,26 @@ export function RouteMapFrame({
 
     if (
       normalizedFocus &&
-      !arePointsEqual(normalizedFocus, normalizedOrigin) &&
-      !arePointsEqual(normalizedFocus, normalizedDestination)
+      (focusState || (!arePointsEqual(normalizedFocus, normalizedOrigin) &&
+      !arePointsEqual(normalizedFocus, normalizedDestination)))
     ) {
+      const markerOptions: Record<string, unknown> = { color: '#dc2626' }
+      if (focusState) {
+        const element = document.createElement('div')
+        element.textContent = focusState === 'warning' ? '!' : '●'
+        element.title = focusLabel ?? (focusState === 'warning' ? 'Last known GPS position' : 'Live GPS position')
+        element.setAttribute('role', 'img')
+        element.setAttribute('aria-label', element.title)
+        Object.assign(element.style, {
+          width: '30px', height: '30px', borderRadius: '50%', border: '3px solid white',
+          backgroundColor: focusState === 'warning' ? '#dc2626' : '#2563eb', color: 'white',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '800', fontSize: '19px',
+          boxShadow: focusState === 'warning' ? '0 0 0 5px rgba(220,38,38,0.25)' : '0 1px 6px rgba(0,0,0,0.4)',
+        })
+        markerOptions.element = element
+      }
       nextMarkers.push(
-        new mapboxgl.Marker({ color: '#dc2626' }).setLngLat(toLngLat(normalizedFocus)).addTo(map)
+        new mapboxgl.Marker(markerOptions).setLngLat(toLngLat(normalizedFocus)).addTo(map)
       )
     }
 
@@ -635,6 +654,8 @@ export function RouteMapFrame({
     )
   }, [
     mapReady,
+    focusState,
+    focusLabel,
     normalizedDestination,
     normalizedFocus,
     normalizedOrigin,

@@ -26,20 +26,26 @@ import {
   AUDIT_LOG_UPDATED_EVENT,
   STORAGE_KEY as AUDIT_LOG_STORAGE_KEY,
   getStoredAuditLogs,
+  resolveAuditActor,
+  auditRoleColors,
   type AuditLogEntry,
 } from '@/lib/audit-log'
-import { formatDateTimeLabel, parseDateValue } from '@/lib/backend-helpers'
+import { formatDateTimeLabel } from '@/lib/backend-helpers'
 import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
-import { loadUsers, syncUsersFromBackend, type SystemUser } from '@/lib/user-data'
+import { loadUsers, syncUsersFromBackend, USERS_UPDATED_EVENT, type SystemUser } from '@/lib/user-data'
+import type { UserRole } from '@/lib/session'
 
 type AuditTableRecord = {
   id: string
   user: string
+  userEmail: string
+  userAvatarUrl: string
+  role: string
+  roleKey?: UserRole
   action: AuditLogEntry['action']
   module: string
   description: string
   timestamp: string
-  timestampIso: string
 }
 
 const getActionColor = (action: AuditTableRecord['action']) => {
@@ -52,40 +58,34 @@ const getActionColor = (action: AuditTableRecord['action']) => {
       return 'bg-red-100 text-red-700'
     case 'EXPORT':
       return 'bg-violet-100 text-violet-700'
+    case 'APPROVE':
+      return 'bg-green-100 text-green-700'
+    case 'REJECT':
+      return 'bg-red-100 text-red-700'
     default:
       return ''
   }
 }
 
-const toAuditTableRecord = (log: AuditLogEntry): AuditTableRecord => ({
+const toAuditTableRecord = (log: AuditLogEntry, users: SystemUser[]): AuditTableRecord => ({
   ...log,
-  timestampIso: parseDateValue(log.timestamp)?.toISOString() ?? new Date(0).toISOString(),
+  ...resolveAuditActor(log, users),
   timestamp: formatDateTimeLabel(log.timestamp, log.timestamp),
 })
 
-const getLocalAuditLogs = () =>
-  getStoredAuditLogs()
-    .map(toAuditTableRecord)
-    .filter(
-      (log) =>
-        !(
-          log.module === 'Authentication' &&
-          (log.action === 'LOGIN' || log.action === 'LOGOUT')
-        )
-    )
-    .sort(
-      (left, right) =>
-        new Date(right.timestampIso).getTime() - new Date(left.timestampIso).getTime()
-    )
+const getLocalAuditLogs = () => getStoredAuditLogs()
+  .filter((log) => !(log.module === 'Authentication' && (log.action === 'LOGIN' || log.action === 'LOGOUT')))
+  .sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime())
 
 export default function AuditTrailPage() {
   const router = useRouter()
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
-  const [logs, setLogs] = React.useState<AuditTableRecord[]>([])
+  const [entries, setEntries] = React.useState<AuditLogEntry[]>([])
   const [users, setUsers] = React.useState<SystemUser[]>(() => loadUsers())
   const [actionFilter, setActionFilter] = React.useState('all')
   const [moduleFilter, setModuleFilter] = React.useState('all')
+  const [roleFilter, setRoleFilter] = React.useState('all')
   const [searchTerm, setSearchTerm] = React.useState('')
 
   React.useEffect(() => {
@@ -95,32 +95,26 @@ export default function AuditTrailPage() {
   }, [role, router])
 
   React.useEffect(() => {
-    void syncUsersFromBackend().then(setUsers).catch(() => null)
-  }, [])
-
-  const userAvatarByName = React.useMemo(
-    () =>
-      new Map(
-        users.map((user) => [
-          `${user.firstName} ${user.lastName}`.trim(),
-          user.avatarUrl ?? '',
-        ])
-      ),
-    [users]
-  )
+    if (role !== 'admin' && role !== 'supervisor') return
+    let isMounted = true
+    const refreshUsers = () => setUsers(loadUsers())
+    void syncUsersFromBackend().then((nextUsers) => {
+      if (isMounted) setUsers(nextUsers)
+    }).catch(() => null)
+    window.addEventListener(USERS_UPDATED_EVENT, refreshUsers)
+    return () => {
+      isMounted = false
+      window.removeEventListener(USERS_UPDATED_EVENT, refreshUsers)
+    }
+  }, [role])
 
   React.useEffect(() => {
+    if (role !== 'admin' && role !== 'supervisor') return
     let isMounted = true
 
     const refreshLocalLogs = () => {
       if (!isMounted) return
-      setLogs(getLocalAuditLogs())
-    }
-
-    refreshLocalLogs()
-
-    const handleFocus = () => {
-      refreshLocalLogs()
+      setEntries(getLocalAuditLogs())
     }
 
     const handleVisibilityChange = () => {
@@ -130,22 +124,27 @@ export default function AuditTrailPage() {
     }
 
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === AUDIT_LOG_STORAGE_KEY) {
+      if (event.key === AUDIT_LOG_STORAGE_KEY || event.key === null) {
         refreshLocalLogs()
       }
     }
 
-    window.addEventListener('focus', handleFocus)
+    refreshLocalLogs()
+    window.addEventListener('focus', refreshLocalLogs)
     document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('storage', handleStorage)
+    window.addEventListener(AUDIT_LOG_UPDATED_EVENT, refreshLocalLogs)
 
     return () => {
       isMounted = false
-      window.removeEventListener('focus', handleFocus)
+      window.removeEventListener('focus', refreshLocalLogs)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('storage', handleStorage)
+      window.removeEventListener(AUDIT_LOG_UPDATED_EVENT, refreshLocalLogs)
     }
-  }, [])
+  }, [role])
+
+  const logs = React.useMemo(() => entries.map((log) => toAuditTableRecord(log, users)), [entries, users])
 
   const moduleOptions = React.useMemo(
     () => ['all', ...Array.from(new Set(logs.map((log) => log.module))).sort()],
@@ -158,28 +157,17 @@ export default function AuditTrailPage() {
     return logs.filter((log) => {
       const matchesAction = actionFilter === 'all' || log.action === actionFilter
       const matchesModule = moduleFilter === 'all' || log.module === moduleFilter
+      const matchesRole = roleFilter === 'all' || log.role === roleFilter
       const matchesSearch =
         normalizedSearch.length === 0 ||
-        [log.user, log.action, log.module, log.description, log.timestamp]
+        [log.user, log.userEmail, log.role, log.action, log.module, log.description, log.timestamp]
           .join(' ')
           .toLowerCase()
           .includes(normalizedSearch)
 
-      return matchesAction && matchesModule && matchesSearch
+      return matchesAction && matchesModule && matchesRole && matchesSearch
     })
-  }, [actionFilter, logs, moduleFilter, searchTerm])
-
-  React.useEffect(() => {
-    const handleAuditLogUpdated = () => {
-      setLogs(getLocalAuditLogs())
-    }
-
-    window.addEventListener(AUDIT_LOG_UPDATED_EVENT, handleAuditLogUpdated)
-
-    return () => {
-      window.removeEventListener(AUDIT_LOG_UPDATED_EVENT, handleAuditLogUpdated)
-    }
-  }, [])
+  }, [actionFilter, logs, moduleFilter, roleFilter, searchTerm])
 
   const columns: ColumnDef<AuditTableRecord>[] = [
     {
@@ -198,16 +186,28 @@ export default function AuditTrailPage() {
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
           <Avatar className="size-6">
-            <AvatarImage src={userAvatarByName.get(row.original.user) || ''} alt={row.original.user} />
+            <AvatarImage src={row.original.userAvatarUrl} alt={row.original.user} />
             <AvatarFallback className="bg-primary/10 text-[10px] text-primary">
               {row.original.user
                 .split(' ')
                 .map((name) => name[0])
-                .join('')}
+                .join('').slice(0, 2).toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          <span className="text-sm font-medium">{row.original.user}</span>
+          <div className="min-w-0">
+            <div className="text-sm font-medium">{row.original.user}</div>
+            {row.original.userEmail && <div className="text-xs text-muted-foreground">{row.original.userEmail}</div>}
+          </div>
         </div>
+      ),
+    },
+    {
+      accessorKey: 'role',
+      header: 'Role',
+      cell: ({ row }) => (
+        <Badge variant="outline" className={row.original.roleKey ? auditRoleColors[row.original.roleKey] : 'text-muted-foreground'}>
+          {row.original.role}
+        </Badge>
       ),
     },
     {
@@ -274,6 +274,19 @@ export default function AuditTrailPage() {
                     <SelectItem value="UPDATE">Update</SelectItem>
                     <SelectItem value="DELETE">Delete</SelectItem>
                     <SelectItem value="EXPORT">Export</SelectItem>
+                    <SelectItem value="APPROVE">Approve</SelectItem>
+                    <SelectItem value="REJECT">Reject</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={roleFilter} onValueChange={setRoleFilter}>
+                  <SelectTrigger className="w-full sm:w-40" aria-label="Filter by account role">
+                    <SelectValue placeholder="Role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Roles</SelectItem>
+                    {Array.from(new Set(logs.map((log) => log.role))).sort().map((accountRole) => (
+                      <SelectItem key={accountRole} value={accountRole}>{accountRole}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <Select value={moduleFilter} onValueChange={setModuleFilter}>
@@ -292,7 +305,7 @@ export default function AuditTrailPage() {
             }
             exportConfig={{
               title: 'Audit Trail Report',
-              subtitle: `Saved system activity log; Action: ${actionFilter === 'all' ? 'All actions' : actionFilter}; Module: ${moduleFilter === 'all' ? 'All modules' : moduleFilter}; Search: ${searchTerm.trim() || 'None'}`,
+              subtitle: `Saved system activity log; Action: ${actionFilter === 'all' ? 'All actions' : actionFilter}; Role: ${roleFilter === 'all' ? 'All roles' : roleFilter}; Module: ${moduleFilter === 'all' ? 'All modules' : moduleFilter}; Search: ${searchTerm.trim() || 'None'}`,
               filename: 'audit-trail-report',
             }}
           />

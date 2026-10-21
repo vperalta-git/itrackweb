@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
   Car,
@@ -13,6 +13,7 @@ import {
   Navigation,
   RefreshCw,
   Truck,
+  TriangleAlert,
 } from 'lucide-react'
 
 import { RouteMapFrame } from '@/components/route-map-frame'
@@ -31,12 +32,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { getRelativeTime } from '@/lib/backend-helpers'
 import {
   DRIVER_ALLOCATIONS_UPDATED_EVENT,
   DriverAllocationRecord,
   getDriverAllocationEtaLabel,
   getDriverAllocationGpsState,
+  getDriverAllocationTrackingHealth,
   getDriverAllocationProgress,
   getDriverAllocationRemainingDistanceLabel,
   loadDriverAllocations,
@@ -72,6 +73,10 @@ type TrackingDriver = {
   hasGps: boolean
   gpsState: 'live' | 'last-known' | 'stale' | 'unavailable'
   gpsLabel: string
+  trackingIssue: string | null
+  urgent: boolean
+  lastGpsAge: string
+  trackingGap: string
   scheduledShipmentAt: string | null
   actualStartTime: string | null
   completedAt: string | null
@@ -80,6 +85,7 @@ type TrackingDriver = {
 function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord, now: number): TrackingDriver {
   const vehicleLabel = `${allocation.unitName} ${allocation.variation}`.trim()
   const gps = getDriverAllocationGpsState(allocation, now)
+  const health = getDriverAllocationTrackingHealth(allocation, now)
   const liveCoordinates = gps.location
   const originCoordinates = allocation.pickupLocationDetails
     ? {
@@ -105,10 +111,10 @@ function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord, now: 
     status: allocation.status,
     origin: allocation.pickupLocation,
     destination: allocation.destination,
-    progress: liveCoordinates ? Math.round(getDriverAllocationProgress(allocation) * 100) : null,
-    eta: gps.state !== 'live' && liveCoordinates
-      ? `Last-known estimate: ${getDriverAllocationEtaLabel(allocation)}`
-      : getDriverAllocationEtaLabel(allocation),
+    progress: liveCoordinates ? Math.round((gps.state !== 'live' &&
+      typeof allocation.routeProgress === 'number' && Number.isFinite(allocation.routeProgress)
+      ? Math.min(1, Math.max(0, allocation.routeProgress)) : getDriverAllocationProgress(allocation)) * 100) : null,
+    eta: getDriverAllocationEtaLabel(allocation),
     distanceLeft:
       getDriverAllocationRemainingDistanceLabel(allocation) ??
       (allocation.status === 'pending'
@@ -127,6 +133,10 @@ function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord, now: 
     hasGps: Boolean(liveCoordinates),
     gpsState: gps.state,
     gpsLabel: gps.label,
+    trackingIssue: health.issue,
+    urgent: health.urgent,
+    lastGpsAge: health.lastGpsAge,
+    trackingGap: health.trackingGap,
     scheduledShipmentAt: allocation.scheduledShipmentAt ?? null,
     actualStartTime: allocation.actualStartTime ?? null,
     completedAt: allocation.completedAt ?? null,
@@ -145,8 +155,11 @@ function getMapPreviewUrl(driver: TrackingDriver | null) {
   })
 }
 
-export default function LiveTrackingPage() {
+function LiveTrackingContent() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const requestedAllocationId = searchParams.get('allocation')
+  const appliedAllocationId = React.useRef<string | null>(null)
   const role = getRoleFromPathname(pathname)
   const [driverAllocations, setDriverAllocations] = React.useState<DriverAllocationRecord[]>(
     loadDriverAllocations()
@@ -164,12 +177,14 @@ export default function LiveTrackingPage() {
   React.useEffect(() => {
     const syncAllocations = () => {
       setDriverAllocations(loadDriverAllocations())
+      setClockMs(Date.now())
     }
 
     syncAllocations()
     void syncDriverAllocationsFromBackend()
       .then((nextAllocations) => {
         setDriverAllocations(nextAllocations)
+        setClockMs(Date.now())
         setRefreshError(null)
         setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
       })
@@ -180,7 +195,8 @@ export default function LiveTrackingPage() {
       void syncDriverAllocationsFromBackend()
         .then((nextAllocations) => {
           setDriverAllocations(nextAllocations)
-        setRefreshError(null)
+          setClockMs(Date.now())
+          setRefreshError(null)
           setLastUpdatedAt(
             new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
           )
@@ -209,13 +225,16 @@ export default function LiveTrackingPage() {
     [activeDrivers]
   )
 
-  const scopedDrivers = React.useMemo(() => {
-    const roleScopedDrivers = activeDrivers.filter(
+  const roleScopedDrivers = React.useMemo(() => activeDrivers.filter(
       (driver) =>
         matchesScopedAgent(role, driver.salesAgent) &&
         matchesScopedManager(role, driver.manager)
-    )
+    ), [activeDrivers, role])
 
+  const disconnectedDrivers = roleScopedDrivers.filter((driver) => driver.trackingIssue)
+  const urgentDrivers = disconnectedDrivers.filter((driver) => driver.urgent)
+
+  const scopedDrivers = React.useMemo(() => {
     const managerScopedDrivers =
       managerFilter === 'all'
         ? roleScopedDrivers
@@ -227,11 +246,30 @@ export default function LiveTrackingPage() {
         .toLowerCase()
         .includes(searchTerm.trim().toLowerCase())
     )
-  }, [activeDrivers, managerFilter, role, searchTerm])
+  }, [roleScopedDrivers, managerFilter, searchTerm])
 
   const [selectedDriver, setSelectedDriver] = React.useState<TrackingDriver | null>(null)
 
+  const selectDriver = (driver: TrackingDriver) => {
+    setSearchTerm('')
+    setManagerFilter('all')
+    setSelectedDriver(driver)
+  }
+
   React.useEffect(() => {
+    if (requestedAllocationId) {
+      setSearchTerm('')
+      setManagerFilter('all')
+    }
+  }, [requestedAllocationId])
+
+  React.useEffect(() => {
+    const requestedDriver = scopedDrivers.find((driver) => driver.id === requestedAllocationId)
+    if (requestedDriver && appliedAllocationId.current !== requestedAllocationId) {
+      appliedAllocationId.current = requestedAllocationId
+      setSelectedDriver(requestedDriver)
+      return
+    }
     if (scopedDrivers.length > 0) {
       setSelectedDriver((current) =>
         current && scopedDrivers.some((driver) => driver.id === current.id)
@@ -242,7 +280,7 @@ export default function LiveTrackingPage() {
     }
 
     setSelectedDriver(null)
-  }, [scopedDrivers])
+  }, [scopedDrivers, requestedAllocationId])
 
   React.useEffect(() => {
     if (!selectedDriver?.destinationCoordinates || selectedDriver.gpsState !== 'live' || !selectedDriver.coordinates) {
@@ -302,7 +340,7 @@ export default function LiveTrackingPage() {
   const mapPreviewUrl = React.useMemo(() => getMapPreviewUrl(selectedDriver), [selectedDriver])
 
   const selectedDriverDistanceLeft = React.useMemo(() => {
-    if (selectedDriverRouteDistanceKm !== null) {
+    if (selectedDriver?.gpsState === 'live' && selectedDriverRouteDistanceKm !== null) {
       return `${selectedDriverRouteDistanceKm.toFixed(1)} km left`
     }
 
@@ -327,10 +365,9 @@ export default function LiveTrackingPage() {
   }
 
   const gpsStatusLabel = selectedDriver
-    ? `${selectedDriver.gpsLabel}${selectedDriver.currentLocationUpdatedAt &&
-        Number.isFinite(new Date(selectedDriver.currentLocationUpdatedAt).getTime())
-      ? ` ? Updated ${getRelativeTime(selectedDriver.currentLocationUpdatedAt)}` : ''}`
+    ? `${selectedDriver.trackingIssue ?? selectedDriver.gpsLabel} · Last GPS update: ${selectedDriver.lastGpsAge}`
     : 'No shipment selected'
+  const isLastKnown = selectedDriver?.gpsState !== 'live'
 
 
   return (
@@ -363,6 +400,24 @@ export default function LiveTrackingPage() {
           Refresh
         </Button>
       </PageHeader>
+
+      {urgentDrivers.length > 0 && (
+        <div role="alert" className="rounded-xl border-2 border-red-600 bg-red-50 p-4 text-red-900 dark:border-red-500 dark:bg-red-950/60 dark:text-red-100">
+          <div className="flex items-start gap-3">
+            <TriangleAlert className="mt-0.5 size-6 shrink-0 text-red-600 dark:text-red-400" />
+            <div className="min-w-0 flex-1">
+              <p className="font-bold">URGENT: {urgentDrivers.length} active {urgentDrivers.length === 1 ? 'delivery has' : 'deliveries have'} lost GPS tracking.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {urgentDrivers.map((driver) => (
+                  <button key={driver.id} onClick={() => selectDriver(driver)} className="rounded-md border border-red-300 bg-background/70 px-3 py-2 text-left text-sm underline-offset-2 hover:underline dark:border-red-800">
+                    <span className="font-semibold">{driver.name || 'Unassigned driver'}</span> · {driver.trackingGap} · View tracking
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {refreshError && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
         {refreshError} Showing last fetched records; GPS freshness is shown separately.
@@ -407,10 +462,11 @@ export default function LiveTrackingPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <ScrollArea className="h-[500px]">
+            <ScrollArea className={scopedDrivers.some((driver) => !driver.trackingIssue) ? 'h-[320px]' : 'h-auto'}>
               <div className="space-y-1 p-4 pt-0">
                 {scopedDrivers.length === 0 && <p className="p-4 text-sm text-muted-foreground">No in-transit shipments match your filters.</p>}
-                {scopedDrivers.map((driver) => (
+                {scopedDrivers.length > 0 && scopedDrivers.every((driver) => driver.trackingIssue) && <p className="p-4 text-sm text-muted-foreground">Active deliveries with unavailable GPS are listed below.</p>}
+                {scopedDrivers.filter((driver) => !driver.trackingIssue).map((driver) => (
                   <button
                     key={driver.id}
                     onClick={() => setSelectedDriver(driver)}
@@ -444,11 +500,11 @@ export default function LiveTrackingPage() {
                               style={{ width: `${driver.progress ?? 0}%` }}
                             />
                           </div>
-                          <span className="text-xs text-muted-foreground">{driver.progress === null ? 'Unknown' : `${driver.progress}%`}</span>
+                          <span className="text-xs text-muted-foreground">{driver.progress === null ? 'Unknown' : `${driver.progress}%${driver.gpsState !== 'live' ? ' (last known)' : ''}`}</span>
                         </div>
-                        <p className="mt-1 text-[10px] text-muted-foreground">{driver.gpsLabel}</p>
+                        <p className={`mt-1 text-xs ${driver.gpsState === 'live' ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}>{driver.gpsLabel} · {driver.lastGpsAge}</p>
                         <p className="mt-1 text-[10px] text-muted-foreground">
-                          Estimated ETA: {driver.eta} &bull; {driver.distanceLeft}
+                          {driver.gpsState === 'live' ? 'Estimated ETA' : 'Last Known ETA'}: {driver.eta} &bull; {driver.gpsState !== 'live' ? 'Last Known Distance: ' : ''}{driver.distanceLeft}
                         </p>
                       </div>
                     </div>
@@ -456,6 +512,30 @@ export default function LiveTrackingPage() {
                 ))}
               </div>
             </ScrollArea>
+            <section aria-labelledby="disconnected-drivers-heading" className="border-t border-red-200 bg-red-50/50 p-4 dark:border-red-900 dark:bg-red-950/20">
+              <h3 id="disconnected-drivers-heading" className="flex items-center justify-between gap-2 font-semibold">
+                <span className="flex items-center gap-2"><TriangleAlert className="size-5 text-red-600 dark:text-red-400" />Disconnected Drivers</span>
+                <Badge className="bg-red-600 text-white hover:bg-red-600" aria-label={`${disconnectedDrivers.length} disconnected drivers`}>{disconnectedDrivers.length}</Badge>
+              </h3>
+              {disconnectedDrivers.length === 0 ? (
+                <p className="mt-3 text-sm text-muted-foreground">All active drivers are trackable</p>
+              ) : (
+                <div className="mt-3 max-h-[360px] space-y-3 overflow-y-auto">
+                  {disconnectedDrivers.map((driver) => (
+                    <button key={driver.id} onClick={() => selectDriver(driver)} aria-pressed={selectedDriver?.id === driver.id}
+                      className={`w-full rounded-lg border bg-background p-3 text-left text-sm transition-colors hover:bg-red-50 dark:hover:bg-red-950/40 ${selectedDriver?.id === driver.id ? 'border-red-500 ring-1 ring-red-500' : 'border-red-200 dark:border-red-900'}`}>
+                      <span className="flex flex-wrap items-center gap-2 font-semibold"><TriangleAlert className="size-4 text-red-600 dark:text-red-400" />{driver.name || 'Unassigned driver'}<Badge className="bg-red-600 text-white hover:bg-red-600">{driver.urgent ? 'Alert' : 'Awaiting GPS'}</Badge></span>
+                      <span className="mt-1 block text-xs text-muted-foreground">{driver.vehicle} · {driver.stockNumber}</span>
+                      <span className="mt-2 block font-medium text-red-700 dark:text-red-400">{driver.trackingIssue}</span>
+                      <span className="mt-1 block text-xs">Last GPS update: {driver.lastGpsAge}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">Last known location: {driver.coordinates ? `${driver.coordinates.lat.toFixed(5)}, ${driver.coordinates.lng.toFixed(5)}` : 'Unavailable — no GPS fix recorded'}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">{driver.trackingGap}</span>
+                      <span className="mt-2 block text-xs font-medium underline">View delivery and last known position</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
           </CardContent>
         </Card>
 
@@ -479,12 +559,14 @@ export default function LiveTrackingPage() {
                   destination={selectedDriver?.destinationCoordinates}
                   focus={selectedDriver?.coordinates}
                   routeOrigin={selectedDriver?.hasGps ? selectedDriver.coordinates : undefined}
+                  focusState={selectedDriver?.gpsState === 'live' ? 'live' : 'warning'}
+                  focusLabel={selectedDriver ? `${selectedDriver.trackingIssue ?? selectedDriver.gpsLabel} — Last GPS update: ${selectedDriver.lastGpsAge}` : undefined}
                 />
 
                 <div className="absolute right-4 top-4 flex flex-col gap-2">
-                  <Badge variant="secondary" className="justify-center bg-background/95">
+                  <Badge variant="secondary" className={`max-w-[260px] justify-center whitespace-normal text-center ${selectedDriver?.trackingIssue ? 'bg-red-600 text-white' : selectedDriver && isLastKnown ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200' : 'bg-background/95'}`}>
                     {selectedDriver
-                      ? selectedDriver.gpsLabel
+                      ? `${selectedDriver.trackingIssue ?? selectedDriver.gpsLabel} · ${selectedDriver.lastGpsAge}`
                       : 'Planned route map'}
                   </Badge>
                   {selectedDriver && mapPreviewUrl ? (
@@ -528,22 +610,22 @@ export default function LiveTrackingPage() {
                       </div>
                       <div className="mt-4 grid grid-cols-3 gap-4 text-center">
                         <div>
-                          <p className="text-xs text-muted-foreground">Progress</p>
+                          <p className="text-xs text-muted-foreground">{isLastKnown ? 'Last Known Progress' : 'Progress'}</p>
                           <p className="font-semibold text-primary">{selectedDriver.progress === null ? 'Unavailable' : `${selectedDriver.progress}%`}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">ETA</p>
+                          <p className="text-xs text-muted-foreground">{isLastKnown ? 'Last Known ETA' : 'ETA'}</p>
                           <p className="font-semibold">{selectedDriver.eta}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">Distance Left</p>
+                          <p className="text-xs text-muted-foreground">{isLastKnown ? 'Last Known Distance' : 'Distance Left'}</p>
                           <p className="font-semibold">{selectedDriverDistanceLeft}</p>
                         </div>
                       </div>
                       <div className="mt-3 flex items-center justify-between gap-4 text-[11px] text-muted-foreground">
                         <span>
                           {selectedDriver.coordinates
-                            ? `GPS position: ${selectedDriver.coordinates.lat.toFixed(4)}, ${selectedDriver.coordinates.lng.toFixed(4)}`
+                            ? `${isLastKnown ? 'Last known location' : 'Live GPS position'}: ${selectedDriver.coordinates.lat.toFixed(4)}, ${selectedDriver.coordinates.lng.toFixed(4)}`
                             : 'No driver GPS fix. Map shows planned pickup and destination only.'}
                         </span>
                         <span className="hidden sm:inline">{gpsStatusLabel}</span>
@@ -567,7 +649,7 @@ export default function LiveTrackingPage() {
                         <span>Destination</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="size-2.5 rounded-full bg-[#dc2626]" />
+                        <span className={`size-2.5 rounded-full ${selectedDriver.gpsState === 'live' ? 'bg-blue-600' : 'bg-red-600'}`} />
                         <span>{selectedDriver.gpsState === 'live' ? 'Live Vehicle' : 'Last Known Vehicle'}</span>
                       </div>
                     </div>
@@ -592,7 +674,10 @@ export default function LiveTrackingPage() {
                     <p className="font-medium">{selectedDriver.destination}</p>
                   </div>
                   <div className="rounded-lg bg-muted/50 p-4 text-sm sm:col-span-2">
-                    <p>{gpsStatusLabel}</p>
+                    <div className="mb-2 flex flex-wrap items-center gap-2"><span>Delivery Status:</span><StatusBadge status={selectedDriver.status} /></div>
+                    <p className={selectedDriver.trackingIssue ? 'font-semibold text-red-700 dark:text-red-400' : ''}>Tracking Status: {selectedDriver.trackingIssue ?? selectedDriver.gpsLabel}</p>
+                    <p className="mt-1">Last GPS update: {selectedDriver.lastGpsAge}{selectedDriver.currentLocationUpdatedAt && Number.isFinite(new Date(selectedDriver.currentLocationUpdatedAt).getTime()) ? ` (${new Date(selectedDriver.currentLocationUpdatedAt).toLocaleString()})` : ''}</p>
+                    <p>Last known location: {selectedDriver.coordinates ? `${selectedDriver.coordinates.lat.toFixed(5)}, ${selectedDriver.coordinates.lng.toFixed(5)}` : 'Unavailable'}</p>
                     <p className="mt-1">Scheduled shipment: {selectedDriver.scheduledShipmentAt ? new Date(selectedDriver.scheduledShipmentAt).toLocaleString() : 'Not scheduled'}</p>
                     <p>Actual start: {selectedDriver.actualStartTime ? new Date(selectedDriver.actualStartTime).toLocaleString() : 'Not started'}</p>
                     <p>Actual end: {selectedDriver.completedAt ? new Date(selectedDriver.completedAt).toLocaleString() : 'Not completed'}</p>
@@ -605,4 +690,8 @@ export default function LiveTrackingPage() {
       </div>
     </div>
   )
+}
+
+export default function LiveTrackingPage() {
+  return <React.Suspense fallback={<p className="p-6 text-sm text-muted-foreground">Loading live tracking...</p>}><LiveTrackingContent /></React.Suspense>
 }
