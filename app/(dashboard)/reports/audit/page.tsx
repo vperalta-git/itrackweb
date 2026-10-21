@@ -28,6 +28,9 @@ import {
   getStoredAuditLogs,
   resolveAuditActor,
   auditRoleColors,
+  fetchAuditActorHistory,
+  repairStoredAuditActors,
+  type AuditActorHistory,
   type AuditLogEntry,
 } from '@/lib/audit-log'
 import { formatDateTimeLabel } from '@/lib/backend-helpers'
@@ -67,13 +70,13 @@ const getActionColor = (action: AuditTableRecord['action']) => {
   }
 }
 
-const toAuditTableRecord = (log: AuditLogEntry, users: SystemUser[]): AuditTableRecord => ({
+const toAuditTableRecord = (log: AuditLogEntry, users: SystemUser[], history: AuditActorHistory[]): AuditTableRecord => ({
   ...log,
-  ...resolveAuditActor(log, users),
+  ...resolveAuditActor(log, users, history),
   timestamp: formatDateTimeLabel(log.timestamp, log.timestamp),
 })
 
-const getLocalAuditLogs = () => getStoredAuditLogs()
+const getLocalAuditLogs = (logs = getStoredAuditLogs()) => logs
   .filter((log) => !(log.module === 'Authentication' && (log.action === 'LOGIN' || log.action === 'LOGOUT')))
   .sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime())
 
@@ -83,6 +86,8 @@ export default function AuditTrailPage() {
   const role = getRoleFromPathname(pathname)
   const [entries, setEntries] = React.useState<AuditLogEntry[]>([])
   const [users, setUsers] = React.useState<SystemUser[]>(() => loadUsers())
+  const [actorHistory, setActorHistory] = React.useState<AuditActorHistory[]>([])
+  const [isResolvingRoles, setIsResolvingRoles] = React.useState(true)
   const [actionFilter, setActionFilter] = React.useState('all')
   const [moduleFilter, setModuleFilter] = React.useState('all')
   const [roleFilter, setRoleFilter] = React.useState('all')
@@ -98,15 +103,24 @@ export default function AuditTrailPage() {
     if (role !== 'admin' && role !== 'supervisor') return
     let isMounted = true
     const refreshUsers = () => setUsers(loadUsers())
-    void syncUsersFromBackend().then((nextUsers) => {
-      if (isMounted) setUsers(nextUsers)
-    }).catch(() => null)
+    void Promise.allSettled([syncUsersFromBackend(), fetchAuditActorHistory()]).then(([userResult, historyResult]) => {
+      if (!isMounted) return
+      if (userResult.status === 'fulfilled') setUsers(userResult.value)
+      if (historyResult.status === 'fulfilled') setActorHistory(historyResult.value)
+      setIsResolvingRoles(false)
+    })
     window.addEventListener(USERS_UPDATED_EVENT, refreshUsers)
     return () => {
       isMounted = false
       window.removeEventListener(USERS_UPDATED_EVENT, refreshUsers)
     }
   }, [role])
+
+  React.useEffect(() => {
+    if (!isResolvingRoles && (role === 'admin' || role === 'supervisor')) {
+      setEntries(getLocalAuditLogs(repairStoredAuditActors(users, actorHistory)))
+    }
+  }, [users, actorHistory, isResolvingRoles, role])
 
   React.useEffect(() => {
     if (role !== 'admin' && role !== 'supervisor') return
@@ -144,7 +158,10 @@ export default function AuditTrailPage() {
     }
   }, [role])
 
-  const logs = React.useMemo(() => entries.map((log) => toAuditTableRecord(log, users)), [entries, users])
+  const logs = React.useMemo(() => entries.map((log) => {
+    const record = toAuditTableRecord(log, users, actorHistory)
+    return !record.roleKey && isResolvingRoles ? { ...record, role: 'Resolving role…' } : record
+  }), [entries, users, actorHistory, isResolvingRoles])
 
   const moduleOptions = React.useMemo(
     () => ['all', ...Array.from(new Set(logs.map((log) => log.module))).sort()],

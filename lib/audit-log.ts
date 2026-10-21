@@ -3,6 +3,7 @@
 import type { Role } from '@/lib/rbac'
 import { getSessionUserFullName, getSessionUser, getRoleLabel, type UserRole } from '@/lib/session'
 import type { SystemUser } from '@/lib/user-data'
+import { apiRequest } from '@/lib/api-client'
 
 export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'APPROVE' | 'REJECT'
 
@@ -31,8 +32,42 @@ export const auditRoleColors: Record<UserRole, string> = {
 }
 
 export function normalizeAuditRole(value: unknown): UserRole | undefined {
-  const role = value === 'sales_agent' ? 'sales-agent' : value === 'dispatcher' ? 'dispatch' : value
+  if (typeof value !== 'string') return undefined
+  const key = value.trim().toLowerCase().replace(/[\s_]+/g, '-')
+  const role = key === 'administrator' ? 'admin' : key === 'dispatcher' ? 'dispatch' : key
   return typeof role === 'string' && Object.hasOwn(auditRoleColors, role) ? role as UserRole : undefined
+}
+
+export type AuditActorHistory = {
+  userId?: string
+  name: string
+  email?: string
+  role?: string
+  recordedAt?: string
+}
+
+const normalizeActorIdentity = (value?: string) =>
+  (value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
+
+type BackendActorEvent = {
+  userId?: string | null
+  deletedUserId?: string
+  name?: string
+  email?: string
+  role?: string
+  createdAt?: string
+}
+
+export async function fetchAuditActorHistory(): Promise<AuditActorHistory[]> {
+  const results = await Promise.allSettled([
+    apiRequest<BackendActorEvent[]>('/auth/events'),
+    apiRequest<BackendActorEvent[]>('/users/audit-events'),
+  ])
+  return results.flatMap((result) => result.status === 'fulfilled' && Array.isArray(result.value)
+    ? result.value.map((event) => ({
+        userId: event.userId ?? event.deletedUserId,
+        name: event.name ?? '', email: event.email, role: event.role, recordedAt: event.createdAt,
+      })) : [])
 }
 
 const isAuditLog = (value: unknown): value is AuditLogEntry => {
@@ -45,20 +80,69 @@ const isAuditLog = (value: unknown): value is AuditLogEntry => {
     !Number.isNaN(new Date(String(entry.timestamp)).getTime())
 }
 
-export function resolveAuditActor(log: AuditLogEntry, users: SystemUser[]) {
-  // Prefer captured identity and role. Resolve legacy entries only when the
-  // directory contains exactly one matching account.
-  const matches = users.filter((user) => log.userId ? user.id === log.userId
-    : log.userEmail ? user.email.toLowerCase() === log.userEmail.toLowerCase()
-      : `${user.firstName} ${user.lastName}`.trim() === log.user || user.email.toLowerCase() === log.user.toLowerCase())
-  const account = matches.length === 1 ? matches[0] : undefined
-  const role = normalizeAuditRole(log.role) ?? normalizeAuditRole(account?.role)
+export function resolveAuditActor(log: AuditLogEntry, users: SystemUser[], history: AuditActorHistory[] = []) {
+  let sessionUser = null
+  try { sessionUser = getSessionUser() } catch { /* Storage can be unavailable. */ }
+  const accounts: Array<Pick<SystemUser, 'id' | 'firstName' | 'lastName' | 'email' | 'role' | 'avatarUrl'>> = [...users]
+  if (sessionUser && !accounts.some((user) => user.id === sessionUser.id)) {
+    accounts.push(sessionUser)
+  }
+  const identities: AuditActorHistory[] = [
+    ...history,
+    ...accounts.map((user) => ({ userId: user.id, name: `${user.firstName} ${user.lastName}`, email: user.email, role: user.role })),
+  ]
+  const actorName = normalizeActorIdentity(log.user)
+  const actorEmail = normalizeActorIdentity(log.userEmail)
+  const matches = identities.filter((actor) => log.userId ? actor.userId === log.userId
+    : actorEmail ? normalizeActorIdentity(actor.email) === actorEmail
+      : normalizeActorIdentity(actor.name) === actorName || normalizeActorIdentity(actor.email) === actorName)
+  // Recover historical names through their stable account ID/email, including
+  // accounts that have since been renamed or removed from the current directory.
+  const ids = new Set(matches.map((actor) => actor.userId).filter(Boolean))
+  const emails = new Set(matches.map((actor) => normalizeActorIdentity(actor.email)).filter(Boolean))
+  const uniqueIdentity = ids.size === 1 || (ids.size === 0 && emails.size <= 1)
+  const account = uniqueIdentity ? accounts.find((user) => ids.size ? ids.has(user.id) : emails.has(normalizeActorIdentity(user.email))) : undefined
+  const eventTime = new Date(log.timestamp).getTime()
+  const historicalMatches = history.filter((actor) => normalizeAuditRole(actor.role) &&
+    (matches.includes(actor) || (uniqueIdentity && (actor.userId ? ids.has(actor.userId) : emails.has(normalizeActorIdentity(actor.email))))))
+  const preceding = historicalMatches.filter((actor) => actor.recordedAt && new Date(actor.recordedAt).getTime() <= eventTime)
+    .sort((left, right) => new Date(right.recordedAt!).getTime() - new Date(left.recordedAt!).getTime())
+  const matchingRoles = new Set(matches.map((actor) => normalizeAuditRole(actor.role)).filter((role): role is UserRole => Boolean(role)))
+  const historicalRoles = new Set(historicalMatches.map((actor) => normalizeAuditRole(actor.role)).filter((role): role is UserRole => Boolean(role)))
+  const role = normalizeAuditRole(log.role) ??
+    (uniqueIdentity && preceding.length ? normalizeAuditRole(preceding[0].role) : undefined) ??
+    (uniqueIdentity && historicalRoles.size === 1 ? [...historicalRoles][0] : undefined) ??
+    (matchingRoles.size === 1 ? [...matchingRoles][0] : undefined)
   return {
     roleKey: role,
-    role: role ? getRoleLabel(role) : 'Unknown',
-    userEmail: log.userEmail ?? account?.email ?? '',
+    role: role ? getRoleLabel(role) : 'Role not recorded',
+    userId: log.userId || (uniqueIdentity && ids.size === 1 ? [...ids][0] : undefined),
+    userEmail: log.userEmail || account?.email || (uniqueIdentity && emails.size === 1 ? [...emails][0] : ''),
     userAvatarUrl: account?.avatarUrl ?? '',
   }
+}
+
+export function repairStoredAuditActors(users: SystemUser[], history: AuditActorHistory[]) {
+  const logs = getStoredAuditLogs()
+  // Newer local snapshots can also identify the actor of older browser entries.
+  const snapshots = [...history, ...logs.filter((log) => normalizeAuditRole(log.role)).map((log) => ({
+    userId: log.userId, name: log.user, email: log.userEmail, role: log.role, recordedAt: log.timestamp,
+  }))]
+  let repaired = false
+  const entries = logs.map((log) => {
+    if (normalizeAuditRole(log.role)) return log
+    const actor = resolveAuditActor(log, users, snapshots)
+    if (!actor.roleKey) return log
+    repaired = true
+    return { ...log, role: actor.roleKey, userId: actor.userId, userEmail: actor.userEmail }
+  })
+  if (repaired && typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
+      window.dispatchEvent(new Event(AUDIT_LOG_UPDATED_EVENT))
+    } catch { /* Recovered roles can still be displayed when storage is full. */ }
+  }
+  return entries
 }
 
 const roleDisplayNames: Record<Role, string> = {
@@ -93,9 +177,9 @@ export function logAuditEvent(input: Omit<AuditLogEntry, 'id' | 'timestamp'>) {
     const sessionUser = getSessionUser()
     const nextEntry: AuditLogEntry = {
       ...input,
-      userId: sessionUser?.id,
-      userEmail: sessionUser?.email,
-      role: sessionUser?.role,
+      userId: sessionUser?.id || input.userId,
+      userEmail: sessionUser?.email || input.userEmail,
+      role: normalizeAuditRole(sessionUser?.role) ?? normalizeAuditRole(sessionUser?.backendRole) ?? normalizeAuditRole(input.role),
       id: `AUD-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp: new Date().toISOString(),
     }
