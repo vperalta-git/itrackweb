@@ -61,9 +61,6 @@ export const DRIVER_ALLOCATIONS_STORAGE_KEY = 'itrack.driver.allocations'
 export const DRIVER_ALLOCATIONS_UPDATED_EVENT = 'driver-allocations-updated'
 
 const EARTH_RADIUS_KM = 6371
-const DEFAULT_URBAN_SPEED_KMH = 28
-const MIN_REALISTIC_SPEED_KMH = 8
-const MAX_REALISTIC_SPEED_KMH = 80
 // Match the existing backend safety monitor: five minutes stale, two minutes
 // to receive the first GPS fix after departure.
 export const GPS_STALE_AFTER_MS = 300_000
@@ -451,39 +448,10 @@ export function getDriverAllocationEtaLabel(allocation: DriverAllocationRecord) 
   }
 
   if (allocation.status === 'in-transit') {
-    const estimatedDuration = allocation.estimatedDuration ?? 25
-    const routeDistanceKm = getRouteDistanceKm(allocation)
-    const remainingDistanceKm = getDriverAllocationRemainingDistanceKm(allocation)
-
-    if (remainingDistanceKm !== null) {
-      const backendImpliedSpeedKmh =
-        routeDistanceKm !== null && routeDistanceKm > 0 && estimatedDuration > 0
-          ? (routeDistanceKm / estimatedDuration) * 60
-          : null
-
-      const effectiveSpeedKmh =
-        backendImpliedSpeedKmh !== null &&
-        backendImpliedSpeedKmh >= MIN_REALISTIC_SPEED_KMH &&
-        backendImpliedSpeedKmh <= MAX_REALISTIC_SPEED_KMH
-          ? backendImpliedSpeedKmh
-          : DEFAULT_URBAN_SPEED_KMH
-
-      const liveRemainingMinutes = Math.max(
-        1,
-        Math.round((remainingDistanceKm / effectiveSpeedKmh) * 60)
-      )
-
-      if (liveRemainingMinutes >= 60) {
-        const hours = Math.floor(liveRemainingMinutes / 60)
-        const minutes = liveRemainingMinutes % 60
-
-        return minutes > 0 ? `${hours} hr ${minutes} mins` : `${hours} hr`
-      }
-
-      return `${liveRemainingMinutes} mins`
-    }
-
-    return 'Unavailable — no GPS fix'
+    // Live travel time comes exclusively from the server Directions response.
+    // The stored estimatedDuration is a trip plan, not remaining road travel time.
+    return getDriverAllocationGpsState(allocation).state === 'live'
+      ? 'Unavailable — road estimate not loaded' : 'ETA Unavailable: GPS Tracking Lost'
   }
 
   return allocation.status === 'cancelled' ? 'Cancelled' : 'Pending'

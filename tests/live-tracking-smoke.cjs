@@ -26,6 +26,7 @@ const tracking = load('lib/driver-allocation-data.ts', {
   '@/lib/api-client': { apiRequest: forbidden }, '@/lib/backend-helpers': {},
   '@/lib/inventory-data': {}, '@/lib/notification-preferences': {},
 })
+const roadEta = load('lib/live-route-eta.ts', { '@/lib/driver-allocation-data': tracking })
 const allocation = {
   id: 'trip-1', assignedDriver: 'Alex Driver', driverPhone: '', status: 'in-transit',
   unitName: 'D-MAX', variation: 'LS', conductionNumber: 'UNIT-001', salesAgent: 'Agent', manager: 'Manager',
@@ -57,6 +58,7 @@ const page = load('app/(dashboard)/allocation/drivers/tracking/page.tsx', {
     useState: () => { const index = stateIndex++; return [states[index], value => stateWrites.set(index, value)] } },
   'next/navigation': { usePathname: () => '/admin/driver-allocation/live-tracking', useSearchParams: () => new URLSearchParams() },
   '@/lib/driver-allocation-data': tracking,
+  '@/lib/live-route-eta': roadEta,
   '@/lib/map-location': { buildRouteMapEmbedUrl: () => '/fixture-map' },
   '@/lib/rbac': { getRoleFromPathname: () => 'admin', buildRolePath: (_, target) => `/admin/${target}` },
   '@/lib/role-scope': { matchesScopedAgent: () => true, matchesScopedManager: () => true },
@@ -83,8 +85,8 @@ assert.match(text(banner), /Alex Driver.*5 days/)
 assert.match(banner.props.className, /border-red-600/)
 assert.match(text(lostTree), /Disconnected Drivers/)
 assert.match(text(lostTree), /Last Known Progress/)
-assert.match(text(lostTree), /Last Known ETA/)
-assert.match(text(lostTree), /Last Known Distance/)
+assert.match(text(lostTree), /ETA Unavailable: GPS Tracking Lost/)
+assert.match(text(lostTree), /Last Known Road Distance/)
 assert.match(text(lostTree), /59%/)
 assert.match(text(lostTree), /Delivery Status:/)
 const map = walk(lostTree, node => node.type === 'RouteMapFrame')[0]

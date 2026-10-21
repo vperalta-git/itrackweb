@@ -8,6 +8,8 @@ type RouteCoordinates = [number, number][]
 type MapboxDirectionsResponse = {
   routes?: Array<{
     distance?: number
+    duration?: number
+    legs?: Array<{ annotation?: { congestion_numeric?: Array<number | null> } }>
     geometry?: {
       coordinates?: [number, number][]
     }
@@ -18,16 +20,24 @@ type OsrmRouteResponse = {
   code?: string
   routes?: Array<{
     distance?: number
+    duration?: number
     geometry?: {
       coordinates?: [number, number][]
     }
   }>
 }
 
-type RouteResolution = {
+export type RouteResolution = {
   coordinates: RouteCoordinates
   distanceKm: number | null
+  durationSeconds: number
+  source: 'mapbox-traffic' | 'mapbox-driving' | 'osrm'
+  trafficAware: boolean
+  calculatedAt: string
 }
+
+const ROUTE_CACHE_MS = 60_000
+const routeCache = new Map<string, { expires: number; promise: Promise<RouteResolution | null> }>()
 
 function getMapboxAccessToken() {
   return (
@@ -50,7 +60,7 @@ export function parseRoutePoint(rawValue: string | null) {
   const latitude = Number(latitudeRaw)
   const longitude = Number(longitudeRaw)
 
-  if (!isFiniteCoordinate(latitude) || !isFiniteCoordinate(longitude)) {
+  if (!latitudeRaw || !longitudeRaw || !isFiniteCoordinate(latitude) || !isFiniteCoordinate(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
     return null
   }
 
@@ -123,7 +133,7 @@ function calculatePolylineDistanceKm(coordinates: RouteCoordinates) {
   return totalDistanceKm
 }
 
-async function resolveMapboxRoute(points: RoutePoint[]) {
+async function resolveMapboxRoute(points: RoutePoint[], profile: 'driving-traffic' | 'driving') {
   const accessToken = getMapboxAccessToken()
 
   if (!accessToken) {
@@ -131,16 +141,19 @@ async function resolveMapboxRoute(points: RoutePoint[]) {
   }
 
   const url = new URL(
-    `https://api.mapbox.com/directions/v5/mapbox/driving/${serializeRoutePoints(points)}`
+    `https://api.mapbox.com/directions/v5/mapbox/${profile}/${serializeRoutePoints(points)}`
   )
   url.searchParams.set('access_token', accessToken)
   url.searchParams.set('alternatives', 'false')
   url.searchParams.set('geometries', 'geojson')
   url.searchParams.set('overview', 'full')
   url.searchParams.set('steps', 'false')
+  url.searchParams.set('depart_at', 'now')
+  if (profile === 'driving-traffic') url.searchParams.set('annotations', 'congestion_numeric')
 
   const response = await fetch(url, {
     cache: 'no-store',
+    signal: AbortSignal.timeout(8000),
   })
 
   if (!response.ok) {
@@ -149,16 +162,26 @@ async function resolveMapboxRoute(points: RoutePoint[]) {
 
   const payload = (await response.json()) as MapboxDirectionsResponse
   const coordinates = normalizeRouteCoordinates(payload.routes?.[0]?.geometry?.coordinates)
+  const route = payload.routes?.[0]
 
-  if (!coordinates) {
+  if (!coordinates || typeof route?.duration !== 'number' || !Number.isFinite(route.duration) || route.duration < 0) {
     return null
   }
 
+  // A successful traffic-profile request can fall back to standard driving in
+  // uncovered areas. Claim traffic awareness only when traffic data is present.
+  const trafficAware = profile === 'driving-traffic' && Boolean(route.legs?.some((leg) =>
+    leg.annotation?.congestion_numeric?.some((value) => typeof value === 'number' && Number.isFinite(value))
+  ))
   return {
     coordinates,
     distanceKm:
       normalizeRouteDistanceKm(payload.routes?.[0]?.distance) ??
       calculatePolylineDistanceKm(coordinates),
+    durationSeconds: route.duration,
+    source: trafficAware ? 'mapbox-traffic' : 'mapbox-driving',
+    trafficAware,
+    calculatedAt: new Date().toISOString(),
   } satisfies RouteResolution
 }
 
@@ -167,6 +190,7 @@ async function resolveOsrmRoute(points: RoutePoint[]) {
     `https://router.project-osrm.org/route/v1/driving/${serializeRoutePoints(points)}?overview=full&geometries=geojson`,
     {
       cache: 'no-store',
+      signal: AbortSignal.timeout(8000),
     }
   )
 
@@ -181,8 +205,9 @@ async function resolveOsrmRoute(points: RoutePoint[]) {
   }
 
   const coordinates = normalizeRouteCoordinates(payload.routes?.[0]?.geometry?.coordinates)
+  const route = payload.routes?.[0]
 
-  if (!coordinates) {
+  if (!coordinates || typeof route?.duration !== 'number' || !Number.isFinite(route.duration) || route.duration < 0) {
     return null
   }
 
@@ -191,22 +216,25 @@ async function resolveOsrmRoute(points: RoutePoint[]) {
     distanceKm:
       normalizeRouteDistanceKm(payload.routes?.[0]?.distance) ??
       calculatePolylineDistanceKm(coordinates),
+    durationSeconds: route.duration,
+    source: 'osrm',
+    trafficAware: false,
+    calculatedAt: new Date().toISOString(),
   } satisfies RouteResolution
 }
 
-export async function resolveRouteData(points: RoutePoint[]) {
+async function resolveUncachedRoute(points: RoutePoint[]) {
   if (points.length < 2) {
     return null
   }
 
-  try {
-    const mapboxRoute = await resolveMapboxRoute(points)
-
-    if (mapboxRoute) {
-      return mapboxRoute
+  for (const profile of ['driving-traffic', 'driving'] as const) {
+    try {
+      const mapboxRoute = await resolveMapboxRoute(points, profile)
+      if (mapboxRoute) return mapboxRoute
+    } catch {
+      // Try the standard driving profile, then the existing OSRM fallback.
     }
-  } catch {
-    // Fall through to OSRM fallback.
   }
 
   try {
@@ -214,6 +242,17 @@ export async function resolveRouteData(points: RoutePoint[]) {
   } catch {
     return null
   }
+}
+
+export function resolveRouteData(points: RoutePoint[]): Promise<RouteResolution | null> {
+  if (points.length < 2 || points.length > 25) return Promise.resolve(null)
+  const key = serializeRoutePoints(points)
+  const cached = routeCache.get(key)
+  if (cached && cached.expires > Date.now()) return cached.promise
+  if (routeCache.size >= 256) routeCache.delete(routeCache.keys().next().value!)
+  const promise = resolveUncachedRoute(points)
+  routeCache.set(key, { expires: Date.now() + ROUTE_CACHE_MS, promise })
+  return promise
 }
 
 export async function resolveRouteCoordinates(points: RoutePoint[]) {

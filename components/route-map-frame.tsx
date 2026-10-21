@@ -13,6 +13,7 @@ type RouteMapFrameProps = {
   routeOrigin?: MapCoordinatesInput | null
   focusState?: 'live' | 'warning'
   focusLabel?: string
+  resolvedRoute?: [number, number][] | null
   onOriginChange?: (coordinates: { latitude: number; longitude: number }) => void
   onDestinationChange?: (coordinates: { latitude: number; longitude: number }) => void
   className?: string
@@ -307,6 +308,7 @@ export function RouteMapFrame({
   routeOrigin,
   focusState,
   focusLabel,
+  resolvedRoute,
   onOriginChange,
   onDestinationChange,
   className,
@@ -367,6 +369,7 @@ export function RouteMapFrame({
   }, [])
 
   React.useEffect(() => {
+    if (resolvedRoute !== undefined) return
     if (routeRequestPoints.length < 2) {
       setRouteCoordinates(null)
       return
@@ -407,7 +410,7 @@ export function RouteMapFrame({
     return () => {
       isCancelled = true
     }
-  }, [routeRequestPoints])
+  }, [routeRequestPoints, resolvedRoute])
 
   React.useEffect(() => {
     if (!containerRef.current || !config || mapRef.current) {
@@ -558,8 +561,8 @@ export function RouteMapFrame({
 
     markersRef.current = nextMarkers
 
-    const lineCoordinates =
-      routeCoordinates && routeCoordinates.length >= 2 ? routeCoordinates : null
+    const suppliedCoordinates = resolvedRoute === undefined ? routeCoordinates : resolvedRoute
+    const lineCoordinates = suppliedCoordinates && suppliedCoordinates.length >= 2 ? suppliedCoordinates : null
 
     if (lineCoordinates) {
       const source = map.getSource(ROUTE_SOURCE_ID)
@@ -662,6 +665,7 @@ export function RouteMapFrame({
     onDestinationChange,
     onOriginChange,
     routeCoordinates,
+    resolvedRoute,
     routeRequestPoints,
   ])
 

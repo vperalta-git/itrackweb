@@ -35,22 +35,16 @@ import {
 import {
   DRIVER_ALLOCATIONS_UPDATED_EVENT,
   DriverAllocationRecord,
-  getDriverAllocationEtaLabel,
   getDriverAllocationGpsState,
   getDriverAllocationTrackingHealth,
   getDriverAllocationProgress,
-  getDriverAllocationRemainingDistanceLabel,
   loadDriverAllocations,
   syncDriverAllocationsFromBackend,
 } from '@/lib/driver-allocation-data'
 import { buildRouteMapEmbedUrl } from '@/lib/map-location'
 import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
 import { matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
-
-type LiveRouteMetricsResponse = {
-  coordinates?: [number, number][] | null
-  distanceKm?: number | null
-}
+import { requestLiveRoadEstimate, getCurrentRoadEstimate, formatRoadTravelTime, getRoadEstimateSource, type LiveRoadEstimate } from '@/lib/live-route-eta'
 
 type TrackingDriver = {
   id: string
@@ -66,6 +60,10 @@ type TrackingDriver = {
   progress: number | null
   eta: string
   distanceLeft: string
+  expectedArrival: string | null
+  lastKnownEta: string | null
+  routeEstimate: LiveRoadEstimate | null
+  routeSource: string | null
   coordinates: { lat: number; lng: number } | null
   originCoordinates: { lat: number; lng: number } | null
   destinationCoordinates: { lat: number; lng: number } | null
@@ -82,11 +80,15 @@ type TrackingDriver = {
   completedAt: string | null
 }
 
-function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord, now: number): TrackingDriver {
+function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord, now: number, estimate?: LiveRoadEstimate): TrackingDriver {
   const vehicleLabel = `${allocation.unitName} ${allocation.variation}`.trim()
   const gps = getDriverAllocationGpsState(allocation, now)
   const health = getDriverAllocationTrackingHealth(allocation, now)
   const liveCoordinates = gps.location
+  const currentEstimate = getCurrentRoadEstimate(allocation, estimate, now)
+  const knownEstimate = estimate && allocation.destinationLocationDetails &&
+    estimate.destination.latitude === allocation.destinationLocationDetails.latitude &&
+    estimate.destination.longitude === allocation.destinationLocationDetails.longitude ? estimate : null
   const originCoordinates = allocation.pickupLocationDetails
     ? {
         lat: allocation.pickupLocationDetails.latitude,
@@ -114,16 +116,15 @@ function mapAllocationToTrackingDriver(allocation: DriverAllocationRecord, now: 
     progress: liveCoordinates ? Math.round((gps.state !== 'live' &&
       typeof allocation.routeProgress === 'number' && Number.isFinite(allocation.routeProgress)
       ? Math.min(1, Math.max(0, allocation.routeProgress)) : getDriverAllocationProgress(allocation)) * 100) : null,
-    eta: getDriverAllocationEtaLabel(allocation),
-    distanceLeft:
-      getDriverAllocationRemainingDistanceLabel(allocation) ??
-      (allocation.status === 'pending'
-        ? 'Not started'
-        : allocation.status === 'assigned'
-        ? 'Preparing departure'
-        : allocation.status === 'available'
-        ? 'At destination'
-        : allocation.status === 'in-transit' ? 'Unavailable - no GPS fix' : 'Completed'),
+    eta: currentEstimate ? formatRoadTravelTime(currentEstimate.durationSeconds)
+      : gps.state !== 'live' ? 'ETA Unavailable: GPS Tracking Lost' : 'ETA Unavailable: Road estimate not available',
+    distanceLeft: currentEstimate ? `${currentEstimate.distanceKm!.toFixed(1)} km`
+      : knownEstimate ? `Last known: ${knownEstimate.distanceKm!.toFixed(1)} km` : 'Unavailable',
+    expectedArrival: currentEstimate ? new Date(new Date(currentEstimate.calculatedAt).getTime() + currentEstimate.durationSeconds * 1000)
+      .toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null,
+    lastKnownEta: !currentEstimate && knownEstimate ? `${formatRoadTravelTime(knownEstimate.durationSeconds)} (calculated ${new Date(knownEstimate.calculatedAt).toLocaleString()})` : null,
+    routeEstimate: currentEstimate ?? knownEstimate,
+    routeSource: currentEstimate ? getRoadEstimateSource(currentEstimate) : null,
     coordinates: liveCoordinates
       ? { lat: liveCoordinates.latitude, lng: liveCoordinates.longitude }
       : null,
@@ -170,9 +171,7 @@ function LiveTrackingContent() {
   const [refreshError, setRefreshError] = React.useState<string | null>(null)
   const [clockMs, setClockMs] = React.useState(Date.now)
   const [lastUpdatedAt, setLastUpdatedAt] = React.useState<string | null>(null)
-  const [selectedDriverRouteDistanceKm, setSelectedDriverRouteDistanceKm] = React.useState<
-    number | null
-  >(null)
+  const [roadEstimates, setRoadEstimates] = React.useState<Record<string, LiveRoadEstimate>>({})
 
   React.useEffect(() => {
     const syncAllocations = () => {
@@ -212,12 +211,30 @@ function LiveTrackingContent() {
     }
   }, [])
 
+  React.useEffect(() => {
+    let isMounted = true
+    const liveAllocations = driverAllocations.filter((allocation) => getDriverAllocationGpsState(allocation, clockMs).state === 'live')
+    void Promise.all(liveAllocations.map(async (allocation) => ({
+      id: allocation.id, estimate: await requestLiveRoadEstimate(allocation, clockMs),
+    }))).then((results) => {
+      if (!isMounted) return
+      const hasNewEstimate = results.some((result) => result.estimate && roadEstimates[result.id] !== result.estimate)
+      if (!hasNewEstimate) return
+      setRoadEstimates((current) => {
+        const changes = results.filter((result) => result.estimate && current[result.id] !== result.estimate)
+        return changes.length ? { ...current, ...Object.fromEntries(changes.map((result) => [result.id, result.estimate!])) } : current
+      })
+      setClockMs(Date.now())
+    })
+    return () => { isMounted = false }
+  }, [driverAllocations, clockMs, roadEstimates])
+
   const activeDrivers = React.useMemo(
     () =>
       driverAllocations
         .filter((allocation) => allocation.status === 'in-transit')
-        .map((allocation) => mapAllocationToTrackingDriver(allocation, clockMs)),
-    [driverAllocations, clockMs]
+        .map((allocation) => mapAllocationToTrackingDriver(allocation, clockMs, roadEstimates?.[allocation.id])),
+    [driverAllocations, clockMs, roadEstimates]
   )
 
   const availableManagers = React.useMemo(
@@ -282,70 +299,7 @@ function LiveTrackingContent() {
     setSelectedDriver(null)
   }, [scopedDrivers, requestedAllocationId])
 
-  React.useEffect(() => {
-    if (!selectedDriver?.destinationCoordinates || selectedDriver.gpsState !== 'live' || !selectedDriver.coordinates) {
-      setSelectedDriverRouteDistanceKm(null)
-      return
-    }
-
-    const routeStart = selectedDriver.coordinates
-
-    if (!routeStart) {
-      setSelectedDriverRouteDistanceKm(null)
-      return
-    }
-
-    let isCancelled = false
-
-    const url = new URL('/api/maps/route', window.location.origin)
-    url.searchParams.set(
-      'points',
-      [
-        `${routeStart.lat.toFixed(6)},${routeStart.lng.toFixed(6)}`,
-        `${selectedDriver.destinationCoordinates.lat.toFixed(6)},${selectedDriver.destinationCoordinates.lng.toFixed(6)}`,
-      ].join(';')
-    )
-
-    void fetch(url, { cache: 'no-store' })
-      .then(async (response) => {
-        if (!response.ok) {
-          return null
-        }
-
-        const payload = (await response.json()) as LiveRouteMetricsResponse
-        return typeof payload.distanceKm === 'number' && Number.isFinite(payload.distanceKm)
-          ? payload.distanceKm
-          : null
-      })
-      .then((distanceKm) => {
-        if (isCancelled) {
-          return
-        }
-
-        setSelectedDriverRouteDistanceKm(distanceKm)
-      })
-      .catch(() => {
-        if (isCancelled) {
-          return
-        }
-
-        setSelectedDriverRouteDistanceKm(null)
-      })
-
-    return () => {
-      isCancelled = true
-    }
-  }, [selectedDriver])
-
   const mapPreviewUrl = React.useMemo(() => getMapPreviewUrl(selectedDriver), [selectedDriver])
-
-  const selectedDriverDistanceLeft = React.useMemo(() => {
-    if (selectedDriver?.gpsState === 'live' && selectedDriverRouteDistanceKm !== null) {
-      return `${selectedDriverRouteDistanceKm.toFixed(1)} km left`
-    }
-
-    return selectedDriver?.distanceLeft ?? null
-  }, [selectedDriver, selectedDriverRouteDistanceKm])
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
@@ -503,9 +457,11 @@ function LiveTrackingContent() {
                           <span className="text-xs text-muted-foreground">{driver.progress === null ? 'Unknown' : `${driver.progress}%${driver.gpsState !== 'live' ? ' (last known)' : ''}`}</span>
                         </div>
                         <p className={`mt-1 text-xs ${driver.gpsState === 'live' ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-400'}`}>{driver.gpsLabel} · {driver.lastGpsAge}</p>
-                        <p className="mt-1 text-[10px] text-muted-foreground">
-                          {driver.gpsState === 'live' ? 'Estimated ETA' : 'Last Known ETA'}: {driver.eta} &bull; {driver.gpsState !== 'live' ? 'Last Known Distance: ' : ''}{driver.distanceLeft}
-                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">Estimated Travel Time: {driver.eta}</p>
+                        {driver.expectedArrival && <p className="mt-1 text-xs text-muted-foreground">Expected Arrival: {driver.expectedArrival}</p>}
+                        <p className="mt-1 text-xs text-muted-foreground">Remaining Road Distance: {driver.distanceLeft}</p>
+                        {driver.routeSource && <p className="mt-1 text-[10px] text-muted-foreground">{driver.routeSource}</p>}
+                        {driver.lastKnownEta && <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">Last Known ETA: {driver.lastKnownEta}</p>}
                       </div>
                     </div>
                   </button>
@@ -530,6 +486,9 @@ function LiveTrackingContent() {
                       <span className="mt-1 block text-xs">Last GPS update: {driver.lastGpsAge}</span>
                       <span className="mt-1 block text-xs text-muted-foreground">Last known location: {driver.coordinates ? `${driver.coordinates.lat.toFixed(5)}, ${driver.coordinates.lng.toFixed(5)}` : 'Unavailable — no GPS fix recorded'}</span>
                       <span className="mt-1 block text-xs text-muted-foreground">{driver.trackingGap}</span>
+                      <span className="mt-1 block text-xs font-medium">{driver.eta}</span>
+                      {driver.lastKnownEta && <span className="mt-1 block text-xs text-muted-foreground">Last Known ETA: {driver.lastKnownEta}</span>}
+                      <span className="mt-1 block text-xs text-muted-foreground">Last Known Road Distance: {driver.distanceLeft}</span>
                       <span className="mt-2 block text-xs font-medium underline">View delivery and last known position</span>
                     </button>
                   ))}
@@ -561,6 +520,7 @@ function LiveTrackingContent() {
                   routeOrigin={selectedDriver?.hasGps ? selectedDriver.coordinates : undefined}
                   focusState={selectedDriver?.gpsState === 'live' ? 'live' : 'warning'}
                   focusLabel={selectedDriver ? `${selectedDriver.trackingIssue ?? selectedDriver.gpsLabel} — Last GPS update: ${selectedDriver.lastGpsAge}` : undefined}
+                  resolvedRoute={selectedDriver?.routeEstimate?.coordinates ?? null}
                 />
 
                 <div className="absolute right-4 top-4 flex flex-col gap-2">
@@ -614,14 +574,17 @@ function LiveTrackingContent() {
                           <p className="font-semibold text-primary">{selectedDriver.progress === null ? 'Unavailable' : `${selectedDriver.progress}%`}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">{isLastKnown ? 'Last Known ETA' : 'ETA'}</p>
+                          <p className="text-xs text-muted-foreground">Estimated Travel Time</p>
                           <p className="font-semibold">{selectedDriver.eta}</p>
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">{isLastKnown ? 'Last Known Distance' : 'Distance Left'}</p>
-                          <p className="font-semibold">{selectedDriverDistanceLeft}</p>
+                          <p className="text-xs text-muted-foreground">{isLastKnown ? 'Last Known Road Distance' : 'Remaining Road Distance'}</p>
+                          <p className="font-semibold">{selectedDriver.distanceLeft}</p>
                         </div>
                       </div>
+                      {selectedDriver.expectedArrival && <p className="mt-2 text-center text-sm font-semibold">Expected Arrival: {selectedDriver.expectedArrival}</p>}
+                      {selectedDriver.routeSource && <p className="mt-1 text-center text-xs text-muted-foreground">{selectedDriver.routeSource}</p>}
+                      {selectedDriver.lastKnownEta && <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">Last Known ETA: {selectedDriver.lastKnownEta}</p>}
                       <div className="mt-3 flex items-center justify-between gap-4 text-[11px] text-muted-foreground">
                         <span>
                           {selectedDriver.coordinates
