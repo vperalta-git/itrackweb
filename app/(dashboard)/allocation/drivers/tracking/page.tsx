@@ -12,7 +12,6 @@ import {
   LocateFixed,
   MapPin,
   Navigation,
-  RefreshCw,
   Truck,
   TriangleAlert,
   Clock,
@@ -173,7 +172,6 @@ function LiveTrackingContent() {
   )
   const [searchTerm, setSearchTerm] = React.useState('')
   const [managerFilter, setManagerFilter] = React.useState('all')
-  const [isRefreshing, setIsRefreshing] = React.useState(false)
   const [refreshError, setRefreshError] = React.useState<string | null>(null)
   const [clockMs, setClockMs] = React.useState(Date.now)
   const [lastUpdatedAt, setLastUpdatedAt] = React.useState<string | null>(null)
@@ -319,24 +317,6 @@ function LiveTrackingContent() {
     })
   }, [scopedDrivers, requestedAllocationId, requestedNotice, permittedAllocations, clockMs, roadEstimates])
 
-
-  const handleRefresh = async () => {
-    setIsRefreshing(true)
-    const nextAllocations = await syncDriverAllocationsFromBackend().catch((error: unknown) => {
-      setRefreshError(error instanceof Error ? error.message : 'Unable to refresh tracking.')
-      return null
-    })
-
-    if (nextAllocations) {
-      setDriverAllocations(nextAllocations)
-      setClockMs(Date.now())
-      setRefreshError(null)
-      setLastUpdatedAt(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }))
-    }
-
-    setIsRefreshing(false)
-  }
-
   const gpsStatusLabel = selectedDriver
     ? `${selectedDriver.gpsLabel} · Last GPS update: ${selectedDriver.lastGpsAge}`
     : 'No shipment selected'
@@ -372,10 +352,6 @@ function LiveTrackingContent() {
               ? 'Back to Allocations'
               : 'Back to Dashboard'}
           </Link>
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => void handleRefresh()} disabled={isRefreshing}>
-          <RefreshCw className={`mr-2 size-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          Refresh
         </Button>
       </PageHeader>
 

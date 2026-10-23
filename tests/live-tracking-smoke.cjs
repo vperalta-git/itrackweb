@@ -81,7 +81,7 @@ function text(element) {
 function render(record) {
   const driver = record ? page.mapDriver(record, now) : null
   stateIndex = 0
-  states = [record ? [record] : [], '', 'all', false, null, now, null, {}, 'active', [], false, driver]
+  states = [record ? [record] : [], '', 'all', null, now, null, {}, 'active', [], false, driver]
   return page.default().props.children.type()
 }
 const lostTree = render(allocation)
@@ -96,9 +96,9 @@ assert.match(table.props.drivers[0].eta, /ETA Unavailable: GPS Tracking Lost/)
 assert.equal(table.props.drivers[0].progress, 59)
 assert.equal(walk(lostTree, node => node.type === 'RouteMapFrame').length, 0)
 walk(banner, node => node.type === 'button')[0].props.onClick()
-assert.equal(stateWrites.get(11).id, allocation.id)
-assert.equal(stateWrites.get(10), true, 'urgent selection opens details modal')
-assert.equal(stateWrites.get(8), 'active')
+assert.equal(stateWrites.get(10).id, allocation.id)
+assert.equal(stateWrites.get(9), true, 'urgent selection opens details modal')
+assert.equal(stateWrites.get(7), 'active')
 assert.equal(stateWrites.get(1), '')
 assert.equal(stateWrites.get(2), 'all')
 const recoveredTree = render(recovered)
@@ -122,7 +122,7 @@ assert.match(text(lostTree), /Delayed Deliveries/)
 assert.match(text(lostTree), /GPS Disconnected \/ Untrackable/)
 assert.match(text(lostTree), /Completed Deliveries/)
 walk(lostTree, node => node.type === 'button' && text(node).includes('Completed Deliveries'))[0].props.onClick()
-assert.equal(stateWrites.get(8), 'completed')
+assert.equal(stateWrites.get(7), 'completed')
 
 async function backendSmoke() {
   const source = fs.readFileSync(path.join(root, 'backend/src/services/driverSafetyMonitorService.js'), 'utf8')

@@ -15,7 +15,6 @@ import {
   FileDown,
   ArrowUpDown,
   Filter,
-  RefreshCw,
 } from 'lucide-react'
 
 import { PageHeader } from '@/components/page-header'
@@ -225,21 +224,17 @@ function InventoryPageContent() {
   const [addVehicleForm, setAddVehicleForm] = React.useState(initialAddVehicleForm)
   const [editVehicleForm, setEditVehicleForm] = React.useState(emptyEditVehicleForm)
   const [users, setUsers] = React.useState(() => loadUsers())
-  const [isRefreshing, setIsRefreshing] = React.useState(false)
   const [isSaving, setIsSaving] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [lastRefreshed, setLastRefreshed] = React.useState<string | null>(null)
 
   const refreshInventory = React.useCallback(async () => {
-    setIsRefreshing(true)
     try {
       setVehicles(await syncInventoryVehiclesFromBackend())
       setLoadError(null)
       setLastRefreshed(new Date().toLocaleTimeString())
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'Unable to refresh vehicle stocks.')
-    } finally {
-      setIsRefreshing(false)
     }
   }, [])
 
@@ -829,10 +824,6 @@ function InventoryPageContent() {
             : 'Manage your vehicle inventory'
         }
       >
-        <Button variant="outline" disabled={isRefreshing} onClick={() => void refreshInventory()}>
-          <RefreshCw className={`mr-2 size-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
         {(role === 'admin' || role === 'supervisor') && (
           <Dialog open={isAddDialogOpen} onOpenChange={handleAddDialogChange}>
             <DialogTrigger asChild>
@@ -1007,7 +998,7 @@ function InventoryPageContent() {
 
       {loadError && (
         <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {loadError} Displayed records may be out of date. Use Refresh to retry.
+          {loadError} Displayed records may be out of date. Reload the page to retry.
         </p>
       )}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">

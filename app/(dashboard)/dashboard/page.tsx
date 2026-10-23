@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { usePathname } from 'next/navigation'
-import { BarChart3, Car, ClipboardCheck, Package, TrendingUp, Users, RefreshCw } from 'lucide-react'
+import { BarChart3, Car, ClipboardCheck, Package, TrendingUp, Users } from 'lucide-react'
 import {
   Bar,
   BarChart,
@@ -15,7 +15,6 @@ import {
   YAxis,
 } from 'recharts'
 
-import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/page-header'
 import { MetricCard } from '@/components/metric-card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -146,10 +145,8 @@ export default function DashboardPage() {
   const [agentLimit, setAgentLimit] = React.useState('5')
   const [unitLimit, setUnitLimit] = React.useState('5')
 
-  const [isRefreshing, setIsRefreshing] = React.useState(false)
   const [refreshError, setRefreshError] = React.useState<string | null>(null)
   const refreshDashboard = React.useCallback(async () => {
-    setIsRefreshing(true)
     try {
       const [nextVehicles, nextUsers] = await Promise.all([
         syncInventoryVehiclesFromBackend(), syncUsersFromBackend(),
@@ -159,8 +156,6 @@ export default function DashboardPage() {
       setRefreshError(null)
     } catch (error) {
       setRefreshError(error instanceof Error ? error.message : 'Unable to refresh dashboard data.')
-    } finally {
-      setIsRefreshing(false)
     }
   }, [])
   React.useEffect(() => {
@@ -323,22 +318,18 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-        <PageHeader
-          title="Dashboard"
-          description={
-            role === 'admin' || role === 'supervisor'
-              ? `Welcome back ${currentUserName || 'User'}`
-              : role === 'manager'
-              ? `Vehicle analytics for agents under ${scope.managerName}.`
-              : `Vehicle analytics for ${scope.agentName}.`
-          }
-       >
-        <Button variant="outline" onClick={() => void refreshDashboard()} disabled={isRefreshing}>
-          <RefreshCw className={`mr-2 size-4 ${isRefreshing ? 'animate-spin' : ''}`} />Refresh
-        </Button>
-      </PageHeader>
+      <PageHeader
+        title="Dashboard"
+        description={
+          role === 'admin' || role === 'supervisor'
+            ? `Welcome back ${currentUserName || 'User'}`
+            : role === 'manager'
+            ? `Vehicle analytics for agents under ${scope.managerName}.`
+            : `Vehicle analytics for ${scope.agentName}.`
+        }
+      />
       {refreshError && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
-        {refreshError} Displayed data may be out of date. Use Refresh to retry.
+        {refreshError} Displayed data may be out of date. Reload the page to retry.
       </p>}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <MetricCard
