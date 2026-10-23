@@ -1,4 +1,5 @@
 import React from 'react';
+import { ListPagination, useListPagination } from '@/src/mobile/components/ListPagination';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -64,6 +65,7 @@ export default function DriverHistoryScreen() {
     }, [syncHistory])
   );
 
+  const pagination = useListPagination(history);
   return (
     <AppScreen
       refreshing={isRefreshing}
@@ -77,6 +79,7 @@ export default function DriverHistoryScreen() {
         subtitle="See your recent completed trips and route timings."
       />
 
+      <ListPagination {...pagination.controls} />
       {isLoading ? (
         <View style={styles.loadingWrap}>
           <LoadingSpinner size="large" />
@@ -96,7 +99,7 @@ export default function DriverHistoryScreen() {
         />
       ) : (
         <View style={styles.list}>
-          {history.map((trip) => {
+          {pagination.items.map((trip) => {
             const vehicleLabel = [trip.unitName, trip.variation]
               .filter(Boolean)
               .join(' ');

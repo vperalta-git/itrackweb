@@ -1,3 +1,4 @@
+import { runOperationalAction } from '@/src/mobile/lib/operationalAction';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -91,10 +92,10 @@ export default function UserDetailScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
+          onPress: () => { void runOperationalAction(async () => {
             await deleteUserManagementRecord(record.id);
             router.dismiss();
-          },
+          }); },
         },
       ]
     );

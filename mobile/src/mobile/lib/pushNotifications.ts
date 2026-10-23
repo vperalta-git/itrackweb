@@ -36,6 +36,7 @@ export const ensureNotificationsRuntimeConfigured = () => {
 
   isNotificationHandlerConfigured = true;
 };
+ensureNotificationsRuntimeConfigured();
 
 export type PushRegistrationStatus =
   | 'idle'
@@ -70,6 +71,7 @@ type ExpoExtraConfig = {
   eas?: {
     projectId?: string | null;
   };
+
 };
 
 const resolveExpoProjectId = () => {
@@ -120,7 +122,7 @@ const ensureAndroidNotificationChannel = async () => {
 };
 
 export const registerDeviceForPushNotificationsAsync =
-  async (): Promise<PushRegistrationResult> => {
+  async (requestPermission = true): Promise<PushRegistrationResult> => {
     try {
       if (!supportsExpoNotificationsRuntime) {
         return {
@@ -146,7 +148,7 @@ export const registerDeviceForPushNotificationsAsync =
       const existingPermissions = await Notifications.getPermissionsAsync();
       let finalStatus = existingPermissions.status;
 
-      if (finalStatus !== 'granted') {
+      if (finalStatus !== 'granted' && requestPermission && existingPermissions.canAskAgain) {
         const requestedPermissions =
           await Notifications.requestPermissionsAsync();
 

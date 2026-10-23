@@ -187,7 +187,8 @@ export default function ChangePasswordScreen() {
             text: 'OK',
             onPress: () => {
               allowImmediateDismissRef.current = true;
-              router.back();
+              if (user?.mustChangePassword) router.replace('/(tabs)');
+              else router.back();
             },
           },
         ]

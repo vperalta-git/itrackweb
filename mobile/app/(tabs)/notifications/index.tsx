@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   UIManager,
   View,
+  Linking,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatDistanceToNowStrict } from 'date-fns';
@@ -20,6 +22,11 @@ import {
 import { AppTheme, useTheme } from '@/src/mobile/constants/theme';
 import { useApp } from '@/src/mobile/context/AppContext';
 import { NotificationType } from '@/src/mobile/types';
+import { useAuth } from '@/src/mobile/context/AuthContext';
+import { openMobileNotification } from '@/src/mobile/navigation/notifications';
+import { Button } from '@/src/mobile/components/Button';
+import { ListPagination, useListPagination } from '@/src/mobile/components/ListPagination';
+import { api, getResponseData, getResponseMessage, getApiErrorMessage } from '@/src/mobile/lib/api';
 
 const getCategoryPresentation = (theme: AppTheme, type: NotificationType) => {
   switch (type) {
@@ -65,6 +72,7 @@ const formatNotificationTime = (date: Date) =>
   formatDistanceToNowStrict(date, { addSuffix: true });
 
 export default function NotificationsScreen() {
+  const { user } = useAuth();
   const theme = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const {
@@ -75,8 +83,28 @@ export default function NotificationsScreen() {
     markAsRead,
     markAllAsRead,
     removeNotification,
+    pushNotifications,
+    registerForPushNotifications,
   } = useApp();
   const [refreshing, setRefreshing] = useState(false);
+  const [pushDiagnostic, setPushDiagnostic] = useState('');
+  const [testingPush, setTestingPush] = useState(false);
+  const checkPushStatus = async () => {
+    const response = await api.get('/notifications/push-status');
+    const status = getResponseData<{ activeDevices: number; deliveries: { status: string; error: string }[] }>(response);
+    setPushDiagnostic(`${status.activeDevices} registered device(s). Latest push: ${status.deliveries.length ? status.deliveries.map((item) => item.error || item.status).join(', ') : 'No delivery attempt recorded'}.`);
+  };
+  const testPush = async () => {
+    if (testingPush) return;
+    setTestingPush(true);
+    try {
+      const response = await api.post('/notifications/test', {});
+      Alert.alert('Push test', getResponseMessage(response));
+      await checkPushStatus();
+      await refreshNotifications();
+    } catch (error) { Alert.alert('Unable to test push', getApiErrorMessage(error)); }
+    finally { setTestingPush(false); }
+  };
 
   useEffect(() => {
     if (
@@ -95,6 +123,7 @@ export default function NotificationsScreen() {
     [notifications]
   );
 
+  const pagination = useListPagination(sortedNotifications);
   const animateNext = () => {
     LayoutAnimation.configureNext({
       duration: 220,
@@ -181,9 +210,19 @@ export default function NotificationsScreen() {
         }
       />
 
+      <Card>
+        <Text style={{ color: theme.colors.text }}>Push alerts: {pushNotifications.status}</Text>
+        <Text style={{ color: theme.colors.textMuted }}>{pushNotifications.message}</Text>
+        {pushDiagnostic ? <Text style={{ color: theme.colors.textMuted }}>{pushDiagnostic} Queued or provider acceptance does not confirm display on your phone.</Text> : null}
+        <Button title="Send test push" variant="secondary" onPress={() => void testPush()} loading={testingPush} />
+        <Button title="Refresh delivery status" variant="outline" onPress={() => { void checkPushStatus().catch((error) => Alert.alert('Push status unavailable', getApiErrorMessage(error))); }} />
+        {pushNotifications.status !== 'enabled' && <Button title={pushNotifications.status === 'denied' ? 'Open device settings' : 'Enable push alerts'}
+          onPress={() => { if (pushNotifications.status === 'denied') void Linking.openSettings(); else void registerForPushNotifications(); }} />}
+      </Card>
+      <ListPagination {...pagination.controls} />
       <View style={styles.list}>
         {sortedNotifications.length ? (
-          sortedNotifications.map((notification) => {
+          pagination.items.map((notification) => {
             const category = getCategoryPresentation(theme, notification.type);
 
             return (
@@ -205,6 +244,7 @@ export default function NotificationsScreen() {
                     if (!notification.read) {
                       void handleMarkNotificationRead(notification.id);
                     }
+                    if (user) void openMobileNotification(notification.id, user.role);
                   }}
                 >
                   <Card

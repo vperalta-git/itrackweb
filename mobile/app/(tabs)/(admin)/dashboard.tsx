@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from 'expo-router';
+import { router, useNavigation } from 'expo-router';
 import {
   Card,
   ProgressBar,
@@ -35,7 +35,7 @@ import {
   getVehicleStocks,
 } from '@/src/mobile/data/vehicle-stocks';
 import { toDate } from '@/src/mobile/data/shared';
-import { getRoleLabel } from '@/src/mobile/navigation/access';
+import { getRoleLabel, getRoleRoute } from '@/src/mobile/navigation/access';
 import {
   AllocationStatus,
   PreparationStatus,
@@ -567,7 +567,11 @@ export default function AdminDashboard() {
         {summaryCardRows.map((row, rowIndex) => (
           <View key={`summary-row-${rowIndex}`} style={styles.summaryRow}>
             {row.map((card) => (
-              <Card key={card.key} style={styles.summaryCard} variant="elevated">
+              <Card key={card.key} style={styles.summaryCard} variant="elevated" onPress={() => {
+                const screen = card.key === 'shipment' ? 'driver-allocation' : card.key === 'preparation' ? 'preparation' : 'vehicles';
+                const status = card.key === 'available' ? VehicleStatus.AVAILABLE : ['shipment', 'preparation'].includes(card.key) ? 'active' : 'all';
+                router.push({ pathname: getRoleRoute(user?.role ?? UserRole.ADMIN, screen), params: { status } });
+              }}>
                 <View style={styles.summaryHeader}>
                   <Text style={styles.summaryLabel}>{card.label}</Text>
                   <View

@@ -15,6 +15,9 @@ import { AppProvider, useApp } from '@/src/mobile/context/AppContext';
 import { ErrorBoundary } from '@/src/mobile/components/ErrorBoundary';
 import { StartupLoadingScreen } from '@/src/mobile/components';
 import { NotificationType } from '@/src/mobile/types';
+import { ActionReasonDialog } from '@/src/mobile/components/ActionReasonDialog';
+import { openMobileNotification } from '@/src/mobile/navigation/notifications';
+import { DriverTrackingProvider } from '@/src/mobile/context/DriverTrackingProvider';
 import { useTheme } from '@/src/mobile/constants/theme';
 
 const MIN_STARTUP_SCREEN_MS = 1600;
@@ -58,6 +61,7 @@ const getPopupPresentation = (type: NotificationType, colors: ReturnType<typeof 
 };
 
 function ForegroundNotificationPopup() {
+  const { user } = useAuth();
   const { popupNotification, dismissPopupNotification, markAsRead } = useApp();
   const theme = useTheme();
   const popupVisibility = useRef(new Animated.Value(0)).current;
@@ -90,7 +94,7 @@ function ForegroundNotificationPopup() {
     }
 
     dismissPopupNotification();
-    router.push('/(tabs)/notifications');
+    if (user && !user.mustChangePassword) void openMobileNotification(popupNotification.notificationId, user.role);
   };
 
   return (
@@ -279,6 +283,7 @@ function RootNavigator() {
       ) : null}
 
       <ForegroundNotificationPopup />
+      <ActionReasonDialog />
     </View>
   );
 }
@@ -288,9 +293,11 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
         <AppProvider>
+          <DriverTrackingProvider>
           <ErrorBoundary>
             <RootNavigator />
           </ErrorBoundary>
+          </DriverTrackingProvider>
         </AppProvider>
       </AuthProvider>
     </GestureHandlerRootView>

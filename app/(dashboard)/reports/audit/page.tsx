@@ -30,6 +30,7 @@ import {
   auditRoleColors,
   fetchAuditActorHistory,
   repairStoredAuditActors,
+  syncAuditLogsFromBackend,
   type AuditActorHistory,
   type AuditLogEntry,
 } from '@/lib/audit-log'
@@ -77,7 +78,6 @@ const toAuditTableRecord = (log: AuditLogEntry, users: SystemUser[], history: Au
 })
 
 const getLocalAuditLogs = (logs = getStoredAuditLogs()) => logs
-  .filter((log) => !(log.module === 'Authentication' && (log.action === 'LOGIN' || log.action === 'LOGOUT')))
   .sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime())
 
 export default function AuditTrailPage() {
@@ -143,6 +143,12 @@ export default function AuditTrailPage() {
       }
     }
 
+    const refreshServerLogs = () => {
+      if (document.visibilityState !== 'visible') return
+      void syncAuditLogsFromBackend().then(() => { if (isMounted) refreshLocalLogs() }).catch(() => undefined)
+    }
+    refreshServerLogs()
+    const timer = window.setInterval(refreshServerLogs, 15_000)
     refreshLocalLogs()
     window.addEventListener('focus', refreshLocalLogs)
     document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -151,6 +157,7 @@ export default function AuditTrailPage() {
 
     return () => {
       isMounted = false
+      window.clearInterval(timer)
       window.removeEventListener('focus', refreshLocalLogs)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('storage', handleStorage)
@@ -293,6 +300,13 @@ export default function AuditTrailPage() {
                     <SelectItem value="EXPORT">Export</SelectItem>
                     <SelectItem value="APPROVE">Approve</SelectItem>
                     <SelectItem value="REJECT">Reject</SelectItem>
+                    <SelectItem value="CANCEL">Cancel</SelectItem>
+                    <SelectItem value="ASSIGN">Assign driver</SelectItem>
+                    <SelectItem value="ALLOCATE">Allocate unit</SelectItem>
+                    <SelectItem value="ACCEPT">Booking acceptance</SelectItem>
+                    <SelectItem value="REQUEST">Approval request</SelectItem>
+                    <SelectItem value="LOGIN">Login</SelectItem>
+                    <SelectItem value="LOGOUT">Logout</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={roleFilter} onValueChange={setRoleFilter}>

@@ -1,5 +1,6 @@
 import { User } from '../models/User.js';
 import { UserAuditEvent } from '../models/UserAuditEvent.js';
+import { AuthEvent } from '../models/AuthEvent.js';
 import { authenticatedId, entityId, isManagement, accessError } from '../middleware/operationAccess.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { sendSuccess } from '../utils/apiResponse.js';
@@ -208,7 +209,7 @@ const userDirectoryScope = (req) => {
 };
 
 // The directory supports allocation selectors without exposing push tokens or recovery state.
-const DIRECTORY_FIELDS = 'firstName lastName email phone bio role avatarUrl managerId isActive mustChangePassword createdAt updatedAt';
+const DIRECTORY_FIELDS = 'firstName lastName email phone bio role avatarUrl managerId isActive mustChangePassword lastLoginAt createdAt updatedAt';
 
 const requireUser = async (id) => {
   const user = await User.findById(id).populate(
@@ -231,8 +232,14 @@ export const listUsers = asyncHandler(async (req, res) => {
     .populate('managerId', 'firstName lastName email')
     .sort({ createdAt: -1 });
 
+  const historicalLogins = await AuthEvent.aggregate([
+    { $match: { eventType: 'login', userId: { $in: users.filter((user) => !user.lastLoginAt).map((user) => user._id) } } },
+    { $group: { _id: '$userId', lastLoginAt: { $max: '$createdAt' } } },
+  ]);
+  const lastLoginByUser = new Map(historicalLogins.map((event) => [String(event._id), event.lastLoginAt]));
+
   sendSuccess(res, {
-    data: users,
+    data: users.map((user) => ({ ...user.toJSON(), lastLoginAt: user.lastLoginAt ?? lastLoginByUser.get(user.id) ?? null })),
     message: 'Users fetched successfully.',
   });
 });

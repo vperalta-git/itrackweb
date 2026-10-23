@@ -67,6 +67,7 @@ import {
 } from '@/src/mobile/navigation/access';
 import { UserRole } from '@/src/mobile/types';
 import { shareExport } from '@/src/mobile/utils/shareExport';
+import { api, getResponseData } from '@/src/mobile/lib/api';
 
 type ReportTab = 'audit' | 'release';
 type ActivityKind =
@@ -81,7 +82,9 @@ type ActivityModule =
   | 'driver_allocation'
   | 'preparation'
   | 'test_drive'
-  | 'release_history';
+  | 'release_history'
+  | 'authentication'
+  | 'reports';
 type ActivityKindFilter = 'all' | ActivityKind;
 type ReleaseUnitFilter = 'all_units' | string;
 type ReleasePeriodFilter = 'all_periods' | string;
@@ -115,6 +118,7 @@ const ACTIVITY_KIND_LABELS: Record<ActivityKind, string> = {
 };
 
 const ACTIVITY_MODULE_LABELS: Record<ActivityModule, string> = {
+  authentication: 'Authentication', reports: 'Reports',
   users: 'Users',
   vehicle_stocks: 'Vehicle Stocks',
   unit_allocations: 'Unit Allocations',
@@ -347,7 +351,25 @@ export default function ReportsScreen() {
     }
   }, [activeTab, availableTabs]);
 
-  const activityRecords = useMemo(() => buildActivityRecords(), [dataVersion]);
+  const [serverActivities, setServerActivities] = useState<ActivityRecord[]>([]);
+  const serverAuditVisible = role === UserRole.ADMIN || role === UserRole.SUPERVISOR;
+  const refreshServerActivities = async () => {
+    if (!serverAuditVisible) return;
+    type ServerEvent = { id: string; timestamp: string; user: string; role: string; module: string; action: string; description: string };
+    const response = await api.get('/audit-events');
+    const moduleKeys: Record<string, ActivityModule> = { Users: 'users', 'Vehicle Stocks': 'vehicle_stocks',
+      'Unit Allocation': 'unit_allocations', 'Driver Allocation': 'driver_allocation', Preparation: 'preparation',
+      'Test Drive': 'test_drive', Authentication: 'authentication', Reports: 'reports' };
+    setServerActivities((getResponseData<ServerEvent[]>(response) ?? []).map((event) => ({
+      id: event.id, timestamp: new Date(event.timestamp), name: event.user,
+      module: moduleKeys[event.module] ?? 'reports', kind: event.action === 'CREATE' ? 'created' : event.action === 'DELETE' ? 'deleted' : 'updated',
+      title: event.action + ' ? ' + event.module, description: event.description + ' Actor role: ' + event.role,
+    })));
+  };
+  useEffect(() => {
+    void refreshServerActivities().catch(() => Alert.alert('Audit trail unavailable', 'Saved server audit entries could not be loaded. Pull to refresh and retry.'));
+  }, [role]);
+  const activityRecords = useMemo(() => serverAuditVisible ? serverActivities : buildActivityRecords(), [dataVersion, serverAuditVisible, serverActivities]);
   const releaseHistory = useMemo(() => getReleaseHistoryRecords(), [dataVersion]);
 
   const handleRefresh = async () => {
@@ -363,6 +385,7 @@ export default function ReportsScreen() {
         loadPreparationRecords(),
         loadTestDriveBookings(),
       ]);
+      await refreshServerActivities();
       setDataVersion((current) => current + 1);
     } catch (error) {
       setDataVersion((current) => current + 1);

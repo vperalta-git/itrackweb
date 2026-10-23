@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useNotificationRecord } from '@/hooks/use-notification-record'
 import { ColumnDef } from '@tanstack/react-table'
 import { usePathname } from 'next/navigation'
 import { Plus, MoreHorizontal, Eye, CheckCircle, XCircle, Edit, Trash2, FileDown, ArrowUpDown, Filter, Calendar, Car, Clock } from 'lucide-react'
@@ -58,7 +59,7 @@ type FormState = {
 const emptyForm: FormState = { customerName: '', customerPhone: '', vehicleId: '', scheduledAt: '', notes: '' }
 const isApprover = (role: Role) => role === 'admin' || role === 'supervisor'
 
-export default function TestDrivePage() {
+function TestDrivePageContent() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
   const scope = getScopedRoleData(role)
@@ -84,6 +85,8 @@ export default function TestDrivePage() {
       }).format(new Date()),
     []
   )
+
+  useNotificationRecord(testDrives, (record) => { setSelected(record); setSheetOpen(true) })
 
   React.useEffect(() => {
     void Promise.all([
@@ -482,4 +485,8 @@ export default function TestDrivePage() {
       />
     </div>
   )
+}
+
+export default function TestDrivePage() {
+  return <React.Suspense fallback={<p className="p-4 text-sm text-muted-foreground">Loading records?</p>}><TestDrivePageContent /></React.Suspense>
 }

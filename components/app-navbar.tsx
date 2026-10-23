@@ -1,6 +1,8 @@
 'use client'
 
 import * as React from 'react'
+import { ActionReasonDialog } from '@/components/action-reason-dialog'
+import { fetchNotificationTarget, notificationTargetHref } from '@/lib/notification-routing'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { Bell, ChevronDown, LogOut, Moon, Sun, Trash2, User, TriangleAlert } from 'lucide-react'
@@ -45,6 +47,7 @@ import {
   deleteNotificationRecord,
   fetchNotifications,
   markAllNotificationsRead,
+  markNotificationRead,
   isUrgentTrackingNotification,
   type AppNotification,
 } from '@/lib/notifications-data'
@@ -202,6 +205,26 @@ export function AppNavbar() {
   const trackingNotificationHref = (notification: AppNotification) =>
     `${buildRolePath(role, 'driver-allocation/live-tracking')}?allocation=${encodeURIComponent(notification.trackingAllocationId ?? '')}`
 
+  const openNotification = async (notification: AppNotification) => {
+    try {
+      const target = await fetchNotificationTarget(notification.id)
+      if (target.message) toast.info(target.message)
+      setIsNotificationsOpen(false)
+      router.push(notificationTargetHref(target, role))
+      if (currentUser?.id) {
+        const updated = await markNotificationRead(notification.id, currentUser.id)
+        setNotifications((current) => current.map((item) => item.id === updated.id ? updated : item))
+      }
+    } catch {
+      const entityType = String(notification.data?.entityType ?? '')
+      if (entityType) {
+        toast.info('This record is unavailable. Showing the related listing.')
+        setIsNotificationsOpen(false)
+        router.push(notificationTargetHref({ entityType, entityId: '', available: false, message: '' }, role))
+      } else toast.error('Unable to open this notification. Refresh and try again.')
+    }
+  }
+
   React.useEffect(() => {
     setCurrentUser(getSessionUser())
   }, [pathname])
@@ -243,7 +266,7 @@ export function AppNavbar() {
           announceNotification(notification.title, {
             description: notification.message,
             duration: urgent ? 12000 : 6000,
-            ...(notification.trackingAllocationId ? { action: { label: 'View tracking', onClick: () => router.push(trackingNotificationHref(notification)) } } : {}),
+            action: { label: 'Open record', onClick: () => { void openNotification(notification) } },
           })
 
           if (
@@ -260,8 +283,7 @@ export function AppNavbar() {
             browserNotification.onclick = () => {
               window.focus()
               browserNotification.close()
-              if (notification.trackingAllocationId) router.push(trackingNotificationHref(notification))
-              else setIsNotificationsOpen(true)
+              void openNotification(notification)
             }
           }
         })
@@ -519,7 +541,7 @@ export function AppNavbar() {
                       notification.isDeliveryDelay && 'border-l-4 border-amber-500 bg-amber-50 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100'
                     )}
                     onSelect={() => {
-                      if (notification.trackingAllocationId) router.push(trackingNotificationHref(notification))
+                      void openNotification(notification)
                     }}
                   >
                     <div className="flex w-full items-start justify-between gap-2">
@@ -658,6 +680,7 @@ export function AppNavbar() {
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground">{notification.message}</p>
+                      <Button size="sm" variant="link" className="h-auto px-0" onClick={() => void openNotification(notification)}>Open related record</Button>
                       {isUrgentTrackingNotification(notification) && <Link href={trackingNotificationHref(notification)} onClick={() => setIsNotificationsOpen(false)} className="inline-block text-sm font-semibold text-red-700 underline dark:text-red-400">High priority · View tracking</Link>}
                       {notification.isDeliveryDelay && <Link href={trackingNotificationHref(notification)} onClick={() => setIsNotificationsOpen(false)} className="inline-block text-sm font-semibold text-amber-700 underline dark:text-amber-400">Delay projection · View tracking</Link>}
                       {notification.trackingAllocationId && notification.resolvedAt && <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">Tracking restored · Alert history</p>}
@@ -690,6 +713,7 @@ export function AppNavbar() {
         </DialogContent>
       </Dialog>
 
+      <ActionReasonDialog />
       <ConfirmActionDialog
         open={Boolean(notificationToDelete)}
         onOpenChange={(open) => {

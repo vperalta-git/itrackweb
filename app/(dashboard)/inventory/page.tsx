@@ -1,6 +1,8 @@
 'use client'
 
 import * as React from 'react'
+import { Badge } from '@/components/ui/badge'
+import { useNotificationRecord } from '@/hooks/use-notification-record'
 import { ColumnDef, type Column } from '@tanstack/react-table'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -198,7 +200,7 @@ function reconcileVehicleForm<
   return form
 }
 
-export default function InventoryPage() {
+function InventoryPageContent() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
   const [unitSetup, setUnitSetup] = React.useState<UnitSetupRecord[]>(() => loadUnitSetupConfig())
@@ -209,6 +211,16 @@ export default function InventoryPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false)
   const [vehicleToDelete, setVehicleToDelete] = React.useState<Vehicle | null>(null)
   const [statusFilter, setStatusFilter] = React.useState<string>('all')
+  const [modelFilter, setModelFilter] = React.useState('all')
+  const [modelPage, setModelPage] = React.useState(1)
+  useNotificationRecord(vehicles, (record) => { setSelectedVehicle(record); setIsViewDetailsOpen(true) })
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const status = params.get('status')
+    if (status && ['all', 'available', 'allocated', 'preparation', 'in-transit', 'released'].includes(status)) setStatusFilter(status)
+    if (params.get('model')) setModelFilter(params.get('model')!)
+  }, [pathname])
   const [stockViewMode, setStockViewMode] = React.useState<StockViewMode>('vehicles')
   const [addVehicleForm, setAddVehicleForm] = React.useState(initialAddVehicleForm)
   const [editVehicleForm, setEditVehicleForm] = React.useState(emptyEditVehicleForm)
@@ -661,11 +673,16 @@ export default function InventoryPage() {
     () => getVisibleInventoryVehicles(vehicles, role), [vehicles, role]
   )
   const summary = React.useMemo(() => summarizeInventory(visibleVehicles), [visibleVehicles])
+  React.useEffect(() => { setModelPage((page) => Math.min(page, Math.max(1, Math.ceil(summary.byModel.length / 12)))) }, [summary.byModel.length])
   const filteredVehicles = React.useMemo(
-    () => visibleVehicles.filter((vehicle) => statusFilter === 'all'
-      ? vehicle.status !== 'released'
-      : vehicle.status === statusFilter),
-    [visibleVehicles, statusFilter]
+    () => visibleVehicles.filter((vehicle) => {
+      const statusMatches = statusFilter === 'all' ? vehicle.status !== 'released'
+        : statusFilter === 'allocated' ? vehicle.status !== 'released' && Boolean(vehicle.assignedAgentId)
+        : statusFilter === 'preparation' ? ['in-dispatch', 'ready-for-release'].includes(vehicle.status)
+        : vehicle.status === statusFilter
+      return statusMatches && (modelFilter === 'all' || (vehicle.unitName.trim() || 'Unspecified') === modelFilter)
+    }),
+    [visibleVehicles, statusFilter, modelFilter]
   )
 
   const stockCountRows = React.useMemo(() => {
@@ -783,6 +800,8 @@ export default function InventoryPage() {
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="all">Current Stock</SelectItem>
+          <SelectItem value="allocated">Allocated Units</SelectItem>
+          <SelectItem value="preparation">All Preparation</SelectItem>
           <SelectItem value="in-stockyard">In Stockyard</SelectItem>
           <SelectItem value="available">Available</SelectItem>
           <SelectItem value="in-transit">In Transit</SelectItem>
@@ -993,23 +1012,29 @@ export default function InventoryPage() {
       )}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         {[
-          ['Total Current Stock', summary.current], ['Available Units', summary.available],
-          ['Allocated Units', summary.allocated], ['In Transit', summary.inTransit],
-          ['Under Preparation', summary.underPreparation], ['Released / Completed', summary.released],
-        ].map(([label, value]) => (
-          <Card key={label}><CardContent className="p-4">
+          ['Total Current Stock', summary.current, 'all'], ['Available Units', summary.available, 'available'],
+          ['Allocated Units', summary.allocated, 'allocated'], ['In Transit', summary.inTransit, 'in-transit'],
+          ['Under Preparation', summary.underPreparation, 'preparation'], ['Released / Completed', summary.released, 'released'],
+        ].map(([label, value, filter]) => (
+          <Card key={label} className={statusFilter === filter ? 'border-primary' : ''}><CardContent className="p-0"><button type="button" aria-pressed={statusFilter === filter}
+            className="h-full w-full p-4 text-left transition-colors hover:bg-muted/50" onClick={() => { setStatusFilter(String(filter)); setModelFilter('all') }}>
             <p className="text-xs text-muted-foreground">{label}</p>
             <p className="mt-1 text-2xl font-semibold">{value}</p>
-          </CardContent></Card>
+          </button></CardContent></Card>
         ))}
       </div>
       <div className="rounded-lg border p-4 text-sm">
         <p className="font-medium">Current Stock by Vehicle Model</p>
-        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-          {summary.byModel.length ? summary.byModel.map(({ model, count }) => (
-            <span key={model}>{model}: <strong>{count}</strong></span>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {summary.byModel.length ? summary.byModel.slice((modelPage - 1) * 12, modelPage * 12).map(({ model, count }) => (
+            <button key={model} type="button" aria-pressed={modelFilter === model} className={`flex items-center justify-between gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-muted/50 ${modelFilter === model ? 'border-primary bg-primary/10' : ''}`}
+              onClick={() => { setModelFilter(modelFilter === model ? 'all' : model); if (statusFilter === 'released') setStatusFilter('all') }}>
+              <span className="min-w-0 truncate font-medium" title={model}>{model}</span><Badge variant="secondary" className="tabular-nums">{count}</Badge>
+            </button>
           )) : <span className="text-muted-foreground">No current stock in your visible records.</span>}
         </div>
+        {modelFilter !== 'all' && <Button size="sm" variant="link" onClick={() => setModelFilter('all')}>Clear model filter: {modelFilter}</Button>}
+        {summary.byModel.length > 12 && <div className="mt-3 flex items-center gap-3"><Button size="sm" variant="outline" disabled={modelPage === 1} onClick={() => setModelPage((page) => page - 1)}>Previous</Button><span>Page {modelPage} of {Math.ceil(summary.byModel.length / 12)}</span><Button size="sm" variant="outline" disabled={modelPage * 12 >= summary.byModel.length} onClick={() => setModelPage((page) => page + 1)}>Next</Button></div>}
         <p className="mt-3 text-xs text-muted-foreground">
           Totals cover all records visible to your account; table filters apply below. Allocated units overlap status totals.
           {lastRefreshed ? ` Last refreshed ${lastRefreshed}.` : ''}
@@ -1019,6 +1044,7 @@ export default function InventoryPage() {
         <DataTable
           columns={columns}
           data={filteredVehicles}
+          paginationResetKey={`${statusFilter}:${modelFilter}`}
           tableClassName="min-w-[1180px] table-fixed"
           searchKey="conductionNumber"
           searchPlaceholder="Search by conduction number..."
@@ -1033,6 +1059,7 @@ export default function InventoryPage() {
         <DataTable
           columns={stockCountColumns}
           data={stockCountRows}
+          paginationResetKey={`${statusFilter}:${modelFilter}`}
           tableClassName="min-w-[760px] table-fixed"
           searchKey="unitName"
           searchPlaceholder="Search by unit name..."
@@ -1276,4 +1303,8 @@ export default function InventoryPage() {
       />
     </div>
   )
+}
+
+export default function InventoryPage() {
+  return <React.Suspense fallback={<p className="p-4 text-sm text-muted-foreground">Loading records?</p>}><InventoryPageContent /></React.Suspense>
 }

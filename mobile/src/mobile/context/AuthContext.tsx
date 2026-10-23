@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { User, UserRole } from '../types';
 import {
   api,
@@ -6,9 +7,11 @@ import {
   getResponseData,
   getResponseMessage,
   setApiAuthToken,
+  onPasswordChangeRequired,
 } from '../lib/api';
 import { preloadMobileData } from '../data/bootstrap';
 import { recordLogoutAuthEvent } from '../data/auth-events';
+import { getRegisteredDevicePushToken, setRegisteredDevicePushToken } from '../data/notifications';
 import { syncUserManagementRecordProfile } from '../data/users';
 import {
   clearPersistedAuthSession,
@@ -94,19 +97,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
         if (persistedSession) {
           setApiAuthToken(persistedSession.token);
-          setUser(persistedSession.user);
+          const response = await api.get('/auth/me');
+          const verifiedUser = mapUserRecord(getResponseData<UserApiRecord>(response));
+          if (!isMounted) return;
+          setUser(verifiedUser);
           setToken(persistedSession.token);
-          syncUserManagementRecordProfile(persistedSession.user);
+          await persistAuthSession({ user: verifiedUser, token: persistedSession.token });
+          syncUserManagementRecordProfile(verifiedUser);
+          if (!verifiedUser.mustChangePassword) void preloadMobileData();
         } else {
           setApiAuthToken(null);
         }
+      } catch {
+        setApiAuthToken(null);
+        if (isMounted) { setUser(null); setToken(null); }
+        await clearPersistedAuthSession().catch(() => undefined);
       } finally {
         if (isMounted) {
           setIsLoading(false);
         }
       }
-
-      void preloadMobileData().catch(() => undefined);
     };
 
     void bootstrap();
@@ -115,6 +125,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    onPasswordChangeRequired(() => setUser((current) => current ? { ...current, mustChangePassword: true } : null));
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !token) return;
+      void api.get('/auth/me').then((response) => {
+        const verified = mapUserRecord(getResponseData<UserApiRecord>(response));
+        setUser(verified);
+        void persistAuthSession({ user: verified, token });
+      }).catch(() => undefined);
+    });
+    return () => { onPasswordChangeRequired(null); subscription.remove(); };
+  }, [token]);
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
@@ -137,7 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         user: nextUser,
         token: data.token,
       }).catch(() => undefined);
-      await preloadMobileData().catch(() => undefined);
+      if (!nextUser.mustChangePassword) void preloadMobileData().catch(() => undefined);
       syncUserManagementRecordProfile(nextUser);
 
       return nextUser;
@@ -147,27 +170,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const logout = async () => {
-    const currentUser = user;
-
-    setApiAuthToken(null);
-    setUser(null);
-    setToken(null);
-    await clearPersistedAuthSession().catch(() => undefined);
-
     try {
-      if (currentUser) {
-        await recordLogoutAuthEvent({
-          userId: currentUser.id,
-          name: currentUser.name,
-          email: currentUser.email,
-          role: currentUser.role,
-        });
-      }
+      await api.post('/auth/logout', { pushToken: getRegisteredDevicePushToken() });
     } catch (error) {
       console.warn(
         '[auth] Unable to record logout event:',
         error instanceof Error ? error.message : error
       );
+    } finally {
+      setRegisteredDevicePushToken(null);
+      setApiAuthToken(null);
+      setUser(null);
+      setToken(null);
+      await clearPersistedAuthSession().catch(() => undefined);
     }
   };
 
@@ -241,6 +256,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     };
 
     setUser(updatedUser);
+    void preloadMobileData().catch(() => undefined);
     if (token) {
       await persistAuthSession({
         user: updatedUser,

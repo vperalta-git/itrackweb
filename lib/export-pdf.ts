@@ -1,5 +1,7 @@
 import itrackLogo from '@/media/itrackred.png'
 import { getSessionUser, getSessionUserFullName } from '@/lib/session'
+import { apiRequest } from '@/lib/api-client'
+import { toast } from 'sonner'
 
 type ExportColumn<T> = {
   header: string
@@ -438,6 +440,15 @@ export function exportPdfReport<T>({
       )
     }
 
+    try {
+      await apiRequest('/audit-events', { method: 'POST', body: {
+        action: 'EXPORT', module: 'Reports', description: `Opened PDF print dialog for ${title} (${rows.length} records).`,
+      } })
+    } catch {
+      printFrame.remove()
+      toast.error('Unable to record this export in the audit trail. Please try again.')
+      return
+    }
     frameWindow.focus()
     frameWindow.print()
     window.setTimeout(() => {

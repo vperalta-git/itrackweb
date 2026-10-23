@@ -63,7 +63,7 @@ export function useDriverAllocationLiveRouteMetrics(
       return allocation.currentLocation;
     }
 
-    return findDriverAllocationLocation(allocation.pickupId)?.location ?? null;
+    return null;
   }, [allocation, currentLocation]);
   const routeKey = useMemo(
     () => `${allocation?.id ?? 'none'}:${serializePoint(routeStart)}:${serializePoint(destination?.location ?? null)}`,

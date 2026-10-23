@@ -1,3 +1,4 @@
+import { runOperationalAction } from '@/src/mobile/lib/operationalAction';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -151,10 +152,10 @@ export default function AllocationDetailScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
+          onPress: () => { void runOperationalAction(async () => {
             await deleteUnitAgentAllocation(allocation.id);
             router.dismiss();
-          },
+          }); },
         },
       ]
     );

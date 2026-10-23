@@ -63,6 +63,7 @@ export type BackendUnitAgentAllocation = {
 }
 
 export type BackendDriverAllocation = {
+  rejectionRequest?: { status: 'none' | 'pending' | 'approved' | 'rejected'; reason: string; reviewNotes?: string } | null
   id?: string
   _id?: string
   managerId?: string | BackendPopulatedUser | null

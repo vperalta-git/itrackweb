@@ -1,5 +1,6 @@
 import { loadSession } from '@/lib/session'
 import { API_BASE_URL } from '@/lib/api-base-url'
+import { requestActionReason } from '@/lib/action-reason'
 
 type ApiEnvelope<T> = {
   success: boolean
@@ -83,6 +84,14 @@ const buildDirectUrl = (
 export async function apiRequest<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
   const session = loadSession()
   const headers = new Headers(options.headers)
+  const payload = options.body as { status?: string; isActive?: boolean } | undefined
+  const operational = /^\/(users|vehicles|driver-allocations|unit-agent-allocations|preparations|test-drive-bookings)(\/|$)/.test(path)
+  if (typeof window !== 'undefined' && operational &&
+      (options.method === 'DELETE' || payload?.status === 'cancelled' || payload?.isActive === false) && !headers.has('X-Action-Reason')) {
+    const reason = await requestActionReason('Confirm this deletion, cancellation, or deactivation. Your identity, time, affected record, and reason will be saved in the audit trail.')
+    if (!reason) throw new Error('Action cancelled.')
+    headers.set('X-Action-Reason', encodeURIComponent(reason))
+  }
 
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json')
@@ -124,6 +133,7 @@ export async function apiRequest<T = unknown>(path: string, options: RequestOpti
       }
 
       console.warn('Proxy request failed, retrying against backend directly.', error)
+      if (requestInit.method !== 'GET') throw error
       response = await fetch(buildDirectUrl(path, options.query), requestInit)
     }
   } else {

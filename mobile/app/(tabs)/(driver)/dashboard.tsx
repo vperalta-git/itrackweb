@@ -1,4 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { AppState } from 'react-native';
+import { requestActionReason } from '@/src/mobile/lib/actionReason';
 import {
   Alert,
   SafeAreaView,
@@ -30,7 +33,9 @@ import {
   loadDriverAllocations,
   notifyDriverAllocationCompletionRequest,
   requestDriverAllocationStop,
+  requestDriverAllocationRejection,
   startDriverAllocationTrip,
+  subscribeDriverAllocations,
 } from '@/src/mobile/data/driver-allocation';
 import {
   useDriverAllocationLiveRouteMetrics,
@@ -108,6 +113,11 @@ export default function DriverDashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
   const [isSubmittingTripAction, setIsSubmittingTripAction] = useState(false);
+  useFocusEffect(useCallback(() => {
+    const refresh = () => setRefreshKey((current) => current + 1);
+    refresh();
+    return subscribeDriverAllocations(refresh);
+  }, [user?.id]));
 
   const activeAllocation = useMemo(
     () => (user?.id ? getDriverAllocationDashboardRecord(user.id) : null),
@@ -433,10 +443,12 @@ export default function DriverDashboard() {
     }
   };
 
-  const handleRequestStopTrip = () => {
+  const handleRequestStopTrip = async () => {
     if (!activeAllocation || isSubmittingTripAction || hasPendingStopRequest) {
       return;
     }
+    const reason = await requestActionReason('Explain why you need to stop this trip. Admin or supervisor approval is required.');
+    if (!reason) return;
 
     Alert.alert(
       'Request trip stop?',
@@ -454,7 +466,7 @@ export default function DriverDashboard() {
               setIsSubmittingTripAction(true);
               await requestDriverAllocationStop(
                 activeAllocation.id,
-                'Driver requested admin approval to stop the trip.'
+                reason
               );
               refreshActiveAllocation();
               Alert.alert(
@@ -475,6 +487,19 @@ export default function DriverDashboard() {
         },
       ]
     );
+  };
+
+  const handleRequestRejection = async () => {
+    if (!activeAllocation || isSubmittingTripAction) return;
+    const reason = await requestActionReason('Explain why you cannot accept this booking. The booking remains active until admin or supervisor approval.');
+    if (!reason) return;
+    try {
+      setIsSubmittingTripAction(true);
+      await requestDriverAllocationRejection(activeAllocation.id, reason);
+      refreshActiveAllocation();
+      Alert.alert('Rejection requested', 'Pending supervisor or administrator approval.');
+    } catch (error) { Alert.alert('Unable to request rejection', error instanceof Error ? error.message : 'Try again.'); }
+    finally { setIsSubmittingTripAction(false); }
   };
 
   const refreshButton = (
@@ -698,12 +723,18 @@ export default function DriverDashboard() {
               </View>
 
               <View style={styles.actionStack}>
+                {activeAllocation?.rejectionRequest && activeAllocation.rejectionRequest.status !== 'none' &&
+                  <Text style={styles.controlSubtitle}>{activeAllocation.rejectionRequest.status === 'pending' ? 'Rejection requested — pending supervisor/admin approval' : activeAllocation.rejectionRequest.status === 'approved' ? 'Rejection approved' : 'Rejection denied'}{activeAllocation.rejectionRequest.reviewNotes ? `: ${activeAllocation.rejectionRequest.reviewNotes}` : ''}</Text>}
+                {(tripStage === 'pending_acceptance' || tripStage === 'accepted') && <Button
+                  title={activeAllocation?.rejectionRequest?.status === 'pending' ? 'Rejection approval pending' : 'Request booking rejection'}
+                  variant="secondary" onPress={() => void handleRequestRejection()} disabled={isSubmittingTripAction || activeAllocation?.rejectionRequest?.status === 'pending'} />}
                 {tripStage === 'pending_acceptance' ? (
                   <Button
                     title="Accept Booking"
                     variant="primary"
                     onPress={handleAcceptBooking}
                     loading={isSubmittingTripAction}
+                    disabled={activeAllocation?.rejectionRequest?.status === 'pending'}
                     fullWidth
                     icon={
                       <Ionicons
@@ -721,6 +752,7 @@ export default function DriverDashboard() {
                     variant="primary"
                     onPress={handleStartTrip}
                     loading={isSubmittingTripAction}
+                    disabled={activeAllocation?.rejectionRequest?.status === 'pending'}
                     fullWidth
                     icon={
                       <Ionicons

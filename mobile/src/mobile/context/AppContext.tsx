@@ -8,6 +8,8 @@ import React, {
 } from 'react';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
+import { AppState } from 'react-native';
+import { openMobileNotification } from '../navigation/notifications';
 
 import { Notification } from '../types';
 import { NotificationType } from '../types';
@@ -20,6 +22,7 @@ import {
   markNotificationAsRead,
   registerPushNotificationToken,
   unregisterPushNotificationToken,
+  setRegisteredDevicePushToken,
 } from '../data/notifications';
 import {
   PushRegistrationStatus,
@@ -119,6 +122,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [popupNotification, setPopupNotification] =
     useState<PopupNotificationState | null>(null);
   const previousUserIdRef = useRef<string | null>(null);
+  const registrationInFlightRef = useRef(false);
+  const activeUserRef = useRef(user);
+  activeUserRef.current = user;
+  const lastHandledResponseRef = useRef<string | null>(null);
   const seenNotificationIdsRef = useRef<Set<string>>(new Set());
   const registeredTokenRef = useRef<{
     userId: string;
@@ -183,11 +190,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const registerForPushNotifications = async () => {
-    if (!user?.id) {
+  const registerForPushNotifications = async (requestPermission = true) => {
+    if (!user?.id || user.mustChangePassword) {
       setPushNotifications(DEFAULT_PUSH_NOTIFICATIONS_STATE);
       return;
     }
+    if (registrationInFlightRef.current) return;
+    registrationInFlightRef.current = true;
 
     setPushNotifications({
       status: 'registering',
@@ -195,7 +204,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       token: null,
     });
 
-    const registrationResult = await registerDeviceForPushNotificationsAsync();
+    const registrationResult = await registerDeviceForPushNotificationsAsync(requestPermission);
+    if (activeUserRef.current?.id !== user.id) { registrationInFlightRef.current = false; return; }
 
     if (registrationResult.status !== 'enabled') {
       setPushNotifications({
@@ -203,6 +213,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         message: registrationResult.message,
         token: null,
       });
+      if (registrationResult.status === 'denied' && registeredTokenRef.current) {
+        void unregisterPushNotificationToken(registeredTokenRef.current).catch(() => undefined);
+        registeredTokenRef.current = null;
+        setRegisteredDevicePushToken(null);
+      }
+      registrationInFlightRef.current = false;
       return;
     }
 
@@ -219,6 +235,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         userId: user.id,
         token: registrationResult.token,
       };
+      setRegisteredDevicePushToken(registrationResult.token);
 
       setPushNotifications({
         status: 'enabled',
@@ -234,6 +251,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         ),
         token: null,
       });
+    } finally {
+      registrationInFlightRef.current = false;
     }
   };
 
@@ -346,6 +365,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     const receivedSubscription =
       Notifications.addNotificationReceivedListener((receivedNotification) => {
         const { content } = receivedNotification.request;
+        if (!user || user.mustChangePassword || content.data?.userId && content.data.userId !== user.id) return;
         const title = content.title?.trim() || 'New notification';
         const message =
           content.body?.trim() ||
@@ -388,39 +408,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
           );
         });
       });
-    const responseSubscription =
-      Notifications.addNotificationResponseReceivedListener((response) => {
-        if (!user?.id) {
-          return;
-        }
-
-        const notificationId = response.notification.request.content.data
-          ?.notificationId;
-
-        if (typeof notificationId === 'string' && notificationId.trim()) {
-          void markAsRead(notificationId).catch((error) => {
-            logNotificationsError(
-              'Unable to mark tapped notification as read.',
-              error
-            );
-          });
-        } else {
-          void refreshNotifications().catch((error) => {
-            logNotificationsError(
-              'Unable to refresh notifications after notification tap.',
-              error
-            );
-          });
-        }
-
-        router.push('/(tabs)/notifications');
-      });
+    const handleResponse = (response: Notifications.NotificationResponse | null) => {
+      if (!response || !user || user.mustChangePassword) return;
+      const key = `${response.notification.request.identifier}:${response.actionIdentifier}`;
+      if (lastHandledResponseRef.current === key) return;
+      const data = response.notification.request.content.data;
+      if (data?.userId && data.userId !== user.id) return;
+      lastHandledResponseRef.current = key;
+      void openMobileNotification(typeof data?.notificationId === 'string' ? data.notificationId : null, user.role);
+      void Notifications.clearLastNotificationResponseAsync().catch(() => undefined);
+    };
+    const responseSubscription = Notifications.addNotificationResponseReceivedListener(handleResponse);
+    void Notifications.getLastNotificationResponseAsync().then(handleResponse).catch(() => undefined);
 
     return () => {
       receivedSubscription.remove();
       responseSubscription.remove();
     };
-  }, [user?.id]);
+  }, [user?.id, user?.mustChangePassword]);
 
   useEffect(() => {
     const previousUserId = previousUserIdRef.current;
@@ -437,12 +442,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     ) {
       registeredTokenRef.current = null;
 
-      void unregisterPushNotificationToken(previousRegistration).catch((error) => {
-        console.error('Unable to remove the previous push token:', error);
-      });
+      setRegisteredDevicePushToken(null);
     }
 
-    if (!currentUserId) {
+    if (!currentUserId || user?.mustChangePassword) {
       setNotifications([]);
       seenNotificationIdsRef.current = new Set();
       setNotificationsLoading(false);
@@ -460,14 +463,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         error
       );
     });
-  }, [user?.id]);
+  }, [user?.id, user?.mustChangePassword]);
 
   useEffect(() => {
-    if (!user?.id) {
+    if (!user || user.mustChangePassword) return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void registerForPushNotifications(false);
+        void refreshNotifications();
+      }
+    });
+    const tokenSubscription = supportsExpoNotificationsRuntime
+      ? Notifications.addPushTokenListener(() => { void registerForPushNotifications(false); }) : null;
+    const retry = setInterval(() => {
+      if (AppState.currentState === 'active' && !registeredTokenRef.current) void registerForPushNotifications(false);
+    }, 60_000);
+    return () => { subscription.remove(); tokenSubscription?.remove(); clearInterval(retry); };
+  }, [user?.id, user?.mustChangePassword]);
+
+  useEffect(() => {
+    if (!user?.id || user.mustChangePassword) {
       return;
     }
 
     const intervalId = setInterval(() => {
+      if (AppState.currentState !== 'active') return;
       void loadNotifications(user.id)
         .then((nextNotifications) => {
           syncNotificationsState(nextNotifications, {
@@ -482,7 +502,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => {
       clearInterval(intervalId);
     };
-  }, [syncNotificationsState, user?.id]);
+  }, [syncNotificationsState, user?.id, user?.mustChangePassword]);
 
   const value: AppContextType = {
     notifications,

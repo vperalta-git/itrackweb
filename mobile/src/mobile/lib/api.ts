@@ -1,6 +1,7 @@
 import axios from 'axios';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { requestActionReason } from './actionReason';
 
 const DEFAULT_LOCAL_ANDROID_API_URL = 'http://10.0.2.2:4000/api';
 const DEFAULT_LOCAL_API_URL = 'http://localhost:4000/api';
@@ -63,6 +64,24 @@ export const API_BASE_URL = resolveBaseUrl();
 export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: API_TIMEOUT_MS,
+});
+
+api.interceptors.request.use(async (config) => {
+  const operational = /^\/(users|vehicles|driver-allocations|unit-agent-allocations|preparations|test-drive-bookings)(\/|$)/.test(config.url ?? '');
+  const destructive = config.method === 'delete' || config.data?.status === 'cancelled' || config.data?.isActive === false;
+  if (operational && destructive && !config.headers.get('X-Action-Reason')) {
+    const reason = await requestActionReason(`Confirm ${config.method === 'delete' ? 'deletion' : 'cancellation or deactivation'} of this record. Your reason and identity will be saved to the audit trail.`);
+    if (!reason) throw new axios.CanceledError('Action cancelled.');
+    config.headers.set('X-Action-Reason', encodeURIComponent(reason));
+  }
+  return config;
+});
+
+let passwordChangeRequiredListener: (() => void) | null = null;
+export const onPasswordChangeRequired = (listener: typeof passwordChangeRequiredListener) => { passwordChangeRequiredListener = listener; };
+api.interceptors.response.use((response) => response, (error) => {
+  if (error.response?.data?.code === 'PASSWORD_CHANGE_REQUIRED') passwordChangeRequiredListener?.();
+  return Promise.reject(error);
 });
 
 export const setApiAuthToken = (token: string | null) => {

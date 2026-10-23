@@ -193,6 +193,9 @@ export const guardDriverAllocationUpdate = (req, res, next) => {
     return next(accessError('This shipment field cannot be changed by your account.', driver ? 403 : 400));
   }
   const nextStatus = req.body?.status ?? record.status;
+  if (driver && record.rejectionRequest?.status === 'pending' && nextStatus !== record.status) {
+    return next(accessError('Wait for the administrator or supervisor to review your rejection request.', 409));
+  }
   if (nextStatus !== record.status && !driverTransitions[record.status]?.includes(nextStatus)) {
     return next(accessError(`Shipment status cannot change from ${record.status} to ${nextStatus}.`, 409));
   }

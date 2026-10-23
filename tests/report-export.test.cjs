@@ -36,29 +36,36 @@ function createLoader(overrides = {}) {
   return load
 }
 
-test('shared print helper prints escaped preparation metadata, selected filters, and A4 page rules for tables and cards', () => {
+test('shared print helper prints escaped preparation metadata, selected filters, and A4 page rules after saving the export audit', async () => {
   const originalWindow = global.window
   const originalDocument = global.document
   let html = ''
   let prints = 0
+  const audits = []
   const frame = {
     style: {}, setAttribute() {}, remove() {},
     contentDocument: { readyState: 'complete' },
     contentWindow: {
       document: { images: [], open() {}, close() {}, write(value) { html = value } },
-      focus() {}, print() { prints += 1 },
+      focus() {}, print() { assert.equal(audits.length, prints + 1); prints += 1 },
     },
   }
   global.window = { setTimeout: () => 0 }
   global.document = { createElement: () => frame, body: { appendChild() {} } }
   try {
-    const { exportPdfReport } = createLoader()('lib/export-pdf.ts')
+    const { exportPdfReport } = createLoader({
+      sonner: { toast: { error: (message) => assert.fail(message) } },
+      '@/lib/api-client': { apiRequest: async (url, options) => {
+        assert.equal(url, '/audit-events'); assert.equal(options.body.action, 'EXPORT'); audits.push(options.body)
+      } },
+    })('lib/export-pdf.ts')
     for (const layout of ['table', 'cards']) {
       exportPdfReport({
         title: 'Fixture <report>', subtitle: 'Year: 2026; Model: Truck & Bus', layout,
         columns: [{ header: 'Vehicle', value: (row) => row.label }],
         rows: Array.from({ length: 45 }, (_, index) => ({ label: `Unit ${index + 1} <safe>` })),
       })
+      await new Promise(setImmediate)
       assert.match(html, /Prepared by:<\/strong> Ana &lt;Tester&gt;/)
       assert.match(html, /Date prepared:<\/strong>/)
       assert.match(html, /Time prepared:<\/strong>/)
@@ -72,6 +79,7 @@ test('shared print helper prints escaped preparation metadata, selected filters,
       assert.doesNotMatch(html, /Audit trail:/)
     }
     assert.equal(prints, 2)
+    assert.equal(audits.length, 2)
   } finally {
     global.window = originalWindow
     global.document = originalDocument

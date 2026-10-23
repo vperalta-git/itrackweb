@@ -33,7 +33,7 @@
     "scheme": "itrack",
     "plugins": [
       "expo-router",
-      "expo-notifications",
+      ["expo-notifications", { "defaultChannel": "itrack-alerts" }],
       [
         "expo-location",
         {

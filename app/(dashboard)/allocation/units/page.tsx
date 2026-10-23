@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useNotificationRecord } from '@/hooks/use-notification-record'
 import { ColumnDef } from '@tanstack/react-table'
 import { usePathname } from 'next/navigation'
 import {
@@ -69,7 +70,7 @@ const initialAllocationForm = {
   agent: '',
 }
 
-export default function UnitAllocationPage() {
+function UnitAllocationPageContent() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
   const [allocations, setAllocations] = React.useState<AgentAllocation[]>(loadUnitAllocations())
@@ -88,6 +89,8 @@ export default function UnitAllocationPage() {
     manager: '',
     agent: '',
   })
+
+  useNotificationRecord(allocations, (record) => { setSelectedAllocation(record); setIsViewDetailsOpen(true) })
 
   React.useEffect(() => {
     void Promise.all([
@@ -788,4 +791,8 @@ export default function UnitAllocationPage() {
       />
     </div>
   )
+}
+
+export default function UnitAllocationPage() {
+  return <React.Suspense fallback={<p className="p-4 text-sm text-muted-foreground">Loading records?</p>}><UnitAllocationPageContent /></React.Suspense>
 }

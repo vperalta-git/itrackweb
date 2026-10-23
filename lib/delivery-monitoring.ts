@@ -5,7 +5,7 @@ import { getCurrentRoadEstimate, type LiveRoadEstimate } from '@/lib/live-route-
 import { createNotificationRecord } from '@/lib/notifications-data'
 import { requestWebNotificationRefresh } from '@/lib/notification-preferences'
 
-export type DeliveryMonitoringFilter = 'active' | 'delayed' | 'untrackable' | 'completed'
+export type DeliveryMonitoringFilter = 'all' | 'active' | 'delayed' | 'untrackable' | 'completed'
 export const SIGNIFICANT_DELAY_MINUTES = 10 // Existing safety monitor's minimum ETA grace.
 const activeStatuses = new Set(['pending', 'assigned', 'in-transit'])
 const completedStatuses = new Set(['available', 'completed'])

@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useNotificationRecord } from '@/hooks/use-notification-record'
 import { ColumnDef } from '@tanstack/react-table'
 import { usePathname } from 'next/navigation'
 import {
@@ -243,7 +244,7 @@ const getLiveTimingDetails = (request: PreparationRequest, now = Date.now()) => 
   }
 }
 
-export default function PreparationPage() {
+function PreparationPageContent() {
   const pathname = usePathname()
   const role = getRoleFromPathname(pathname)
   const currentUser = getSessionUser()
@@ -262,6 +263,8 @@ export default function PreparationPage() {
     React.useState<PreparationRequest | null>(null)
   const [requestToComplete, setRequestToComplete] = React.useState<PreparationRequest | null>(null)
   const [liveNow, setLiveNow] = React.useState(() => Date.now())
+
+  useNotificationRecord(requests, (record) => { setSelectedRequest(record); setIsViewDetailsOpen(true) })
 
   React.useEffect(() => {
     const timer = window.setInterval(() => {
@@ -1357,4 +1360,8 @@ export default function PreparationPage() {
       />
     </div>
   )
+}
+
+export default function PreparationPage() {
+  return <React.Suspense fallback={<p className="p-4 text-sm text-muted-foreground">Loading records?</p>}><PreparationPageContent /></React.Suspense>
 }

@@ -64,7 +64,7 @@ const page = load('app/(dashboard)/allocation/drivers/tracking/page.tsx', {
   '@/lib/driver-allocation-data': tracking,
   '@/lib/live-route-eta': roadEta,
   '@/lib/delivery-monitoring': monitoring,
-  '@/lib/session': {},
+  '@/lib/session': {}, '@/lib/user-data': {},
   '@/lib/map-location': { buildRouteMapEmbedUrl: () => '/fixture-map' },
   '@/lib/rbac': { getRoleFromPathname: () => 'admin', buildRolePath: (_, target) => `/admin/${target}` },
   '@/lib/role-scope': { matchesScopedAgent: () => true, matchesScopedManager: () => true },
@@ -81,7 +81,7 @@ function text(element) {
 function render(record) {
   const driver = record ? page.mapDriver(record, now) : null
   stateIndex = 0
-  states = [record ? [record] : [], '', 'all', false, null, now, null, {}, 'active', driver]
+  states = [record ? [record] : [], '', 'all', false, null, now, null, {}, 'active', [], false, driver]
   return page.default().props.children.type()
 }
 const lostTree = render(allocation)
@@ -89,27 +89,34 @@ const banner = walk(lostTree, node => node.props?.role === 'alert')[0]
 assert.match(text(banner), /URGENT: 1 active delivery has lost GPS tracking/)
 assert.match(text(banner), /Alex Driver.*5 days/)
 assert.match(banner.props.className, /border-red-600/)
-assert.match(text(lostTree), /Disconnected Drivers/)
-assert.match(text(lostTree), /Last Known Progress/)
-assert.match(text(lostTree), /ETA Unavailable: GPS Tracking Lost/)
-assert.match(text(lostTree), /Last Known Road Distance/)
-assert.match(text(lostTree), /59%/)
-assert.match(text(lostTree), /Delivery Status:/)
-const map = walk(lostTree, node => node.type === 'RouteMapFrame')[0]
-assert.equal(map.props.focusState, 'warning')
-assert.match(map.props.focusLabel, /5 days ago/)
-assert.equal(map.props.focus.lat, allocation.currentLocation.latitude)
+const table = walk(lostTree, node => node.type === 'DriverMonitoringTable')[0]
+assert.equal(table.props.drivers[0].urgent, true)
+assert.equal(table.props.drivers[0].lastGpsAge, '5 days ago')
+assert.match(table.props.drivers[0].eta, /ETA Unavailable: GPS Tracking Lost/)
+assert.equal(table.props.drivers[0].progress, 59)
+assert.equal(walk(lostTree, node => node.type === 'RouteMapFrame').length, 0)
 walk(banner, node => node.type === 'button')[0].props.onClick()
-assert.equal(stateWrites.get(9).id, allocation.id)
+assert.equal(stateWrites.get(11).id, allocation.id)
+assert.equal(stateWrites.get(10), true, 'urgent selection opens details modal')
 assert.equal(stateWrites.get(8), 'active')
 assert.equal(stateWrites.get(1), '')
 assert.equal(stateWrites.get(2), 'all')
 const recoveredTree = render(recovered)
 assert.equal(walk(recoveredTree, node => node.props?.role === 'alert').length, 0)
-assert.match(text(recoveredTree), /All active drivers are trackable/)
-assert.equal(walk(recoveredTree, node => node.type === 'RouteMapFrame')[0].props.focusState, 'live')
-assert.equal(walk(render(noGps), node => node.type === 'RouteMapFrame')[0].props.focus, null)
-assert.match(text(render(null)), /All active drivers are trackable/)
+assert.equal(walk(recoveredTree, node => node.type === 'DriverMonitoringTable')[0].props.drivers[0].gpsState, 'live')
+assert.equal(walk(recoveredTree, node => node.type === 'DriverMonitoringTable')[0].props.drivers[0].urgent, false)
+assert.equal(walk(render(noGps), node => node.type === 'DriverMonitoringTable')[0].props.drivers[0].coordinates, null)
+assert.equal(walk(render(null), node => node.type === 'DriverMonitoringTable')[0].props.drivers.length, 0)
+const monitoringTable = load('components/driver-monitoring-table.tsx', {
+  react: { ...React, useState: () => [null, () => {}] },
+})
+const tableTree = monitoringTable.DriverMonitoringTable({ ...table.props, open: true })
+const dataTable = walk(tableTree, node => node.type === 'DataTable')[0]
+assert.equal(dataTable.props.data[0].delivery.urgent, true)
+assert.match(dataTable.props.getRowClassName(dataTable.props.data[0]), /border-red-600/)
+const gpsColumn = dataTable.props.columns.find(column => column.id === 'gpsLabel')
+assert.match(text(gpsColumn.cell({ row: { original: dataTable.props.data[0] } })), /URGENT: GPS unavailable/)
+assert.equal(walk(tableTree, node => node.type === 'DeliveryDelayHistory').length, 1)
 assert.match(text(lostTree), /Active Deliveries/)
 assert.match(text(lostTree), /Delayed Deliveries/)
 assert.match(text(lostTree), /GPS Disconnected \/ Untrackable/)
@@ -131,6 +138,7 @@ async function backendSmoke() {
   }
   const dependencies = {
     DriverAllocation: repository,
+    recordSeriousDeliveryDelay: async () => {},
     Notification: { updateMany: async (filter) => {
       assert.deepEqual(filter['data.entityId'].$in, [trip.id])
       resolved++
@@ -167,4 +175,4 @@ async function backendSmoke() {
   assert.equal(notifications.isUrgentTrackingNotification({ ...notification, resolvedAt: new Date(now).toISOString() }), false)
 }
 
-backendSmoke().then(() => console.log('Live tracking smoke passed: detection, grace period, recovery, alert visibility, driver selection, last-known map/metrics, and notification deduplication.')).catch(error => { console.error(error); process.exitCode = 1 })
+backendSmoke().then(() => console.log('Live tracking smoke passed: detection, grace period, recovery, alert visibility, driver selection, table/modal details and last-known metrics, and notification deduplication.')).catch(error => { console.error(error); process.exitCode = 1 })

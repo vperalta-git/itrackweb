@@ -5,7 +5,7 @@ import { getSessionUserFullName, getSessionUser, getRoleLabel, type UserRole } f
 import type { SystemUser } from '@/lib/user-data'
 import { apiRequest } from '@/lib/api-client'
 
-export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'APPROVE' | 'REJECT'
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'APPROVE' | 'REJECT' | 'CANCEL' | 'ASSIGN' | 'ALLOCATE' | 'ACCEPT' | 'REQUEST'
 
 export interface AuditLogEntry {
   id: string
@@ -21,6 +21,12 @@ export interface AuditLogEntry {
 
 export const STORAGE_KEY = 'itrack.audit.logs'
 export const AUDIT_LOG_UPDATED_EVENT = 'audit-log-updated'
+let serverAuditLogs: AuditLogEntry[] = []
+export async function syncAuditLogsFromBackend() {
+  const logs = await apiRequest<AuditLogEntry[]>('/audit-events')
+  serverAuditLogs = logs.map((log) => ({ ...log, role: normalizeAuditRole(log.role) }))
+  return getStoredAuditLogs()
+}
 
 export const auditRoleColors: Record<UserRole, string> = {
   admin: 'bg-destructive/10 text-destructive border-destructive/20',
@@ -164,9 +170,12 @@ export function getStoredAuditLogs(): AuditLogEntry[] {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     const entries: unknown = raw ? JSON.parse(raw) : []
-    return Array.isArray(entries) ? entries.filter(isAuditLog) : []
+    const local = Array.isArray(entries) ? entries.filter(isAuditLog) : []
+    return [...serverAuditLogs, ...local.filter((entry) => !serverAuditLogs.some((saved) =>
+      saved.userId === entry.userId && saved.action === entry.action && saved.module === entry.module &&
+      Math.abs(new Date(saved.timestamp).getTime() - new Date(entry.timestamp).getTime()) < 10_000))]
   } catch {
-    return []
+    return serverAuditLogs
   }
 }
 

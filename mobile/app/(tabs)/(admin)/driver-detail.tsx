@@ -1,3 +1,4 @@
+import { runOperationalAction } from '@/src/mobile/lib/operationalAction';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -33,6 +34,7 @@ import {
   getDriverAllocationLiveLocation,
   getDriverAllocationRoute,
   loadDriverAllocations,
+  reviewDriverAllocationRejection,
 } from '@/src/mobile/data/driver-allocation';
 import { useDriverAllocationLiveRouteMetrics } from '@/src/mobile/hooks';
 import { findVehicleStockById } from '@/src/mobile/data/vehicle-stocks';
@@ -42,6 +44,7 @@ import {
 } from '@/src/mobile/navigation/access';
 import { AllocationStatus, UserRole } from '@/src/mobile/types';
 import { shareExport } from '@/src/mobile/utils/shareExport';
+import { requestActionReason } from '@/src/mobile/lib/actionReason';
 
 const getDriverLiveLocation = (
   allocation: ReturnType<typeof findDriverAllocationRecord>
@@ -296,10 +299,10 @@ export default function DriverDetailScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
+          onPress: () => { void runOperationalAction(async () => {
             await deleteDriverAllocation(allocation.id);
             router.dismiss();
-          },
+          }); },
         },
       ]
     );
@@ -387,6 +390,21 @@ export default function DriverDetailScreen() {
           ) : null}
         </Card>
 
+        {allocation.rejectionRequest && allocation.rejectionRequest.status !== 'none' && <Card>
+          <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{allocation.rejectionRequest.status === 'pending' ? 'Rejection requested — pending approval' : allocation.rejectionRequest.status === 'approved' ? 'Rejection approved' : 'Rejection denied'}</Text>
+          <Text style={{ color: theme.colors.textMuted }}>{allocation.rejectionRequest.reason}</Text>
+          {allocation.rejectionRequest.reviewNotes ? <Text style={{ color: theme.colors.text }}>{allocation.rejectionRequest.reviewNotes}</Text> : null}
+          {allocation.rejectionRequest.status === 'pending' && [UserRole.ADMIN, UserRole.SUPERVISOR].includes(role) && <View style={{ gap: 10, marginTop: 12 }}>
+            {(['approve', 'reject'] as const).map((action) => <Button key={action} title={action === 'approve' ? 'Approve rejection' : 'Deny rejection'} variant={action === 'approve' ? 'danger' : 'secondary'} onPress={() => {
+              void (async () => {
+                const notes = await requestActionReason(`${action === 'approve' ? 'Approve' : 'Deny'} this booking rejection. Enter your review reason.`);
+                if (!notes) return;
+                try { setAllocation(await reviewDriverAllocationRejection(allocation.id, action, notes)); }
+                catch (error) { Alert.alert('Unable to review rejection', error instanceof Error ? error.message : 'Refresh and try again.'); }
+              })();
+            }} />)}
+          </View>}
+        </Card>}
         {pickup && destination ? (
           <View style={styles.mapShell}>
             <View style={styles.mapHeader}>

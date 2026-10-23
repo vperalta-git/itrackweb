@@ -1,9 +1,12 @@
 import React from 'react';
-import { Stack } from 'expo-router';
+import { Redirect, Stack } from 'expo-router';
+import { useAuth } from '@/src/mobile/context/AuthContext';
 
 import { AppSidebarShell } from '@/src/mobile/components';
 
 export default function AuthLayout() {
+  const { user, isLoading } = useAuth();
+  if (!isLoading && user) return <Redirect href={user.mustChangePassword ? '/(tabs)/profile/change-password' : '/(tabs)'} />;
   return (
     <AppSidebarShell mode="auth">
       <Stack

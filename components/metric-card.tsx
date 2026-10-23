@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { LucideIcon } from 'lucide-react'
+import Link from 'next/link'
 
 interface MetricCardProps {
   title: string
@@ -13,6 +14,7 @@ interface MetricCardProps {
   }
   controls?: React.ReactNode
   className?: string
+  href?: string
 }
 
 export function MetricCard({
@@ -23,9 +25,11 @@ export function MetricCard({
   trend,
   controls,
   className,
+  href,
 }: MetricCardProps) {
   return (
     <Card className={cn('relative overflow-hidden', className)}>
+      {href && <Link href={href} className="absolute inset-0 z-10 rounded-xl transition-colors hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-primary" aria-label={`Filter: ${title}`} />}
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div className="space-y-1">
           <CardTitle className="text-sm font-medium text-muted-foreground">

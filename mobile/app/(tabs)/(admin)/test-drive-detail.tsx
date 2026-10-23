@@ -1,3 +1,4 @@
+import { runOperationalAction } from '@/src/mobile/lib/operationalAction';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -177,10 +178,10 @@ export default function TestDriveDetailScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
+          onPress: () => { void runOperationalAction(async () => {
             await deleteTestDriveBooking(booking.id);
             router.dismiss();
-          },
+          }); },
         },
       ]
     );

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { ListPagination, useListPagination } from '@/src/mobile/components/ListPagination';
 import {
   StyleSheet,
   Text,
@@ -70,6 +71,7 @@ export default function HistoryScreen() {
     }
   };
 
+  const pagination = useListPagination(history);
   return (
     <AppScreen refreshing={refreshing} onRefresh={handleRefresh}>
       <PageHeader
@@ -78,9 +80,10 @@ export default function HistoryScreen() {
         subtitle="Review dispatcher checklist records that are already marked ready for release or fully completed."
       />
 
+      <ListPagination {...pagination.controls} />
       <View style={styles.list}>
         {history.length ? (
-          history.map((item) => (
+          pagination.items.map((item) => (
             <Card key={item.id} style={styles.card}>
               <View style={styles.cardTop}>
                 <View style={styles.copy}>

@@ -7,7 +7,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useNavigation } from 'expo-router';
+import { router, useNavigation, useLocalSearchParams } from 'expo-router';
 import {
   Button,
   Card,
@@ -87,6 +87,8 @@ export default function PreparationScreen() {
   const access = getModuleAccess(role, 'vehiclePreparation');
   const [searchValue, setSearchValue] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const { status: requestedStatus } = useLocalSearchParams<{ status?: string }>();
+  useEffect(() => { if (requestedStatus) setStatusFilter(requestedStatus); }, [requestedStatus]);
   const [currentPage, setCurrentPage] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
   const [preparations, setPreparations] =
@@ -94,7 +96,7 @@ export default function PreparationScreen() {
   const statusFilterLabel =
     statusFilter === 'all'
       ? 'All stages'
-      : getPreparationStatusLabel(statusFilter as PreparationStatus);
+      : statusFilter === 'active' ? 'Active preparation' : getPreparationStatusLabel(statusFilter as PreparationStatus);
 
   const filteredPreparations = useMemo(
     () =>
@@ -110,7 +112,7 @@ export default function PreparationScreen() {
             .includes(query) ||
           getPreparationStatusLabel(item.status).toLowerCase().includes(query);
         const matchesStatus =
-          statusFilter === 'all' || item.status === statusFilter;
+          statusFilter === 'all' || statusFilter === 'active' && ![PreparationStatus.COMPLETED, PreparationStatus.REJECTED].includes(item.status) || item.status === statusFilter;
 
         return matchesSearch && matchesStatus;
       }),

@@ -1,6 +1,7 @@
 import { DRIVER_AI_THRESHOLDS } from '../config/driverAiConfig.js';
 import { DriverAllocation } from '../models/DriverAllocation.js';
 import { Notification } from '../models/Notification.js';
+import { recordSeriousDeliveryDelay } from './deliveryDelayService.js';
 import {
   notifyDriverEtaOverdue,
   notifyDriverGpsConnectionLost,
@@ -202,6 +203,7 @@ export const scanDriverSafetyAlerts = async (detectedAt = new Date()) => {
       }
 
       const etaOverdueMinutes = getEtaOverdueMinutes(allocation, detectedAt);
+      await recordSeriousDeliveryDelay(allocation, detectedAt);
 
       if (
         etaOverdueMinutes !== null &&

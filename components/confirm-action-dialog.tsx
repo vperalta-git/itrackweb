@@ -1,4 +1,5 @@
 'use client'
+import { toast } from 'sonner'
 
 import {
   AlertDialog,
@@ -18,7 +19,7 @@ interface ConfirmActionDialogProps {
   description: string
   confirmLabel?: string
   cancelLabel?: string
-  onConfirm: () => void
+  onConfirm: () => void | Promise<void>
 }
 
 export function ConfirmActionDialog({
@@ -40,7 +41,10 @@ export function ConfirmActionDialog({
         <AlertDialogFooter>
           <AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction
-            onClick={onConfirm}
+            onClick={async () => {
+              try { await onConfirm() }
+              catch (error) { if (!(error instanceof Error && error.message === 'Action cancelled.')) toast.error(error instanceof Error ? error.message : 'The action could not be completed.') }
+            }}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
             {confirmLabel}

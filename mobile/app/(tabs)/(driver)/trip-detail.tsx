@@ -177,6 +177,11 @@ export default function TripDetailScreen() {
               label={formatDriverAllocationStatusLabel(trip.status)}
             />
           </View>
+          {trip.rejectionRequest && trip.rejectionRequest.status !== 'none' && <View style={{ gap: 6, marginTop: 12 }}>
+            <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{trip.rejectionRequest.status === 'pending' ? 'Rejection requested — pending approval' : trip.rejectionRequest.status === 'approved' ? 'Rejection approved' : 'Rejection denied'}</Text>
+            <Text style={{ color: theme.colors.textMuted }}>{trip.rejectionRequest.reason}</Text>
+            <Text style={{ color: theme.colors.text }}>{trip.rejectionRequest.reviewNotes}</Text>
+          </View>}
         </Card>
 
         {markers.length ? (

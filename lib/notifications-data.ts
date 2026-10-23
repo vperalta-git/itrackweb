@@ -15,6 +15,7 @@ export interface AppNotification {
   priority?: 'high'
   resolvedAt?: string
   isDeliveryDelay?: boolean
+  data?: Record<string, unknown>
 }
 
 export const isUrgentTrackingNotification = (notification: AppNotification) =>
@@ -34,6 +35,7 @@ const mapNotification = (notification: BackendNotification): AppNotification => 
   priority: notification.data?.safetyAlertType === 'gps_connection_lost' ? 'high' : undefined,
   resolvedAt: typeof notification.data?.resolvedAt === 'string' ? notification.data.resolvedAt : undefined,
   isDeliveryDelay: notification.data?.safetyAlertType === 'delivery_delay',
+  data: notification.data,
 })
 
 export async function fetchNotifications(userId: string) {

@@ -2,6 +2,10 @@ import { Notification, NotificationType } from '../types';
 import { api, getResponseData } from '../lib/api';
 import { toDate } from './shared';
 
+let registeredDevicePushToken: string | null = null;
+export const getRegisteredDevicePushToken = () => registeredDevicePushToken;
+export const setRegisteredDevicePushToken = (token: string | null) => { registeredDevicePushToken = token; };
+
 type NotificationApiRecord = {
   id: string;
   userId: string;

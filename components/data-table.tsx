@@ -58,6 +58,8 @@ interface DataTableProps<TData, TValue> {
   filterComponent?: React.ReactNode
   toolbarRight?: React.ReactNode
   tableClassName?: string
+  getRowClassName?: (row: TData) => string
+  paginationResetKey?: string
   exportConfig?: {
     title: string
     subtitle?: string
@@ -78,6 +80,8 @@ export function DataTable<TData, TValue>({
   filterComponent,
   toolbarRight,
   tableClassName,
+  getRowClassName,
+  paginationResetKey,
   exportConfig,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
@@ -95,6 +99,7 @@ export function DataTable<TData, TValue>({
     onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    autoResetPageIndex: false,
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     onColumnVisibilityChange: setColumnVisibility,
@@ -108,10 +113,15 @@ export function DataTable<TData, TValue>({
   })
 
   const currentPage = table.getState().pagination.pageIndex + 1
-  const pageCount = table.getPageCount()
+  const pageCount = Math.max(1, table.getPageCount())
   const pageSize = table.getState().pagination.pageSize
   const allFilteredRows = table.getPrePaginationRowModel().rows
   const currentPageRows = table.getRowModel().rows
+
+  React.useEffect(() => { table.setPageIndex(0) }, [columnFilters, sorting, paginationResetKey, table])
+  React.useEffect(() => {
+    if (table.getState().pagination.pageIndex >= pageCount) table.setPageIndex(pageCount - 1)
+  }, [pageCount, currentPage, table])
 
   React.useEffect(() => {
     setSelectedExportPage(String(currentPage))
@@ -268,7 +278,7 @@ export function DataTable<TData, TValue>({
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && 'selected'}
-                  className="hover:bg-muted/50"
+                  className={cn('hover:bg-muted/50', getRowClassName?.(row.original))}
                 >
                   {row.getVisibleCells().map((cell) => {
                     const meta = cell.column.columnDef.meta as DataTableColumnMeta | undefined
@@ -326,7 +336,7 @@ export function DataTable<TData, TValue>({
           </div>
           <div className="flex items-center gap-1 text-sm text-muted-foreground">
             Page {table.getState().pagination.pageIndex + 1} of{' '}
-            {table.getPageCount()}
+            {pageCount}
           </div>
           <div className="flex items-center gap-1">
             <Button

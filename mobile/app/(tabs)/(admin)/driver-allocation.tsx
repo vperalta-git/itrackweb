@@ -1,3 +1,4 @@
+import { runOperationalAction } from '@/src/mobile/lib/operationalAction';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -7,7 +8,8 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useNavigation } from 'expo-router';
+import { router, useNavigation, useLocalSearchParams } from 'expo-router';
+import { requestActionReason } from '@/src/mobile/lib/actionReason';
 import {
   Button,
   Card,
@@ -95,6 +97,8 @@ export default function DriverAllocationScreen() {
     );
   const [searchValue, setSearchValue] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const { status: requestedStatus } = useLocalSearchParams<{ status?: string }>();
+  useEffect(() => { if (requestedStatus) setStatusFilter(requestedStatus); }, [requestedStatus]);
   const [managerFilter, setManagerFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [refreshing, setRefreshing] = useState(false);
@@ -379,10 +383,10 @@ export default function DriverAllocationScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
+          onPress: () => { void runOperationalAction(async () => {
             await deleteDriverAllocation(allocationId);
             setAllocations(getDriverAllocations());
-          },
+          }); },
         },
       ]
     );
@@ -409,12 +413,12 @@ export default function DriverAllocationScreen() {
           style: approved ? 'destructive' : 'default',
           onPress: async () => {
             try {
+              const reviewNotes = await requestActionReason(`${approved ? 'Approve' : 'Reject'} this trip stop request. Enter your review reason.`);
+              if (!reviewNotes) return;
               await reviewDriverAllocationStopRequest(
                 allocation.id,
                 action,
-                approved
-                  ? 'Stop request confirmed by admin/supervisor.'
-                  : 'Stop request rejected by admin/supervisor.'
+                reviewNotes
               );
               setAllocations(getDriverAllocations());
               Alert.alert(

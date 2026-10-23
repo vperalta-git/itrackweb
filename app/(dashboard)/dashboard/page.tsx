@@ -50,7 +50,7 @@ import {
   summarizeInventory,
   type InventoryVehicle,
 } from '@/lib/inventory-data'
-import { getRoleFromPathname } from '@/lib/rbac'
+import { buildRolePath, getRoleFromPathname } from '@/lib/rbac'
 import { getScopedRoleData, matchesScopedAgent, matchesScopedManager } from '@/lib/role-scope'
 import { getSessionUser, getSessionUserFullName } from '@/lib/session'
 import { loadUsers, syncUsersFromBackend, type SystemUser, USERS_UPDATED_EVENT } from '@/lib/user-data'
@@ -343,30 +343,34 @@ export default function DashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <MetricCard
           title="Total Current Stock"
+          href={`${buildRolePath(role, 'vehicle-stocks/stock-list')}?status=all`}
           value={totalVehicles}
           description="Excludes released / completed units"
           icon={Car}
         />
         <MetricCard
           title="Available Vehicles"
+          href={`${buildRolePath(role, 'vehicle-stocks/stock-list')}?status=available`}
           value={availableVehicles}
           description="Ready for sale"
           icon={Package}
         />
         <MetricCard
           title="Active Shipment"
+          href={`${buildRolePath(role, 'driver-allocation/live-tracking')}?filter=active`}
           value={ongoingShipment}
           description="Units in transit"
           icon={TrendingUp}
         />
         <MetricCard
           title="Active Vehicle Preparation"
+          href={`${buildRolePath(role, 'vehicle-stocks/stock-list')}?status=preparation`}
           value={ongoingPreparation}
           description="Includes units ready for release"
           icon={ClipboardCheck}
         />
-        <MetricCard title="Allocated Units" value={summary.allocated} description="Assigned current stock; overlaps status totals" icon={Users} />
-        <MetricCard title="Released / Completed" value={summary.released} description="Shown separately from current stock" icon={Car} />
+        <MetricCard title="Allocated Units" href={`${buildRolePath(role, 'vehicle-stocks/stock-list')}?status=allocated`} value={summary.allocated} description="Assigned current stock; overlaps status totals" icon={Users} />
+        <MetricCard title="Released / Completed" href={`${buildRolePath(role, 'vehicle-stocks/stock-list')}?status=released`} value={summary.released} description="Shown separately from current stock" icon={Car} />
       </div>
 
       {isAdminOrSupervisor ? (

@@ -249,7 +249,7 @@ export async function resolveRouteMetrics(points: RoutePoint[]) {
       coordinates: points,
       distanceKm: calculateDistanceKmFromCoordinates(points),
     } satisfies RouteMetrics;
-  })();
+  })().finally(() => inflightRouteMetricsRequests.delete(cacheKey));
 
   inflightRouteMetricsRequests.set(cacheKey, request);
 

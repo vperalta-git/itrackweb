@@ -25,6 +25,7 @@ const FORWARDED_REQUEST_HEADERS = [
   'accept',
   'authorization',
   'content-type',
+  'x-action-reason',
 ]
 
 function buildBackendUrl(
@@ -64,7 +65,8 @@ async function fetchBackendWithRetries(
 ) {
   let lastError: Error | null = null
 
-  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt += 1) {
+  const maxAttempts = !init.method || init.method === 'GET' || init.method === 'HEAD' ? RETRY_DELAYS_MS.length : 1
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     if (RETRY_DELAYS_MS[attempt] > 0) {
       await sleep(RETRY_DELAYS_MS[attempt])
     }
@@ -80,7 +82,7 @@ async function fetchBackendWithRetries(
 
       clearTimeout(timeout)
 
-      if (!RETRYABLE_STATUSES.has(response.status) || attempt === RETRY_DELAYS_MS.length - 1) {
+      if (!RETRYABLE_STATUSES.has(response.status) || attempt === maxAttempts - 1) {
         return response
       }
 
@@ -89,7 +91,7 @@ async function fetchBackendWithRetries(
       clearTimeout(timeout)
       lastError = error instanceof Error ? error : new Error('Unable to reach the backend service.')
 
-      if (attempt === RETRY_DELAYS_MS.length - 1) {
+      if (attempt === maxAttempts - 1) {
         throw lastError
       }
     }

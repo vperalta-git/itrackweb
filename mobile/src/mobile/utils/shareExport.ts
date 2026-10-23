@@ -1,6 +1,7 @@
 import { Alert } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { api } from '../lib/api';
 
 type ShareExportMetadataItem = {
   label: string;
@@ -479,6 +480,7 @@ export async function shareExport<T>(options: ShareExportOptions<T>) {
       : buildTextHtml(options);
 
     const { uri } = await Print.printToFileAsync({ html });
+    await api.post('/audit-events', { action: 'EXPORT', module: 'Reports', description: `Generated PDF: ${options.title}` });
     const isSharingAvailable = await Sharing.isAvailableAsync();
 
     if (!isSharingAvailable) {

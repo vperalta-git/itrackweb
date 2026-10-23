@@ -16,6 +16,7 @@ import { syncInventoryVehiclesFromBackend } from '@/lib/inventory-data'
 import { requestWebNotificationRefresh } from '@/lib/notification-preferences'
 
 export interface DriverAllocationRecord {
+  rejectionRequest?: BackendDriverAllocation['rejectionRequest']
   id: string
   date: string
   unitName: string
@@ -168,6 +169,7 @@ const mapDriverAllocationRecord = (
           reviewNotes: allocation.stopRequest.reviewNotes ?? '',
         }
       : null,
+    rejectionRequest: allocation.rejectionRequest,
     pickupLocationDetails: allocation.pickupLocation ?? null,
     destinationLocationDetails: allocation.destinationLocation ?? null,
   }

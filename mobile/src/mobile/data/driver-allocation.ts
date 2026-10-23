@@ -80,6 +80,7 @@ export interface DriverAllocationRecord {
     reviewedAt?: Date | null;
     reviewNotes?: string;
   } | null;
+  rejectionRequest?: { status: 'none' | 'pending' | 'approved' | 'rejected'; reason: string; reviewNotes?: string } | null;
   actualDuration?: number | null;
   status: AllocationStatus;
   startTime?: Date | null;
@@ -97,6 +98,7 @@ type SaveDriverAllocationInput = {
 };
 
 type DriverAllocationApiRecord = {
+  rejectionRequest?: DriverAllocationRecord['rejectionRequest'];
   id: string;
   status: AllocationStatus;
   routeProgress?: number | null;
@@ -163,8 +165,8 @@ const COMPLETED_ALLOCATION_STATUSES = new Set<AllocationStatus>([
   AllocationStatus.COMPLETED,
   AllocationStatus.DELIVERED,
 ]);
-const DEFAULT_IN_TRANSIT_PROGRESS = 0.62;
-const TRIP_START_PROGRESS = 0.18;
+const DEFAULT_IN_TRANSIT_PROGRESS = 0;
+const TRIP_START_PROGRESS = 0;
 export const TRIP_COMPLETION_RADIUS_METERS = 500;
 const EARTH_RADIUS_KM = 6371;
 const DEFAULT_URBAN_SPEED_KMH = 28;
@@ -176,6 +178,12 @@ export const DRIVER_ALLOCATION_MANAGER_OPTIONS: DriverAllocationManagerOption[] 
 export const DRIVER_ALLOCATION_LOCATION_OPTIONS: DriverAllocationLocationOption[] = [];
 
 let driverAllocationRecords: DriverAllocationRecord[] = [];
+const driverAllocationListeners = new Set<() => void>();
+export const subscribeDriverAllocations = (listener: () => void) => {
+  driverAllocationListeners.add(listener);
+  return () => { driverAllocationListeners.delete(listener); };
+};
+const notifyDriverAllocationListeners = () => driverAllocationListeners.forEach((listener) => listener());
 let driverAllocationUnitOptions: DriverAllocationUnitOption[] = [];
 
 const toRadians = (value: number) => (value * Math.PI) / 180;
@@ -342,6 +350,7 @@ const mapDriverAllocationRecord = (
         }
       : null,
     actualDuration: record.actualDuration ?? null,
+    rejectionRequest: record.rejectionRequest,
     status: record.status,
     startTime: record.startTime ? toDate(record.startTime) : null,
     endTime: record.endTime ? toDate(record.endTime) : null,
@@ -369,17 +378,19 @@ export const registerDriverAllocationLocationOptions = (
   registerLocationOptions(locations);
 };
 
+let optionsRefreshedAt = 0;
 export const loadDriverAllocations = async () => {
-  await loadUserManagementRecords();
-  await loadVehicleStocks();
-  refreshOptionCaches();
-
   const response = await api.get('/driver-allocations');
+  if (Date.now() - optionsRefreshedAt > 60_000) {
+    optionsRefreshedAt = Date.now();
+    void Promise.allSettled([loadUserManagementRecords(), loadVehicleStocks()]).then(() => refreshOptionCaches());
+  }
   driverAllocationRecords = (
     getResponseData<DriverAllocationApiRecord[]>(response) ?? []
   ).map(mapDriverAllocationRecord);
 
   refreshOptionCaches();
+  notifyDriverAllocationListeners();
   return getDriverAllocations();
 };
 
@@ -475,6 +486,7 @@ export const getDriverAllocationRemainingDistanceKm = (
   if (allocation.status !== AllocationStatus.IN_TRANSIT) {
     return null;
   }
+  if (!allocation.currentLocation) return null;
 
   const totalDistanceKm = getDriverAllocationRouteDistanceKm(allocation);
 
@@ -587,6 +599,8 @@ export const formatDriverAllocationEta = (
   if (allocation.status !== AllocationStatus.IN_TRANSIT) {
     return allocation.eta;
   }
+  const gpsTime = allocation.currentLocation?.updatedAt?.getTime();
+  if (!gpsTime || Date.now() - gpsTime > 60_000) return 'ETA unavailable: live GPS needed';
 
   const estimatedDuration = allocation.estimatedDuration ?? 25;
   const routeDistanceKm = getDriverAllocationRouteDistanceKm(allocation);
@@ -632,14 +646,6 @@ export const formatDriverAllocationEta = (
 export const getDriverAllocationLiveLocation = (
   allocation: DriverAllocationRecord
 ) => {
-  if (allocation.status === AllocationStatus.COMPLETED) {
-    return findDriverAllocationLocation(allocation.destinationId)?.location ?? null;
-  }
-
-  if (allocation.status === AllocationStatus.DELIVERED) {
-    return findDriverAllocationLocation(allocation.destinationId)?.location ?? null;
-  }
-
   if (allocation.currentLocation) {
     return {
       latitude: allocation.currentLocation.latitude,
@@ -649,23 +655,7 @@ export const getDriverAllocationLiveLocation = (
     };
   }
 
-  const pickup = findDriverAllocationLocation(allocation.pickupId);
-  const destination = findDriverAllocationLocation(allocation.destinationId);
-
-  if (!pickup || !destination) {
-    return null;
-  }
-
-  const progress = getDriverAllocationTravelProgress(allocation);
-
-  return {
-    latitude:
-      pickup.location.latitude +
-      (destination.location.latitude - pickup.location.latitude) * progress,
-    longitude:
-      pickup.location.longitude +
-      (destination.location.longitude - pickup.location.longitude) * progress,
-  };
+  return null;
 };
 
 const saveMappedAllocation = (record: DriverAllocationRecord) => {
@@ -681,6 +671,7 @@ const saveMappedAllocation = (record: DriverAllocationRecord) => {
     );
   }
 
+  notifyDriverAllocationListeners();
   return record;
 };
 
@@ -751,7 +742,7 @@ const patchDriverAllocation = async (
   }>
 ) => {
   const response = await api.patch(`/driver-allocations/${allocationId}`, payload);
-  await loadVehicleStocks();
+  void loadVehicleStocks().catch(() => undefined);
   const savedRecord = mapDriverAllocationRecord(
     getResponseData<DriverAllocationApiRecord>(response)
   );
@@ -761,10 +752,26 @@ const patchDriverAllocation = async (
   return savedRecord;
 };
 
-export const acceptDriverAllocation = async (allocationId: string) =>
-  patchDriverAllocation(allocationId, {
-    status: AllocationStatus.ASSIGNED,
-  });
+export const acceptDriverAllocation = async (allocationId: string) => {
+  const response = await api.post(`/driver-allocations/${allocationId}/accept`);
+  const saved = mapDriverAllocationRecord(getResponseData<DriverAllocationApiRecord>(response));
+  saveMappedAllocation(saved);
+  return saved;
+};
+
+export const requestDriverAllocationRejection = async (allocationId: string, reason: string) => {
+  const response = await api.post(`/driver-allocations/${allocationId}/rejection-request`, { reason });
+  const saved = mapDriverAllocationRecord(getResponseData<DriverAllocationApiRecord>(response));
+  saveMappedAllocation(saved);
+  return saved;
+};
+
+export const reviewDriverAllocationRejection = async (allocationId: string, action: 'approve' | 'reject', reviewNotes: string) => {
+  const response = await api.patch(`/driver-allocations/${allocationId}/rejection-request`, { action, reviewNotes });
+  const saved = mapDriverAllocationRecord(getResponseData<DriverAllocationApiRecord>(response));
+  saveMappedAllocation(saved);
+  return saved;
+};
 
 export const startDriverAllocationTrip = async (allocationId: string) =>
   patchDriverAllocation(allocationId, {
@@ -973,7 +980,7 @@ export const matchesDriverAllocationStatusFilter = (
   statusFilter: string,
   status: AllocationStatus
 ) =>
-  statusFilter === 'all' || getPendingFilterStatuses(statusFilter).has(status);
+  statusFilter === 'all' || statusFilter === 'active' && ACTIVE_ALLOCATION_STATUSES.includes(status) || getPendingFilterStatuses(statusFilter).has(status);
 
 export const findDriverAllocationRecord = (allocationId: string | null) =>
   driverAllocationRecords.find((record) => record.id === allocationId) ?? null;

@@ -1,3 +1,4 @@
+import { runOperationalAction } from '@/src/mobile/lib/operationalAction';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -233,10 +234,10 @@ export default function AllocationsScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
+          onPress: () => { void runOperationalAction(async () => {
             await deleteUnitAgentAllocation(allocationId);
             setAllocations(getUnitAgentAllocations());
-          },
+          }); },
         },
       ]
     );

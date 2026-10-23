@@ -1,6 +1,8 @@
 'use client'
 
 import * as React from 'react'
+import { apiRequest } from '@/lib/api-client'
+import { requestActionReason } from '@/lib/action-reason'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { ColumnDef } from '@tanstack/react-table'
@@ -722,22 +724,20 @@ export default function DriverAllocationPage() {
     action: 'approve' | 'reject'
   ) => {
     const approved = action === 'approve'
-    const confirmed = window.confirm(
+    const reviewNotes = await requestActionReason(
       approved
         ? `Approve stop request for ${allocation.conductionNumber}? This will cancel the trip.`
         : `Reject stop request for ${allocation.conductionNumber}? The driver will be notified to continue.`
     )
 
-    if (!confirmed) return
+    if (!reviewNotes) return
 
     try {
       const nextAllocations = await reviewDriverAllocationStopRequestRecord(
         allocation.id,
         {
           action,
-          reviewNotes: approved
-            ? 'Stop request confirmed by admin/supervisor.'
-            : 'Stop request rejected by admin/supervisor.',
+          reviewNotes,
         }
       )
       setAllocations(nextAllocations)
@@ -764,6 +764,18 @@ export default function DriverAllocationPage() {
           : 'Unable to review the stop request right now.'
       )
     }
+  }
+
+  const handleReviewRejection = async (allocation: DriverAllocation, action: 'approve' | 'reject') => {
+    const reviewNotes = await requestActionReason(`${action === 'approve' ? 'Approve' : 'Deny'} booking rejection for ${allocation.conductionNumber}. Driver reason: ${allocation.rejectionRequest?.reason ?? ''}`)
+    if (!reviewNotes) return
+    try {
+      await apiRequest(`/driver-allocations/${allocation.id}/rejection-request`, { method: 'PATCH', body: { action, reviewNotes } })
+      const next = await syncDriverAllocationsFromBackend()
+      setAllocations(next)
+      setSelectedAllocation((current) => current?.id === allocation.id ? next.find((item) => item.id === current.id) ?? null : current)
+      toast.success(action === 'approve' ? 'Rejection approved. Booking cancelled.' : 'Rejection denied. Driver notified.')
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to review rejection.') }
   }
 
   const columns: ColumnDef<DriverAllocation>[] = [
@@ -854,6 +866,9 @@ export default function DriverAllocationPage() {
       cell: ({ row }) => (
         <div className="space-y-1">
           <StatusBadge status={row.getValue('status')} />
+          {row.original.rejectionRequest && row.original.rejectionRequest.status !== 'none' && <Badge variant="outline">
+            {row.original.rejectionRequest.status === 'pending' ? 'Rejection approval pending' : row.original.rejectionRequest.status === 'approved' ? 'Rejection approved' : 'Rejection denied'}
+          </Badge>}
           {row.original.stopRequest?.status === 'pending' && (
             <Badge variant="destructive" className="gap-1">
               <AlertTriangle className="size-3" />
@@ -905,6 +920,11 @@ export default function DriverAllocationPage() {
                   </Link>
                 </DropdownMenuItem>
               )}
+              {allocation.rejectionRequest?.status === 'pending' && <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => void handleReviewRejection(allocation, 'approve')}>Approve booking rejection</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void handleReviewRejection(allocation, 'reject')}>Deny booking rejection</DropdownMenuItem>
+              </>}
               {allocation.stopRequest?.status === 'pending' && (
                 <>
                   <DropdownMenuSeparator />
