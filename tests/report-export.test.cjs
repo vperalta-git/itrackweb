@@ -164,3 +164,69 @@ test('analytics export button exports full selected report beyond top five and e
   assert.ok(options.rows.some((row) => row.item === 'Agent7 Fixture'))
   assert.doesNotMatch(JSON.stringify(options.rows), /Other Model|wrong-model|wrong-year-allocation/)
 })
+
+test('release history summary buttons filter records, preserve search and role scope, reset pagination and export the filtered list', () => {
+  const records = Array.from({ length: 14 }, (_, index) => ({
+    id: `history-${index}`, conductionNumber: `UNIT-${index}`, unitName: index < 4 ? 'Matching Truck' : 'Other Truck',
+    variation: 'LS', bodyColor: 'White', customerName: 'Customer', customerContact: '',
+    agentAssigned: index % 2 === 0 ? 'Ana <Tester>' : 'Other Agent', agentAssignedAt: '',
+    vehicleAddedAt: '', deliveryPickupAt: '', releasedAt: '', historyEvents: [],
+    status: ['released', 'ready-for-pickup', 'in-preparation'][index % 3],
+    preparationSteps: index % 3 === 1 ? [] : [{ task: 'Inspection', completedAt: '2026-10-24' }],
+  }))
+  const state = [[], records, false, 'all', false, '', 2, 5, null, false]
+  let stateIndex, options, role = 'admin'
+  const load = createLoader({
+    react: { useState: () => { const index = stateIndex++; return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value }] }, useMemo: factory => factory(), useEffect() {} },
+    'next/navigation': { usePathname: () => `/${role}/reports/history` },
+    '@/lib/export-pdf': { exportPdfReport: value => { options = value } },
+  })
+  const Page = load('app/(dashboard)/reports/history/page.tsx').default
+  function render() {
+    stateIndex = 0
+    const elements = []
+    function visit(element) {
+      if (!element || typeof element !== 'object') return
+      if (Array.isArray(element)) return element.forEach(visit)
+      elements.push(element); visit(element.props?.children)
+    }
+    visit(Page())
+    return elements
+  }
+  const button = (tree, name) => tree.find(element => element.type === 'button' && element.props['aria-label'] === name)
+  function exportRows(tree) {
+    tree.find(element => element.type === 'Button' && element.props.onClick).props.onClick()
+    return options.rows
+  }
+  let tree = render()
+  assert.equal(button(tree, 'Show all matching units').props['aria-pressed'], true)
+  button(tree, 'Show released units').props.onClick()
+  assert.equal(state[6], 1, 'a summary click resets page two to page one')
+  tree = render()
+  assert.equal(button(tree, 'Show released units').props['aria-pressed'], true)
+  assert.equal(exportRows(tree).length, 5)
+  assert.ok(options.rows.every(record => record.status === 'released'))
+  assert.equal(button(tree, 'Show all matching units').props.children[0].props.children[1].props.children, 14, 'summary totals stay available when another summary is selected')
+  button(tree, 'Show units with completed steps').props.onClick()
+  tree = render()
+  assert.equal(button(tree, 'Show units with completed steps').props['aria-pressed'], true)
+  assert.equal(state[3], 'all')
+  assert.equal(exportRows(tree).length, 9)
+  assert.ok(options.rows.every(record => record.preparationSteps.length > 0))
+  assert.match(options.subtitle, /With completed preparation steps/)
+  tree.find(element => element.type === 'Input').props.onChange({ target: { value: 'matching' } })
+  tree = render()
+  assert.equal(exportRows(tree).length, 3)
+  button(tree, 'Show released units').props.onClick()
+  tree = render()
+  assert.equal(state[5], 'matching', 'summary clicks preserve the search')
+  assert.equal(exportRows(tree).length, 2)
+  button(tree, 'Show all matching units').props.onClick()
+  tree = render()
+  assert.equal(exportRows(tree).length, 4)
+  assert.equal(state[4], false)
+  role = 'sales-agent'; state[5] = ''
+  tree = render()
+  assert.equal(exportRows(tree).length, 3)
+  assert.ok(options.rows.every(record => record.agentAssigned === 'Ana <Tester>' && record.status === 'released'), 'summary buttons preserve restricted release visibility')
+})

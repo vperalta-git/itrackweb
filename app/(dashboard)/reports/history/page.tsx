@@ -91,6 +91,7 @@ export default function VehicleHistoryPage() {
   const [records, setRecords] = React.useState<ReleaseHistoryRecord[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [statusFilter, setStatusFilter] = React.useState<'all' | ReleaseHistoryStatus>('all')
+  const [hasPreparationFilter, setHasPreparationFilter] = React.useState(false)
   const [searchTerm, setSearchTerm] = React.useState('')
   const [currentPage, setCurrentPage] = React.useState(1)
   const [itemsPerPage, setItemsPerPage] = React.useState(10)
@@ -152,7 +153,7 @@ export default function VehicleHistoryPage() {
     [users]
   )
 
-  const filteredRecords = React.useMemo(() => {
+  const searchableRecords = React.useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase()
 
     return records.filter((record) => {
@@ -164,7 +165,6 @@ export default function VehicleHistoryPage() {
           : record.agentAssigned === currentUserName
       const matchesReleasedScope =
         role === 'admin' || role === 'supervisor' ? true : record.status === 'released'
-      const matchesStatus = statusFilter === 'all' || record.status === statusFilter
       const matchesSearch =
         normalizedSearch.length === 0 ||
         [
@@ -178,12 +178,17 @@ export default function VehicleHistoryPage() {
           .toLowerCase()
           .includes(normalizedSearch)
 
-      return matchesScope && matchesReleasedScope && matchesStatus && matchesSearch
+      return matchesScope && matchesReleasedScope && matchesSearch
     })
-  }, [currentUserName, records, role, scopedAgentNames, searchTerm, statusFilter])
+  }, [currentUserName, records, role, scopedAgentNames, searchTerm])
 
-  const totalReleased = filteredRecords.filter((record) => record.status === 'released').length
-  const totalPreparationSteps = filteredRecords.reduce(
+  const filteredRecords = React.useMemo(() => searchableRecords.filter((record) =>
+    (statusFilter === 'all' || record.status === statusFilter) &&
+    (!hasPreparationFilter || record.preparationSteps.length > 0)
+  ), [searchableRecords, statusFilter, hasPreparationFilter])
+
+  const totalReleased = searchableRecords.filter((record) => record.status === 'released').length
+  const totalPreparationSteps = searchableRecords.reduce(
     (total, record) => total + record.preparationSteps.length,
     0
   )
@@ -195,7 +200,7 @@ export default function VehicleHistoryPage() {
 
   React.useEffect(() => {
     setCurrentPage(1)
-  }, [itemsPerPage, searchTerm, statusFilter])
+  }, [itemsPerPage, searchTerm, statusFilter, hasPreparationFilter])
 
   React.useEffect(() => {
     if (currentPage > totalPages) {
@@ -206,7 +211,7 @@ export default function VehicleHistoryPage() {
   const handleExportPdf = () => {
     exportPdfReport({
       title: 'Release History Report',
-      subtitle: `Complete unit history; Status: ${statusFilter === 'all' ? 'All statuses' : statusLabels[statusFilter]}; Search: ${searchTerm.trim() || 'None'}`,
+      subtitle: `Complete unit history; Status: ${statusFilter === 'all' ? 'All statuses' : statusLabels[statusFilter]}; ${hasPreparationFilter ? 'With completed preparation steps; ' : ''}Search: ${searchTerm.trim() || 'None'}`,
       filename: 'vehicle-history-report',
       layout: 'table',
       columns: [
@@ -274,34 +279,29 @@ export default function VehicleHistoryPage() {
         </Button>
       </PageHeader>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <Card className="py-4">
-          <CardContent className="flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Units</p>
-              <p className="text-2xl font-bold">{filteredRecords.length}</p>
-            </div>
-            <Car className="size-5 text-primary" />
-          </CardContent>
-        </Card>
-        <Card className="py-4">
-          <CardContent className="flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Released</p>
-              <p className="text-2xl font-bold">{totalReleased}</p>
-            </div>
-            <PackageCheck className="size-5 text-success" />
-          </CardContent>
-        </Card>
-        <Card className="py-4">
-          <CardContent className="flex items-center justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Prep Steps</p>
-              <p className="text-2xl font-bold">{totalPreparationSteps}</p>
-            </div>
-            <ClipboardCheck className="size-5 text-primary" />
-          </CardContent>
-        </Card>
+      <div className="grid gap-3 md:grid-cols-3" aria-label="Release history summary filters">
+        {[
+          { key: 'all', title: 'Units', count: searchableRecords.length, description: 'Show all matching units', Icon: Car, color: 'text-primary', active: statusFilter === 'all' && !hasPreparationFilter },
+          { key: 'released', title: 'Released', count: totalReleased, description: 'Show released units', Icon: PackageCheck, color: 'text-success', active: statusFilter === 'released' && !hasPreparationFilter },
+          { key: 'preparation', title: 'Prep Steps', count: totalPreparationSteps, description: 'Show units with completed steps', Icon: ClipboardCheck, color: 'text-primary', active: hasPreparationFilter },
+        ].map(({ key, title, count, description, Icon, color, active }) => (
+          <Card key={key} className={`gap-0 overflow-hidden p-0 transition-colors ${active ? 'border-primary ring-1 ring-primary/30' : ''}`}>
+            <button type="button" aria-label={description} aria-pressed={active}
+              className="flex h-full w-full items-center justify-between gap-4 rounded-xl px-6 py-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+              onClick={() => {
+                setStatusFilter(key === 'released' ? 'released' : 'all')
+                setHasPreparationFilter(key === 'preparation')
+                setCurrentPage(1)
+              }}>
+              <div>
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{title}</p>
+                <p className="text-2xl font-bold tabular-nums">{count}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+              </div>
+              <Icon className={`size-5 shrink-0 ${color}`} />
+            </button>
+          </Card>
+        ))}
       </div>
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
@@ -329,6 +329,11 @@ export default function VehicleHistoryPage() {
             <SelectItem value="released">Released</SelectItem>
           </SelectContent>
         </Select>
+        {hasPreparationFilter && (
+          <Button variant="outline" size="sm" onClick={() => { setHasPreparationFilter(false); setCurrentPage(1) }}>
+            Clear completed prep steps filter
+          </Button>
+        )}
       </div>
 
       <Card className="gap-0 overflow-hidden py-0">
