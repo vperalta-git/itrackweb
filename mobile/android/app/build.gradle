@@ -92,8 +92,8 @@ android {
         applicationId 'com.itrack.mobile'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 95
-        versionName "95"
+        versionCode 97
+        versionName "97"
     }
     signingConfigs {
         debug {
