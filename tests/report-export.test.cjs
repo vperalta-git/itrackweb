@@ -292,3 +292,76 @@ test('driver allocation summary buttons match counts and manager scope, reset pa
   tree = render()
   assert.equal(table(tree).props.data.length, 6, 'All Status restores the manager-scoped list')
 })
+
+test('unit setup cards browse paginated variations and color assignments while preserving filters and existing editing', () => {
+  const units = Array.from({ length: 7 }, (_, index) => ({
+    unitName: `Unit ${index + 1}`,
+    variations: [{ name: '4x2 MT', transmission: 'Manual', bodyColors: index === 0 ? ['White', 'Red'] : ['White'] }],
+  }))
+  units[0].variations.push({ name: '4x4 AT', transmission: 'Automatic', bodyColors: ['Blue'] })
+  const state = []
+  let stateIndex
+  const load = createLoader({
+    react: { useState: initial => { const index = stateIndex++; if (!(index in state)) state[index] = typeof initial === 'function' ? initial() : initial; return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value }] }, useMemo: factory => factory(), useCallback: callback => callback, useEffect() {} },
+    '@/lib/unit-setup-data': {
+      loadUnitSetupConfig: () => units,
+      normalizeUnitSetupValue: value => value.trim().toLowerCase(),
+      subscribeToUnitSetup: () => () => {},
+      saveUnitSetupConfig: () => assert.fail('Browsing must not save configuration'),
+    },
+  })
+  const Page = load('app/(dashboard)/unit-setup/page.tsx').default
+  function elements(element, found = []) {
+    if (!element || typeof element !== 'object') return found
+    if (Array.isArray(element)) { element.forEach(value => elements(value, found)); return found }
+    found.push(element); elements(element.props?.children, found); return found
+  }
+  function textOf(element) {
+    if (element == null || typeof element === 'boolean') return ''
+    if (Array.isArray(element)) return element.map(textOf).join('')
+    return typeof element === 'object' ? textOf(element.props?.children) : String(element)
+  }
+  function render() { stateIndex = 0; return elements(Page()) }
+  const summary = (tree, label) => tree.find(element => element.type === 'button' && element.props['aria-label'] === label)
+  const action = (tree, label) => tree.find(element => element.type === 'Button' && textOf(element) === label)
+  const view = (tree, mode) => elements(tree.find(element => element.type === 'Card' && element.props['aria-label'] === `${mode} configuration view`))
+  const colors = tree => tree.filter(element => element.type === 'BodyColorChip').map(element => element.props.bodyColor)
+  let tree = render()
+  assert.equal(summary(tree, 'Show configured units').props.children[1].props.children, 7)
+  assert.equal(summary(tree, 'Browse individual variations').props.children[1].props.children, 8)
+  assert.equal(summary(tree, 'Browse unit and variation colors').props.children[1].props.children, 9, 'colors count unit-variation assignments, including repeated colors')
+  action(view(tree, 'units'), 'Next').props.onClick(); tree = render()
+  assert.match(textOf(view(tree, 'units')), /Page 2 of 2/)
+  summary(tree, 'Browse individual variations').props.onClick(); tree = render()
+  assert.equal(summary(tree, 'Browse individual variations').props['aria-pressed'], true)
+  assert.match(textOf(view(tree, 'variations')), /Showing 1-6 of 8 variations/)
+  assert.equal(view(tree, 'variations').filter(element => element.type === 'Button' && textOf(element) === 'Edit unit').length, 6)
+  action(view(tree, 'variations'), 'Next').props.onClick(); tree = render()
+  assert.match(textOf(view(tree, 'variations')), /Showing 7-8 of 8 variations/)
+  summary(tree, 'Browse individual variations').props.onClick(); tree = render()
+  assert.match(textOf(view(tree, 'variations')), /Page 1 of 2/, 'reselecting the card returns to page one')
+  tree.find(element => element.type === 'Input' && element.props.id === 'unit-search').props.onChange({ target: { value: 'red' } })
+  tree = render()
+  assert.deepEqual(colors(view(tree, 'variations')), ['White', 'Red'], 'variation search retains its complete allowed color list')
+  summary(tree, 'Browse unit and variation colors').props.onClick(); tree = render()
+  assert.deepEqual(colors(view(tree, 'colors')), ['Red'], 'color search excludes nonmatching assignments under the same unit')
+  assert.equal(tree.find(element => element.props?.id === 'unit-search').props.value, 'red')
+  action(view(tree, 'colors'), 'Edit unit').props.onClick(); tree = render()
+  assert.ok(tree.find(element => element.type === 'Dialog' && element.props.open))
+  const editor = tree.find(element => element.type === 'Input' && element.props.id === 'unit-name')
+  assert.equal(editor.props.value, 'Unit 1')
+  editor.props.onChange({ target: { value: 'Draft only' } }); tree = render()
+  assert.equal(units[0].unitName, 'Unit 1', 'opening and editing a draft must not mutate saved units')
+  tree.find(element => element.type === 'Dialog' && element.props.open).props.onOpenChange(false)
+  tree.find(element => element.type === 'SearchableSelect').props.onValueChange('Unit 2')
+  tree = render()
+  assert.match(textOf(view(tree, 'colors')), /No color assignments match/)
+  action(tree, 'Clear filters').props.onClick(); tree = render()
+  assert.equal(summary(tree, 'Browse unit and variation colors').props['aria-pressed'], true)
+  assert.match(textOf(view(tree, 'colors')), /Showing 1-6 of 9 color assignments/)
+  tree.find(element => element.type === 'SearchableSelect').props.onValueChange('Unit 2')
+  summary(tree, 'Browse individual variations').props.onClick(); tree = render()
+  assert.equal(tree.find(element => element.type === 'SearchableSelect').props.value, 'Unit 2')
+  assert.match(textOf(view(tree, 'variations')), /Showing 1-1 of 1 variations/)
+  assert.deepEqual(colors(view(tree, 'variations')), ['White'])
+})

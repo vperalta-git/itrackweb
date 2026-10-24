@@ -7,6 +7,7 @@ import {
   CirclePlus,
   Layers3,
   MoreHorizontal,
+  Palette,
   Pencil,
   Plus,
   Settings2,
@@ -60,6 +61,13 @@ type PendingDeleteState =
     }
   | null
 
+type SetupView = 'units' | 'variations' | 'colors'
+type SetupDetailRow = {
+  unit: UnitSetupRecord
+  variation: UnitSetupVariation
+  bodyColors: string[]
+}
+
 const emptyVariation = (): UnitSetupVariation => ({
   name: '',
   bodyColors: [],
@@ -108,7 +116,8 @@ export default function UnitSetupPage() {
   const [editorState, setEditorState] = React.useState<UnitEditorState>(emptyEditorState)
   const [colorInputs, setColorInputs] = React.useState<Record<number, string>>({})
   const [pendingDelete, setPendingDelete] = React.useState<PendingDeleteState>(null)
-  const unitsPerPage = 6
+  const [setupView, setSetupView] = React.useState<SetupView>('units')
+  const itemsPerPage = 6
 
   React.useEffect(() => subscribeToUnitSetup(setUnitSetup), [])
 
@@ -124,16 +133,36 @@ export default function UnitSetupPage() {
     })
   }, [focusedUnitName, query, sortedUnitSetup])
 
-  const totalPages = Math.max(1, Math.ceil(filteredUnits.length / unitsPerPage))
+  const detailRows = React.useMemo<SetupDetailRow[]>(() => {
+    if (setupView === 'units') return []
+    return filteredUnits.flatMap((unit) => unit.variations.flatMap((variation) => {
+      const rows = setupView === 'colors'
+        ? variation.bodyColors.map((bodyColor) => ({ unit, variation, bodyColors: [bodyColor] }))
+        : [{ unit, variation, bodyColors: variation.bodyColors }]
+      return rows.filter((row) => matchesSearch({
+        unitName: unit.unitName,
+        variations: [{ ...variation, bodyColors: row.bodyColors }],
+      }, query))
+    }))
+  }, [filteredUnits, query, setupView])
+
+  const resultCount = setupView === 'units' ? filteredUnits.length : detailRows.length
+  const resultLabel = setupView === 'units' ? 'units' : setupView === 'variations' ? 'variations' : 'color assignments'
+  const totalPages = Math.max(1, Math.ceil(resultCount / itemsPerPage))
 
   const paginatedUnits = React.useMemo(() => {
-    const start = (currentPage - 1) * unitsPerPage
-    return filteredUnits.slice(start, start + unitsPerPage)
+    const start = (currentPage - 1) * itemsPerPage
+    return filteredUnits.slice(start, start + itemsPerPage)
   }, [currentPage, filteredUnits])
+
+  const paginatedDetails = React.useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage
+    return detailRows.slice(start, start + itemsPerPage)
+  }, [currentPage, detailRows])
 
   React.useEffect(() => {
     setCurrentPage(1)
-  }, [query, focusedUnitName])
+  }, [query, focusedUnitName, setupView])
 
   React.useEffect(() => {
     if (currentPage > totalPages) {
@@ -403,38 +432,22 @@ export default function UnitSetupPage() {
         </Button>
       </PageHeader>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Configured Units</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{unitSetup.length}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Available in Vehicle Stocks</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Variations</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{totalVariations}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Linked beneath each unit name</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Color Assignments
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{totalColorAssignments}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Variation-specific body color options
-            </p>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 md:grid-cols-3" aria-label="Unit setup summary views">
+        {[
+          { view: 'units' as const, title: 'Configured Units', count: unitSetup.length, description: 'Show configured units', Icon: Settings2 },
+          { view: 'variations' as const, title: 'Total Variations', count: totalVariations, description: 'Browse individual variations', Icon: Layers3 },
+          { view: 'colors' as const, title: 'Color Assignments', count: totalColorAssignments, description: 'Browse unit and variation colors', Icon: Palette },
+        ].map(({ view, title, count, description, Icon }) => (
+          <Card key={view} className={`gap-0 overflow-hidden p-0 transition-colors ${setupView === view ? 'border-primary ring-1 ring-primary/30' : ''}`}>
+            <button type="button" aria-label={description} aria-pressed={setupView === view}
+              className="h-full w-full space-y-4 rounded-xl p-5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+              onClick={() => { setSetupView(view); setCurrentPage(1) }}>
+              <span className="flex items-center justify-between gap-2 text-sm font-medium text-muted-foreground">{title}<Icon className="size-4 shrink-0 text-primary" /></span>
+              <span className="block text-2xl font-bold tabular-nums">{count}</span>
+              <span className="block text-xs text-muted-foreground">{description}</span>
+            </button>
+          </Card>
+        ))}
       </div>
 
       <Card>
@@ -472,6 +485,7 @@ export default function UnitSetupPage() {
               onClick={() => {
                 setQuery('')
                 setFocusedUnitName('')
+                setCurrentPage(1)
               }}
               className="w-full md:w-auto"
             >
@@ -481,26 +495,29 @@ export default function UnitSetupPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card aria-label={`${setupView} configuration view`}>
         <CardHeader className="pb-3">
-          <CardTitle>Saved Unit Configuration</CardTitle>
+          <CardTitle>{setupView === 'units' ? 'Saved Unit Configuration' : setupView === 'variations' ? 'Configured Variations' : 'Body Color Assignments'}</CardTitle>
           <CardDescription>
-            These values directly power the Unit Name, Variation, and Body Color dropdowns in Add
-            New Vehicle.
+            {setupView === 'units'
+              ? 'These values directly power the Unit Name, Variation, and Body Color dropdowns in Add New Vehicle.'
+              : setupView === 'variations'
+              ? 'View each variation and its allowed body colors. Search and unit filters apply to this view.'
+              : 'Each color is listed with its unit and variation. Search and unit filters apply to this view.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-0 p-0">
-        <div className="hidden grid-cols-[minmax(0,1.6fr)_100px_100px_96px] items-center gap-4 border-y bg-muted/40 px-6 py-3 text-sm font-medium text-muted-foreground lg:grid">
+        {setupView === 'units' && <div className="hidden grid-cols-[minmax(0,1.6fr)_100px_100px_96px] items-center gap-4 border-y bg-muted/40 px-6 py-3 text-sm font-medium text-muted-foreground lg:grid">
           <span>Unit Name</span>
           <span>Variations</span>
           <span>Colors</span>
           <span className="text-right">Actions</span>
-        </div>
-        {filteredUnits.length === 0 ? (
+        </div>}
+        {resultCount === 0 ? (
           <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-            No unit setup matches your current filters. Try clearing the search or add a new unit.
+            No {resultLabel} match your current filters. Try clearing the search or add a new unit.
           </div>
-        ) : (
+        ) : setupView === 'units' ? (
           paginatedUnits.map((unit) => {
             const totalColors = unit.variations.reduce(
               (count, variation) => count + variation.bodyColors.length,
@@ -618,13 +635,37 @@ export default function UnitSetupPage() {
               </div>
             )
           })
+        ) : (
+          <div>
+            <div className="hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_auto] gap-4 border-y bg-muted/40 px-6 py-3 text-sm font-medium text-muted-foreground sm:grid">
+              <span>Unit / variation</span><span>{setupView === 'colors' ? 'Body color' : 'Allowed body colors'}</span><span className="w-24 text-right">Actions</span>
+            </div>
+            {paginatedDetails.map((row) => (
+              <div key={`${row.unit.unitName}-${row.variation.name}-${setupView === 'colors' ? row.bodyColors[0] : ''}`}
+                className="grid min-w-0 gap-4 border-b px-4 py-4 last:border-b-0 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_auto] sm:px-6">
+                <div className="min-w-0 space-y-1">
+                  <p className="break-words text-xs text-muted-foreground">{row.unit.unitName}</p>
+                  <p className="break-words font-semibold">{row.variation.name}</p>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {[row.variation.transmission, row.variation.drivetrain, row.variation.bodyType].filter(Boolean).map((value, index) => <Badge key={`${index}-${value}`} variant="secondary" className="max-w-full whitespace-normal">{value}</Badge>)}
+                  </div>
+                </div>
+                <div className="flex min-w-0 flex-wrap content-start items-start gap-2">
+                  {row.bodyColors.length > 0 ? row.bodyColors.map((color) => <Badge key={color} variant="outline" className="max-w-full rounded-full whitespace-normal"><BodyColorChip bodyColor={color} className="min-w-0" textClassName="break-words whitespace-normal text-xs" /></Badge>) : <span className="text-sm text-muted-foreground">No colors configured</span>}
+                </div>
+                <Button type="button" variant="outline" size="sm" className="justify-self-start sm:justify-self-end" onClick={() => handleOpenEdit(row.unit)}>
+                  <Pencil className="mr-2 size-3.5" />Edit unit
+                </Button>
+              </div>
+            ))}
+          </div>
         )}
-        {filteredUnits.length > 0 && (
+        {resultCount > 0 && (
           <div className="flex flex-col gap-3 border-t px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <p className="text-sm text-muted-foreground">
-              Showing {(currentPage - 1) * unitsPerPage + 1}-
-              {Math.min(currentPage * unitsPerPage, filteredUnits.length)} of {filteredUnits.length}{' '}
-              units
+              Showing {(currentPage - 1) * itemsPerPage + 1}-
+              {Math.min(currentPage * itemsPerPage, resultCount)} of {resultCount}{' '}
+              {resultLabel}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button
