@@ -117,6 +117,40 @@ assert.match(dataTable.props.getRowClassName(dataTable.props.data[0]), /border-r
 const gpsColumn = dataTable.props.columns.find(column => column.id === 'gpsLabel')
 assert.match(text(gpsColumn.cell({ row: { original: dataTable.props.data[0] } })), /URGENT: GPS unavailable/)
 assert.equal(walk(tableTree, node => node.type === 'DeliveryDelayHistory').length, 1)
+const detailsDialog = walk(tableTree, node => node.type === 'Dialog' && node.props.open)[0]
+const lastKnownMap = walk(detailsDialog, node => node.type === 'RouteMapFrame')[0]
+assert.deepEqual(lastKnownMap.props.focus, table.props.selected.coordinates)
+assert.deepEqual(lastKnownMap.props.origin, table.props.selected.originCoordinates)
+assert.deepEqual(lastKnownMap.props.destination, table.props.selected.destinationCoordinates)
+assert.equal(lastKnownMap.props.focusState, 'warning')
+assert.match(lastKnownMap.props.focusLabel, /Last known GPS position/)
+assert.equal(lastKnownMap.props.resolvedRoute, null, 'stale GPS never triggers a new route estimate')
+assert.match(text(detailsDialog), /This is not a live GPS fix/)
+const renderDetails = record => monitoringTable.DriverMonitoringTable({ ...table.props, selected: page.mapDriver(record, now), open: true })
+const liveMap = walk(renderDetails(recovered), node => node.type === 'RouteMapFrame')[0]
+assert.equal(liveMap.props.focusState, 'live')
+assert.deepEqual(liveMap.props.focus, { lat: recovered.currentLocation.latitude, lng: recovered.currentLocation.longitude })
+const unavailableDetails = renderDetails(noGps)
+assert.equal(walk(unavailableDetails, node => node.type === 'RouteMapFrame')[0].props.focus, null)
+assert.match(text(unavailableDetails), /Driver position unavailable/)
+
+let historyPage = 1
+let historyIndex = 0
+const historyEvents = Array.from({ length: 7 }, (_, index) => ({ id: `delay-${index}`, unit: 'D-MAX LS', conductionNumber: `UNIT-${index}`, origin: 'Pickup', destination: 'Destination', minutesDelayed: 180, status: 'completed', source: 'recorded_threshold', detectedAt: new Date(now).toISOString(), expectedArrivalAt: new Date(now - 3600000).toISOString(), actualReferenceAt: new Date(now).toISOString() }))
+const history = load('components/delivery-delay-history.tsx', {
+  react: { ...React, useEffect() {}, useState: () => { const index = historyIndex++; return [[historyEvents, false, '', historyPage][index], value => { if (index === 3) historyPage = value }] } },
+  '@/lib/api-client': { apiRequest: forbidden },
+})
+const renderHistory = () => { historyIndex = 0; return history.DeliveryDelayHistory({ driverId: 'driver-1' }) }
+const firstHistoryPage = renderHistory()
+assert.equal(walk(firstHistoryPage, node => node.type === 'TableBody')[0].props.children.length, 5)
+assert.equal(walk(firstHistoryPage, node => node.type === 'article').length, 5, 'mobile history uses readable cards')
+assert.match(text(firstHistoryPage), /1\s*–\s*5 of 7 recorded delays/)
+walk(firstHistoryPage, node => node.props?.['aria-label'] === 'Next history page')[0].props.onClick()
+const secondHistoryPage = renderHistory()
+assert.equal(walk(secondHistoryPage, node => node.type === 'TableBody')[0].props.children.length, 2)
+assert.match(text(secondHistoryPage), /6\s*–\s*7 of 7 recorded delays/)
+assert.equal(walk(secondHistoryPage, node => node.props?.['aria-label'] === 'Next history page')[0].props.disabled, true)
 assert.match(text(lostTree), /Active Deliveries/)
 assert.match(text(lostTree), /Delayed Deliveries/)
 assert.match(text(lostTree), /GPS Disconnected \/ Untrackable/)
