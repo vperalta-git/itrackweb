@@ -313,7 +313,7 @@ export function DataTable<TData, TValue>({
             {table.getFilteredRowModel().rows.length} row(s)
           </span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Rows per page</span>
             <Select

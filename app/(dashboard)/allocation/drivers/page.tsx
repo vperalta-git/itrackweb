@@ -22,6 +22,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
+  Clock3,
+  Users,
 } from 'lucide-react'
 
 import { RouteMapFrame } from '@/components/route-map-frame'
@@ -32,7 +34,7 @@ import { ConfirmActionDialog } from '@/components/confirm-action-dialog'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -215,6 +217,8 @@ export default function DriverAllocationPage() {
     React.useState<DriverAllocation | null>(null)
   const [allocationToCancel, setAllocationToCancel] =
     React.useState<DriverAllocation | null>(null)
+  const [isDriverDirectoryOpen, setIsDriverDirectoryOpen] = React.useState(false)
+  const [summaryFilterVersion, setSummaryFilterVersion] = React.useState(0)
 
   React.useEffect(() => {
     if (role === 'sales-agent' || role === 'manager') {
@@ -957,21 +961,21 @@ export default function DriverAllocationPage() {
     },
   ]
 
-  const filteredAllocations = React.useMemo(() => {
-    const scopedAllocations = allocations.filter(
+  const scopedAllocations = React.useMemo(() => allocations.filter(
       (allocation) =>
         matchesScopedAgent(role, allocation.salesAgent) &&
         matchesScopedManager(role, allocation.manager)
-    )
+    ), [allocations, role])
 
-    const managerScopedAllocations =
-      managerFilter === 'all'
-        ? scopedAllocations
-        : scopedAllocations.filter((allocation) => allocation.manager === managerFilter)
+  const visibleAllocations = React.useMemo(() => managerFilter === 'all'
+    ? scopedAllocations
+    : scopedAllocations.filter((allocation) => allocation.manager === managerFilter),
+  [scopedAllocations, managerFilter])
 
-    if (statusFilter === 'all') return managerScopedAllocations
-    return managerScopedAllocations.filter((allocation) => allocation.status === statusFilter)
-  }, [allocations, managerFilter, role, statusFilter])
+  const filteredAllocations = React.useMemo(() => statusFilter === 'all'
+    ? visibleAllocations
+    : visibleAllocations.filter((allocation) => allocation.status === statusFilter),
+  [visibleAllocations, statusFilter])
 
   const availableManagers = React.useMemo(
     () => Array.from(new Set(allocations.map((allocation) => allocation.manager))),
@@ -1424,59 +1428,37 @@ export default function DriverAllocationPage() {
         </Dialog>
       </PageHeader>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <Truck className="size-4" />
-              In Transit
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-info">
-              {allocations.filter((allocation) => allocation.status === 'in-transit').length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Pending Dispatch
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-warning">
-              {allocations.filter((allocation) => allocation.status === 'pending').length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Completed
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-success">
-              {allocations.filter((allocation) => allocation.status === 'completed').length}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Drivers
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{drivers.length}</div>
-          </CardContent>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Driver allocation summary">
+        {[
+          { status: 'in-transit', title: 'In Transit', description: 'Show in-transit assignments', Icon: Truck, color: 'text-info' },
+          { status: 'pending', title: 'Pending Dispatch', description: 'Show pending dispatches', Icon: Clock3, color: 'text-warning' },
+          { status: 'completed', title: 'Completed', description: 'Show completed assignments', Icon: CheckCircle2, color: 'text-success' },
+        ].map(({ status, title, description, Icon, color }) => (
+          <Card key={status} className={`gap-0 overflow-hidden p-0 transition-colors ${statusFilter === status ? 'border-primary ring-1 ring-primary/30' : ''}`}>
+            <button type="button" aria-label={description} aria-pressed={statusFilter === status}
+              className="h-full w-full space-y-4 rounded-xl p-5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+              onClick={() => { setStatusFilter(status); setSummaryFilterVersion((version) => version + 1) }}>
+              <span className="flex items-center justify-between gap-2 text-sm font-medium text-muted-foreground">{title}<Icon className={`size-4 shrink-0 ${color}`} /></span>
+              <span className={`block text-2xl font-bold tabular-nums ${color}`}>{visibleAllocations.filter((allocation) => allocation.status === status).length}</span>
+              <span className="block text-xs text-muted-foreground">{description}</span>
+            </button>
+          </Card>
+        ))}
+        <Card className={`gap-0 overflow-hidden p-0 transition-colors ${isDriverDirectoryOpen ? 'border-primary ring-1 ring-primary/30' : ''}`}>
+          <button type="button" aria-label="View active driver list" aria-haspopup="dialog" aria-expanded={isDriverDirectoryOpen}
+            className="h-full w-full space-y-4 rounded-xl p-5 text-left transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary"
+            onClick={() => setIsDriverDirectoryOpen(true)}>
+            <span className="flex items-center justify-between gap-2 text-sm font-medium text-muted-foreground">Total Drivers<Users className="size-4 shrink-0" /></span>
+            <span className="block text-2xl font-bold tabular-nums">{drivers.length}</span>
+            <span className="block text-xs text-muted-foreground">View active driver list</span>
+          </button>
         </Card>
       </div>
 
       <DataTable
         columns={columns}
         data={filteredAllocations}
+        paginationResetKey={`${statusFilter}:${managerFilter}:${summaryFilterVersion}`}
         searchKey="conductionNumber"
         searchPlaceholder="Search by conduction number..."
         exportConfig={{
@@ -1497,6 +1479,7 @@ export default function DriverAllocationPage() {
                 <SelectItem value="assigned">Assigned</SelectItem>
                 <SelectItem value="in-transit">In Transit</SelectItem>
                 <SelectItem value="available">Available</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
               </SelectContent>
             </Select>
             <Select value={managerFilter} onValueChange={setManagerFilter}>
@@ -1515,6 +1498,22 @@ export default function DriverAllocationPage() {
           </div>
         }
       />
+
+      <Dialog open={isDriverDirectoryOpen} onOpenChange={setIsDriverDirectoryOpen}>
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-3xl">
+          <DialogHeader className="shrink-0 border-b p-5 pr-12 text-left">
+            <DialogTitle>Active drivers</DialogTitle>
+            <DialogDescription>{drivers.length} active driver {drivers.length === 1 ? 'account' : 'accounts'}. Search by name to find contact details and current assignments.</DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto p-4 sm:p-5">
+            <DataTable data={drivers} searchKey="name" searchPlaceholder="Search driver name..." tableClassName="table-fixed [&_td]:whitespace-normal [&_th]:whitespace-normal"
+              columns={[
+                { accessorKey: 'name', header: 'Driver', meta: { headerClassName: 'w-3/5' }, cell: ({ row }) => <div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><Avatar className="size-8 shrink-0"><AvatarImage src={row.original.avatarUrl} alt="" /><AvatarFallback>{row.original.name.split(' ').map((part) => part[0]).slice(0, 2).join('')}</AvatarFallback></Avatar><span className="min-w-0 break-words font-medium">{row.original.name}</span></div><p className="mt-2 break-words text-xs text-muted-foreground">{row.original.phone || 'Phone not recorded'}</p></div> },
+                { id: 'assignments', header: 'Assignments', meta: { headerClassName: 'w-2/5 break-words' }, cell: ({ row }) => <span className="tabular-nums">{scopedAllocations.filter((allocation) => ['pending', 'assigned', 'in-transit'].includes(allocation.status) && (allocation.driverId ? allocation.driverId === row.original.id : allocation.assignedDriver === row.original.name)).length}</span> },
+              ]} />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isViewDetailsOpen} onOpenChange={setIsViewDetailsOpen}>
         <DialogContent className="max-w-2xl">

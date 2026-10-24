@@ -230,3 +230,65 @@ test('release history summary buttons filter records, preserve search and role s
   assert.equal(exportRows(tree).length, 3)
   assert.ok(options.rows.every(record => record.agentAssigned === 'Ana <Tester>' && record.status === 'released'), 'summary buttons preserve restricted release visibility')
 })
+
+test('driver allocation summary buttons match counts and manager scope, reset pagination and open the active driver directory', () => {
+  const statuses = ['pending', 'assigned', 'in-transit', 'completed', 'available', 'cancelled']
+  const allocations = ['A', 'B'].flatMap(manager => statuses.map(status => ({ id: `${manager}-${status}`, status, manager: `Manager ${manager}`, salesAgent: 'Visible Agent', assignedDriver: `Driver ${manager}`, driverId: `driver-${manager}`, conductionNumber: `${manager}-${status}` })))
+  allocations.push({ ...allocations[2], id: 'hidden', salesAgent: 'Hidden Agent' })
+  const users = ['A', 'B'].map(name => ({ id: `driver-${name}`, firstName: 'Driver', lastName: name, phone: '09123456789', role: 'driver', status: 'active' }))
+  users.push({ id: 'inactive', firstName: 'Inactive', lastName: 'Driver', role: 'driver', status: 'inactive' })
+  const state = []
+  let stateIndex
+  const load = createLoader({
+    react: { useState: initial => { const index = stateIndex++; if (!(index in state)) state[index] = typeof initial === 'function' ? initial() : initial; return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value }] }, useMemo: factory => factory(), useCallback: callback => callback, useEffect() {} },
+    'next/navigation': { usePathname: () => '/admin/driver-allocation/allocation', useRouter: () => ({ replace() {} }) },
+    '@/lib/driver-allocation-data': { loadDriverAllocations: () => allocations },
+    '@/lib/inventory-data': { loadInventoryVehicles: () => [] },
+    '@/lib/user-data': { loadUsers: () => users },
+    '@/lib/map-location': { formatMapLocationLabel: value => value?.label ?? '' },
+    '@/lib/role-scope': { matchesScopedAgent: (_, name) => name !== 'Hidden Agent', matchesScopedManager: () => true },
+  })
+  const Page = load('app/(dashboard)/allocation/drivers/page.tsx').default
+  function elements(element, found = []) {
+    if (!element || typeof element !== 'object') return found
+    if (Array.isArray(element)) { element.forEach(value => elements(value, found)); return found }
+    found.push(element); elements(element.props?.children, found); return found
+  }
+  function render() { stateIndex = 0; return elements(Page()) }
+  const button = (tree, label) => tree.find(element => element.type === 'button' && element.props['aria-label'] === label)
+  const table = tree => tree.find(element => element.type === 'DataTable' && element.props.searchKey === 'conductionNumber')
+  let tree = render()
+  assert.equal(table(tree).props.data.length, 12)
+  const initialResetKey = table(tree).props.paginationResetKey
+  for (const [label, status] of [['Show in-transit assignments', 'in-transit'], ['Show pending dispatches', 'pending'], ['Show completed assignments', 'completed']]) {
+    button(tree, label).props.onClick(); tree = render()
+    assert.equal(button(tree, label).props['aria-pressed'], true)
+    assert.equal(table(tree).props.data.length, 2)
+    assert.ok(table(tree).props.data.every(record => record.status === status))
+    assert.equal(button(tree, label).props.children[1].props.children, 2)
+  }
+  assert.notEqual(table(tree).props.paginationResetKey, initialResetKey)
+  assert.ok(elements(table(tree).props.filterComponent).some(element => element.type === 'SelectItem' && element.props.value === 'completed'))
+  const filters = elements(table(tree).props.filterComponent).filter(element => element.type === 'Select')
+  filters[1].props.onValueChange('Manager A'); tree = render()
+  assert.equal(table(tree).props.data.length, 1)
+  assert.equal(table(tree).props.data[0].id, 'A-completed')
+  assert.equal(button(tree, 'Show in-transit assignments').props.children[1].props.children, 1)
+  const selectedResetKey = table(tree).props.paginationResetKey
+  button(tree, 'Show completed assignments').props.onClick(); tree = render()
+  assert.notEqual(table(tree).props.paginationResetKey, selectedResetKey, 'reselecting the active card also resets pagination')
+  const directoryResetKey = table(tree).props.paginationResetKey
+  button(tree, 'View active driver list').props.onClick(); tree = render()
+  const dialog = tree.find(element => element.type === 'Dialog' && element.props.open)
+  assert.ok(dialog)
+  const directory = elements(dialog).find(element => element.type === 'DataTable')
+  assert.equal(directory.props.searchKey, 'name')
+  assert.deepEqual(directory.props.data.map(driver => driver.id), ['driver-A', 'driver-B'])
+  assert.equal(directory.props.columns[1].cell({ row: { original: directory.props.data[0] } }).props.children, 3)
+  assert.equal(table(tree).props.paginationResetKey, directoryResetKey, 'opening the directory preserves the allocation search and pagination state')
+  dialog.props.onOpenChange(false); tree = render()
+  assert.equal(table(tree).props.data[0].id, 'A-completed')
+  elements(table(tree).props.filterComponent).find(element => element.type === 'Select').props.onValueChange('all')
+  tree = render()
+  assert.equal(table(tree).props.data.length, 6, 'All Status restores the manager-scoped list')
+})
