@@ -1041,7 +1041,19 @@ function PreparationPageContent() {
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
+        <Card
+          role="button"
+          tabIndex={0}
+          aria-pressed={statusFilter === 'pending'}
+          className="cursor-pointer transition-colors hover:border-primary/50"
+          onClick={() => setStatusFilter('pending')}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              setStatusFilter('pending')
+            }
+          }}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Pending
@@ -1053,7 +1065,19 @@ function PreparationPageContent() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          role="button"
+          tabIndex={0}
+          aria-pressed={statusFilter === 'in-dispatch'}
+          className="cursor-pointer transition-colors hover:border-primary/50"
+          onClick={() => setStatusFilter('in-dispatch')}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              setStatusFilter('in-dispatch')
+            }
+          }}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               In Dispatch
@@ -1065,7 +1089,19 @@ function PreparationPageContent() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          role="button"
+          tabIndex={0}
+          aria-pressed={statusFilter === 'completed'}
+          className="cursor-pointer transition-colors hover:border-primary/50"
+          onClick={() => setStatusFilter('completed')}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              setStatusFilter('completed')
+            }
+          }}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Completed
@@ -1077,7 +1113,19 @@ function PreparationPageContent() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card
+          role="button"
+          tabIndex={0}
+          aria-pressed={statusFilter === 'ready-for-release'}
+          className="cursor-pointer transition-colors hover:border-primary/50"
+          onClick={() => setStatusFilter('ready-for-release')}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              setStatusFilter('ready-for-release')
+            }
+          }}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Ready for Release
@@ -1112,6 +1160,7 @@ function PreparationPageContent() {
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
                 <SelectItem value="in-dispatch">In Dispatch</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="ready-for-release">Ready for Release</SelectItem>
                 <SelectItem value="rejected">Rejected</SelectItem>
               </SelectContent>

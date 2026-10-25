@@ -541,7 +541,7 @@ export const notifyDriverAllocationUpdated = async ({
 
     switch (nextAllocation?.status) {
       case 'assigned':
-        title = 'Dispatch accepted';
+        title = 'Driver accepted';
         message = `${driverName} accepted ${vehicleLabel}.`;
         break;
       case 'in_transit':
@@ -589,7 +589,7 @@ export const notifyDriverAllocationUpdated = async ({
 
     switch (nextAllocation?.status) {
       case 'assigned':
-        title = 'Dispatch accepted';
+        title = 'Driver accepted';
         message = `${driverName} accepted ${vehicleLabel}.`;
         break;
       case 'in_transit':

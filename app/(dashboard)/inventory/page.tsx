@@ -424,7 +424,7 @@ function InventoryPageContent() {
     }
   }
 
-  const handleDeleteVehicle = async () => {
+  const handleDeleteVehicle = async (reason?: string) => {
     if (isSaving) return
     if (!vehicleToDelete) return
 
@@ -443,7 +443,7 @@ function InventoryPageContent() {
         user: getAuditActor(role),
         action: 'DELETE',
         module: 'Inventory',
-        description: `Deleted vehicle ${vehicleToDelete.conductionNumber} from stocks.`,
+        description: `Deleted vehicle ${vehicleToDelete.conductionNumber} from stocks. Reason: ${reason?.trim() ?? ''}`,
       })
       toast.success('Vehicle deleted from stocks.')
       setVehicleToDelete(null)
@@ -1290,6 +1290,8 @@ function InventoryPageContent() {
             : ''
         }
         confirmLabel="Delete"
+        requireReason
+        reasonLabel="Deletion reason"
         onConfirm={handleDeleteVehicle}
       />
     </div>

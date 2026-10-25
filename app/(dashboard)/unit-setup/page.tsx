@@ -46,6 +46,7 @@ import {
   type UnitSetupRecord,
   type UnitSetupVariation,
 } from '@/lib/unit-setup-data'
+import { getAuditActor, logAuditEvent } from '@/lib/audit-log'
 
 type UnitEditorState = {
   originalUnitName: string | null
@@ -57,7 +58,7 @@ type PendingDeleteState =
   | {
       title: string
       description: string
-      onConfirm: () => void
+      onConfirm: (reason: string) => void
     }
   | null
 
@@ -393,10 +394,16 @@ export default function UnitSetupPage() {
       setPendingDelete({
         title: 'Delete unit setup',
         description: `Remove ${unit.unitName} and all of its variations and body colors from the dropdown configuration? Existing stock records will remain, but new entries will no longer be able to select these combinations.`,
-        onConfirm: () => {
+        onConfirm: (reason) => {
           persistUnitSetup(unitSetup.filter((entry) => entry.unitName !== unit.unitName))
           setExpandedUnits((current) => current.filter((value) => value !== unit.unitName))
           setFocusedUnitName((current) => (current === unit.unitName ? '' : current))
+          logAuditEvent({
+            user: getAuditActor('admin'),
+            action: 'DELETE',
+            module: 'Unit Setup',
+            description: `Deleted unit setup ${unit.unitName}. Reason: ${reason}`,
+          })
           toast.success(`${unit.unitName} was removed from Unit Setup.`)
         },
       })
@@ -410,12 +417,18 @@ export default function UnitSetupPage() {
     setPendingDelete({
       title: 'Delete variation',
       description: `Remove ${variationName} and all of its body colors from the current unit setup draft?`,
-      onConfirm: () => {
+      onConfirm: (reason) => {
         setEditorState((current) => ({
           ...current,
           variations: current.variations.filter((_, index) => index !== variationIndex),
         }))
         setColorInputs({})
+        logAuditEvent({
+          user: getAuditActor('admin'),
+          action: 'DELETE',
+          module: 'Unit Setup',
+          description: `Deleted variation ${variationName}. Reason: ${reason}`,
+        })
       },
     })
   }, [editorState.variations])
@@ -929,8 +942,10 @@ export default function UnitSetupPage() {
         title={pendingDelete?.title ?? 'Confirm delete'}
         description={pendingDelete?.description ?? 'Are you sure you want to continue?'}
         confirmLabel="Delete"
-        onConfirm={() => {
-          pendingDelete?.onConfirm()
+        requireReason
+        reasonLabel="Deletion reason"
+        onConfirm={(reason) => {
+          pendingDelete?.onConfirm(reason ?? '')
           setPendingDelete(null)
         }}
       />
