@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+import DatePicker from 'react-native-date-picker';
 import type { Location } from '@/src/mobile/components/MapView';
 import {
   Button,
@@ -18,7 +19,7 @@ import {
   SegmentedControl,
   StandaloneFormLayout,
 } from '@/src/mobile/components';
-import { theme } from '@/src/mobile/constants/theme';
+import { AppTheme, useTheme } from '@/src/mobile/constants/theme';
 import {
   DRIVER_ALLOCATION_LOCATION_OPTIONS,
   type DriverAllocationLocationOption,
@@ -49,7 +50,7 @@ type FormErrors = {
 type DriverAllocationFormValues = {
   unitId: string | null;
   driverId: string | null;
-  scheduledShipmentAt: string;
+  scheduledShipmentAt: Date | null;
   pickupId: string | null;
   destinationId: string | null;
 };
@@ -66,7 +67,7 @@ type CuratedLocationPreset = {
 const DEFAULT_FORM_VALUES: DriverAllocationFormValues = {
   unitId: null,
   driverId: null,
-  scheduledShipmentAt: '',
+  scheduledShipmentAt: null,
   pickupId: null,
   destinationId: null,
 };
@@ -103,22 +104,13 @@ const CURATED_LOCATION_PRESETS: CuratedLocationPreset[] = [
   },
 ];
 
-function formatShipmentInputValue(value?: Date | null) {
-  const date = value ?? new Date(Date.now() + 60 * 60 * 1000);
-
-  return date.toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
-
-function parseShipmentInputValue(value: string) {
-  const parsedDate = new Date(value);
-
-  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+function getShipmentDate(value?: Date | null) {
+  if (value && !Number.isNaN(value.getTime())) {
+    return new Date(value.getTime());
+  }
+  const date = new Date(Date.now() + 60 * 60 * 1000);
+  date.setSeconds(0, 0);
+  return date;
 }
 
 function normalizeSearchValue(value: string | null | undefined) {
@@ -301,6 +293,8 @@ function getRouteInitialRegion(
 }
 
 export default function DriverAllocationFormScreen() {
+  const theme = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const navigation = useNavigation();
   const { mode, allocationId } = useLocalSearchParams<{
     mode?: string | string[];
@@ -312,6 +306,7 @@ export default function DriverAllocationFormScreen() {
     : allocationId;
   const isEditMode = resolvedMode === 'edit';
   const allowImmediateDismissRef = useRef(false);
+  const submittingRef = useRef(false);
   const [editableAllocation, setEditableAllocation] = useState(() =>
     isEditMode && resolvedAllocationId
       ? findDriverAllocationRecord(resolvedAllocationId)
@@ -322,7 +317,7 @@ export default function DriverAllocationFormScreen() {
     () => ({
       unitId: editableAllocation?.unitId ?? DEFAULT_FORM_VALUES.unitId,
       driverId: editableAllocation?.driverId ?? DEFAULT_FORM_VALUES.driverId,
-      scheduledShipmentAt: formatShipmentInputValue(
+      scheduledShipmentAt: getShipmentDate(
         editableAllocation?.scheduledShipmentAt ?? null
       ),
       pickupId: editableAllocation?.pickupId ?? DEFAULT_FORM_VALUES.pickupId,
@@ -334,7 +329,9 @@ export default function DriverAllocationFormScreen() {
 
   const [unitId, setUnitId] = useState<string | null>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
-  const [scheduledShipmentAt, setScheduledShipmentAt] = useState('');
+  const [scheduledShipmentAt, setScheduledShipmentAt] = useState<Date | null>(null);
+  const [dateTimePickerOpen, setDateTimePickerOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [pickupId, setPickupId] = useState<string | null>(null);
   const [destinationId, setDestinationId] = useState<string | null>(null);
   const [locationOptions, setLocationOptions] = useState<
@@ -404,6 +401,7 @@ export default function DriverAllocationFormScreen() {
     setUnitId(initialFormValues.unitId);
     setDriverId(initialFormValues.driverId);
     setScheduledShipmentAt(initialFormValues.scheduledShipmentAt);
+    setDateTimePickerOpen(false);
     setPickupId(initialFormValues.pickupId);
     setDestinationId(initialFormValues.destinationId);
     setLocationOptions(DRIVER_ALLOCATION_LOCATION_OPTIONS);
@@ -506,7 +504,7 @@ export default function DriverAllocationFormScreen() {
     () =>
       unitId !== initialFormValues.unitId ||
       driverId !== initialFormValues.driverId ||
-      scheduledShipmentAt !== initialFormValues.scheduledShipmentAt ||
+      scheduledShipmentAt?.getTime() !== initialFormValues.scheduledShipmentAt?.getTime() ||
       pickupId !== initialFormValues.pickupId ||
       destinationId !== initialFormValues.destinationId,
     [destinationId, driverId, initialFormValues, pickupId, scheduledShipmentAt, unitId]
@@ -771,6 +769,7 @@ export default function DriverAllocationFormScreen() {
   };
 
   const handleBackPress = () => {
+    if (submittingRef.current) return;
     if (!hasUnsavedChanges) {
       dismissWithoutConfirmation();
       return;
@@ -781,6 +780,10 @@ export default function DriverAllocationFormScreen() {
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      if (submittingRef.current) {
+        event.preventDefault();
+        return;
+      }
       if (!hasUnsavedChanges || allowImmediateDismissRef.current) {
         return;
       }
@@ -806,13 +809,8 @@ export default function DriverAllocationFormScreen() {
       nextErrors.driverId = 'Select an available driver.';
     }
 
-    const parsedShipmentDate = parseShipmentInputValue(scheduledShipmentAt);
-
-    if (!scheduledShipmentAt.trim()) {
-      nextErrors.scheduledShipmentAt = 'Enter the shipment date and time.';
-    } else if (!parsedShipmentDate) {
-      nextErrors.scheduledShipmentAt =
-        'Use a valid date and time, for example Jun 30, 2026, 9:00 AM.';
+    if (!scheduledShipmentAt || Number.isNaN(scheduledShipmentAt.getTime())) {
+      nextErrors.scheduledShipmentAt = 'Select the shipment date and time.';
     }
 
     if (!pickupId) {
@@ -832,6 +830,7 @@ export default function DriverAllocationFormScreen() {
   };
 
   const handleSubmitAllocation = async () => {
+    if (submittingRef.current) return;
     if (isEditMode && !editableAllocation) {
       Alert.alert(
         'Allocation not found',
@@ -844,12 +843,14 @@ export default function DriverAllocationFormScreen() {
       return;
     }
 
+    submittingRef.current = true;
+    setIsSubmitting(true);
     try {
       const savedAllocation = await saveDriverAllocation({
         id: editableAllocation?.id,
         unitId: unitId ?? '',
         driverId: driverId ?? '',
-        scheduledShipmentAt: parseShipmentInputValue(scheduledShipmentAt)!,
+        scheduledShipmentAt: scheduledShipmentAt!,
         pickupId: pickupId ?? '',
         destinationId: destinationId ?? '',
       });
@@ -873,6 +874,9 @@ export default function DriverAllocationFormScreen() {
           ? error.message
           : 'Please review the dispatch details and try again.'
       );
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -890,9 +894,8 @@ export default function DriverAllocationFormScreen() {
         <Card style={styles.card}>
           <Text style={styles.sectionTitle}>Basic Information</Text>
           <Text style={styles.sectionSubtitle}>
-            Choose a unit currently tagged as In Stockyard and assign it to one
-            available driver. New driver allocations are saved as Pending until
-            the driver accepts the booking and starts the trip.
+            Choose an available or in-stockyard unit and an available driver.
+            The booking stays Pending until the driver accepts it.
           </Text>
 
           <Select
@@ -912,11 +915,11 @@ export default function DriverAllocationFormScreen() {
             }}
             searchPlaceholder="Search unit"
             error={errors.unitId}
+            disabled={isSubmitting}
           />
 
           <Text style={styles.fieldHint}>
-            Only units with an In Stockyard status and no active driver
-            allocation can be selected here.
+            Units with an active driver allocation are excluded.
           </Text>
 
           <Select
@@ -936,36 +939,11 @@ export default function DriverAllocationFormScreen() {
             }}
             searchPlaceholder="Search driver"
             error={errors.driverId}
+            disabled={isSubmitting}
           />
 
           <Text style={styles.fieldHint}>
             A driver can only have one active booking at a time.
-          </Text>
-
-          <Input
-            label="Vehicle Shipment Date and Time *"
-            placeholder="Example: Jun 30, 2026, 9:00 AM"
-            value={scheduledShipmentAt}
-            onChangeText={(value) => {
-              setScheduledShipmentAt(value);
-              setErrors((current) => ({
-                ...current,
-                scheduledShipmentAt: undefined,
-              }));
-            }}
-            error={errors.scheduledShipmentAt}
-            icon={
-              <Ionicons
-                name="calendar-outline"
-                size={18}
-                color={theme.colors.textSubtle}
-              />
-            }
-          />
-
-          <Text style={styles.fieldHint}>
-            This is the planned shipment schedule. The actual trip start is
-            recorded automatically when the driver taps Start Trip.
           </Text>
 
           {selectedUnit || selectedDriver ? (
@@ -989,6 +967,50 @@ export default function DriverAllocationFormScreen() {
               ) : null}
             </View>
           ) : null}
+        </Card>
+
+        <Card style={styles.card}>
+          <Text style={styles.sectionTitle}>Shipment Schedule</Text>
+          <Text style={styles.sectionSubtitle}>
+            Choose the planned date and time. The actual start is recorded when
+            the driver starts the trip.
+          </Text>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Select shipment date and time"
+            accessibilityHint="Opens the date and time picker"
+            disabled={isSubmitting}
+            activeOpacity={0.8}
+            onPress={() => setDateTimePickerOpen(true)}
+            style={[
+              styles.scheduleField,
+              errors.scheduledShipmentAt && styles.scheduleFieldError,
+            ]}
+          >
+            <View style={styles.scheduleIcon}>
+              <Ionicons name="calendar-outline" size={22} color={theme.colors.primary} />
+            </View>
+            <View style={styles.scheduleCopy}>
+              <Text style={styles.scheduleLabel}>Shipment date &amp; time *</Text>
+              <Text style={styles.scheduleDate}>
+                {scheduledShipmentAt
+                  ? scheduledShipmentAt.toLocaleDateString('en-US', {
+                      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+                    })
+                  : 'Select a date'}
+              </Text>
+              <Text style={styles.scheduleTime}>
+                {scheduledShipmentAt
+                  ? scheduledShipmentAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                  : 'Tap to choose a date and time'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.colors.textSubtle} />
+          </TouchableOpacity>
+          {errors.scheduledShipmentAt ? (
+            <Text style={styles.scheduleErrorText}>{errors.scheduledShipmentAt}</Text>
+          ) : null}
+          <Text style={styles.scheduleHint}>Shown in your device&apos;s local time.</Text>
         </Card>
 
         <Card style={styles.card}>
@@ -1391,6 +1413,8 @@ export default function DriverAllocationFormScreen() {
           <Button
             title={isEditMode ? 'Save Changes' : 'Add Allocation'}
             onPress={handleSubmitAllocation}
+            loading={isSubmitting}
+            disabled={isSubmitting}
             fullWidth
             icon={
               !isEditMode ? (
@@ -1404,11 +1428,25 @@ export default function DriverAllocationFormScreen() {
             style={isEditMode ? styles.editSubmitButton : undefined}
           />
         </View>
+        <DatePicker
+          modal
+          title="Shipment date and time"
+          confirmText="Set schedule"
+          open={dateTimePickerOpen}
+          date={scheduledShipmentAt ?? initialFormValues.scheduledShipmentAt ?? getShipmentDate()}
+          mode="datetime"
+          onConfirm={(date) => {
+            setDateTimePickerOpen(false);
+            setScheduledShipmentAt(new Date(date.getTime()));
+            setErrors((current) => ({ ...current, scheduledShipmentAt: undefined }));
+          }}
+          onCancel={() => setDateTimePickerOpen(false)}
+        />
     </StandaloneFormLayout>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: AppTheme) => StyleSheet.create({
   content: {
     paddingBottom: theme.spacing['2xl'],
   },
@@ -1436,6 +1474,62 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.base,
     fontSize: 12,
     color: theme.colors.textSubtle,
+    fontFamily: theme.fonts.family.sans,
+  },
+  scheduleField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    padding: theme.spacing.base,
+    borderWidth: 1,
+    borderColor: theme.colors.borderStrong,
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.surfaceMuted,
+  },
+  scheduleFieldError: {
+    borderColor: theme.colors.error,
+  },
+  scheduleIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: theme.radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primarySurface,
+  },
+  scheduleCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  scheduleLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme.colors.textMuted,
+    fontFamily: theme.fonts.family.sans,
+  },
+  scheduleDate: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: theme.colors.text,
+    fontFamily: theme.fonts.family.sans,
+  },
+  scheduleTime: {
+    fontSize: 14,
+    color: theme.colors.primary,
+    fontWeight: '600',
+    fontFamily: theme.fonts.family.sans,
+  },
+  scheduleHint: {
+    marginTop: theme.spacing.sm,
+    fontSize: 12,
+    color: theme.colors.textSubtle,
+    fontFamily: theme.fonts.family.sans,
+  },
+  scheduleErrorText: {
+    marginTop: theme.spacing.sm,
+    fontSize: 12,
+    color: theme.colors.error,
     fontFamily: theme.fonts.family.sans,
   },
   selectionSummary: {

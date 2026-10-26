@@ -277,9 +277,12 @@ export async function updateInventoryVehicleRecord(
   return syncInventoryVehiclesFromBackend()
 }
 
-export async function deleteInventoryVehicleRecord(id: string) {
+export async function deleteInventoryVehicleRecord(id: string, reason?: string) {
   await apiRequest(`/vehicles/${id}`, {
     method: 'DELETE',
+    headers: reason?.trim()
+      ? { 'X-Action-Reason': encodeURIComponent(reason.trim()) }
+      : undefined,
   })
 
   return syncInventoryVehiclesFromBackend()

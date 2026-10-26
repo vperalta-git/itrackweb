@@ -140,6 +140,26 @@ test('API client rejects HTTP-success failure envelopes and malformed responses 
   })
 })
 
+test('stock deletion sends the reason collected by its dialog without opening a second reason prompt', async () => {
+  const requests = []
+  const { load } = createLoader({
+    overrides: {
+      '@/lib/action-reason': { requestActionReason: () => assert.fail('The stock dialog already collected the reason') },
+    },
+    fetch: async (url, init) => {
+      requests.push({ pathname: new URL(url).pathname, method: init.method, reason: init.headers.get('X-Action-Reason') })
+      return new Response(JSON.stringify({ success: true, data: [] }), { status: 200 })
+    },
+  })
+  await load('lib/inventory-data.ts').deleteInventoryVehicleRecord('vehicle-1', '  Duplicate stock entry — verified  ')
+  assert.equal(requests.filter(request => request.method === 'DELETE').length, 1)
+  assert.deepEqual(requests[0], {
+    pathname: '/api/backend/vehicles/vehicle-1', method: 'DELETE',
+    reason: encodeURIComponent('Duplicate stock entry — verified'),
+  })
+  assert.ok(requests.slice(1).every(request => request.method === 'GET'), 'the remaining requests only refresh stock data')
+})
+
 const routeFixture = {
   id: 'trip', status: 'in-transit', routeProgress: 0.62, estimatedDuration: 30,
   pickupLocationDetails: { name: 'Origin', address: 'A', latitude: 14.5, longitude: 121 },

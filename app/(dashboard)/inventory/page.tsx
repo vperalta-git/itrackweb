@@ -430,7 +430,7 @@ function InventoryPageContent() {
 
     try {
       setIsSaving(true)
-      const nextVehicles = await deleteInventoryVehicleRecord(vehicleToDelete.id)
+      const nextVehicles = await deleteInventoryVehicleRecord(vehicleToDelete.id, reason)
       setVehicles(nextVehicles)
 
       if (selectedVehicle?.id === vehicleToDelete.id) {
