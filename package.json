@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "test": "node tests/auth.test.cjs && node tests/compliance-web.test.cjs && node tests/report-export.test.cjs && node backend/tests/accountAccess.test.js && node backend/tests/authFlow.test.js && node backend/tests/operationAccess.test.js && node backend/tests/complianceValidation.test.js",
     "test:production": "node tests/production-auth-smoke.cjs",
-    "test:operations": "node tests/operational-ui.test.cjs && node backend/tests/operationalFlows.test.js"
+    "test:operations": "node tests/operational-ui.test.cjs && node backend/tests/operationalFlows.test.js && node backend/tests/driverDecisionFlows.test.js && node mobile/tests/driver-decision-flows.test.cjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

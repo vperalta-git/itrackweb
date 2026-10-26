@@ -220,6 +220,7 @@ export default function DriverAllocationPage() {
   const [isDriverDirectoryOpen, setIsDriverDirectoryOpen] = React.useState(false)
   const [summaryFilterVersion, setSummaryFilterVersion] = React.useState(0)
   const [reviewingStopId, setReviewingStopId] = React.useState<string | null>(null)
+  const [reviewingRejectionId, setReviewingRejectionId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (role === 'sales-agent' || role === 'manager') {
@@ -777,8 +778,12 @@ export default function DriverAllocationPage() {
   }
 
   const handleReviewRejection = async (allocation: DriverAllocation, action: 'approve' | 'reject') => {
-    const reviewNotes = await requestActionReason(`${action === 'approve' ? 'Approve' : 'Deny'} booking rejection for ${allocation.conductionNumber}. Driver reason: ${allocation.rejectionRequest?.reason ?? ''}`)
-    if (!reviewNotes) return
+    if (reviewingRejectionId || !['admin', 'supervisor'].includes(role) || allocation.rejectionRequest?.status !== 'pending' || !['pending', 'assigned'].includes(allocation.status)) return
+    setReviewingRejectionId(allocation.id)
+    const reviewNotes = await requestActionReason(`${action === 'approve' ? 'Approve' : 'Deny'} booking rejection for ${allocation.conductionNumber}. Driver reason: ${allocation.rejectionRequest.reason}`, {
+      title: 'Review booking rejection', confirmLabel: action === 'approve' ? 'Approve Rejection' : 'Deny Rejection', cancelLabel: 'Go back',
+    })
+    if (!reviewNotes) { setReviewingRejectionId(null); return }
     try {
       await apiRequest(`/driver-allocations/${allocation.id}/rejection-request`, { method: 'PATCH', body: { action, reviewNotes } })
       const next = await syncDriverAllocationsFromBackend()
@@ -786,6 +791,7 @@ export default function DriverAllocationPage() {
       setSelectedAllocation((current) => current?.id === allocation.id ? next.find((item) => item.id === current.id) ?? null : current)
       toast.success(action === 'approve' ? 'Rejection approved. Booking cancelled.' : 'Rejection denied. Driver notified.')
     } catch (error) { toast.error(error instanceof Error ? error.message : 'Unable to review rejection.') }
+    finally { setReviewingRejectionId(null) }
   }
 
   const columns: ColumnDef<DriverAllocation>[] = [
@@ -930,10 +936,10 @@ export default function DriverAllocationPage() {
                   </Link>
                 </DropdownMenuItem>
               )}
-              {allocation.rejectionRequest?.status === 'pending' && <>
+              {allocation.rejectionRequest?.status === 'pending' && ['pending', 'assigned'].includes(allocation.status) && ['admin', 'supervisor'].includes(role) && <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => void handleReviewRejection(allocation, 'approve')}>Approve booking rejection</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void handleReviewRejection(allocation, 'reject')}>Deny booking rejection</DropdownMenuItem>
+                <DropdownMenuItem disabled={Boolean(reviewingRejectionId)} onClick={() => void handleReviewRejection(allocation, 'approve')}>Approve Rejection</DropdownMenuItem>
+                <DropdownMenuItem disabled={Boolean(reviewingRejectionId)} onClick={() => void handleReviewRejection(allocation, 'reject')}>Deny Rejection</DropdownMenuItem>
               </>}
               {allocation.stopRequest?.status === 'pending' && allocation.status === 'in-transit' && ['admin', 'supervisor'].includes(role) && (
                 <>
@@ -1538,6 +1544,20 @@ export default function DriverAllocationPage() {
                 </span>
                 <StatusBadge status={selectedAllocation.status} />
               </div>
+
+              {selectedAllocation.rejectionRequest && selectedAllocation.rejectionRequest.status !== 'none' && (
+                <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
+                  <h4 className="font-semibold">{selectedAllocation.rejectionRequest.status === 'pending' ? 'Booking rejection pending approval' : selectedAllocation.rejectionRequest.status === 'approved' ? 'Booking rejection approved' : 'Booking rejection denied'}</h4>
+                  <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{selectedAllocation.rejectionRequest.reason}</p>
+                  {selectedAllocation.rejectionRequest.reviewNotes && <p className="whitespace-pre-wrap break-words text-sm">Review: {selectedAllocation.rejectionRequest.reviewNotes}</p>}
+                  {selectedAllocation.rejectionRequest.status === 'pending' && ['pending', 'assigned'].includes(selectedAllocation.status) && ['admin', 'supervisor'].includes(role) && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="destructive" size="sm" disabled={Boolean(reviewingRejectionId)} onClick={() => void handleReviewRejection(selectedAllocation, 'approve')}>Approve Rejection</Button>
+                      <Button variant="outline" size="sm" disabled={Boolean(reviewingRejectionId)} onClick={() => void handleReviewRejection(selectedAllocation, 'reject')}>Deny Rejection</Button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {selectedAllocation.stopRequest && selectedAllocation.stopRequest.status !== 'none' && (
                 <div className="space-y-3 rounded-xl border bg-muted/30 p-4">

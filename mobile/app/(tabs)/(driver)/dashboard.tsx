@@ -1,7 +1,9 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { AppState } from 'react-native';
 import { requestActionReason } from '@/src/mobile/lib/actionReason';
+import { getApiErrorMessage } from '@/src/mobile/lib/api';
+import { DriverRequestReviewCard } from '@/src/mobile/components/TripStopRequestCard';
 import {
   Alert,
   SafeAreaView,
@@ -31,7 +33,6 @@ import {
   getDriverAllocationRemainingDistanceMeters,
   getDriverAllocationRoute,
   loadDriverAllocations,
-  notifyDriverAllocationCompletionRequest,
   requestDriverAllocationStop,
   requestDriverAllocationRejection,
   startDriverAllocationTrip,
@@ -113,6 +114,7 @@ export default function DriverDashboard() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshingDashboard, setIsRefreshingDashboard] = useState(false);
   const [isSubmittingTripAction, setIsSubmittingTripAction] = useState(false);
+  const requestInFlightRef = useRef(false);
   useFocusEffect(useCallback(() => {
     const refresh = () => setRefreshKey((current) => current + 1);
     refresh();
@@ -279,11 +281,16 @@ export default function DriverDashboard() {
       : null;
   const hasPendingStopRequest =
     activeAllocation?.stopRequest?.status === 'pending';
+  const hasPendingRejection = activeAllocation?.rejectionRequest?.status === 'pending';
   const stageMessage =
-    tripStage === 'in_transit'
+    hasPendingStopRequest
+      ? 'Your cancellation request is awaiting admin/supervisor approval. This trip stays In Transit and live tracking continues until it is approved.'
+      : hasPendingRejection
+      ? 'Your rejection request is awaiting admin/supervisor approval. The booking stays assigned to you until it is approved.'
+      : tripStage === 'in_transit'
       ? isWithinCompletionRadius
         ? 'Trip is active on the live route. End Trip is available once delivery is complete within the 500-meter destination radius.'
-        : `Trip is active on the live route. Notify the admin or supervisor until your live location is within 500 meters of the destination${
+        : `To cancel this delivery, tap Notify Admin/Supervisor and submit your reason. The trip remains active until approval${
             typeof destinationRadiusMeters === 'number'
               ? ` (${destinationRadiusMeters} m from drop-off).`
               : typeof remainingDistanceMeters === 'number'
@@ -345,7 +352,7 @@ export default function DriverDashboard() {
   };
 
   const handleAcceptBooking = async () => {
-    if (!activeAllocation || isSubmittingTripAction) {
+    if (!activeAllocation || isSubmittingTripAction || requestInFlightRef.current || hasPendingRejection || tripStage !== 'pending_acceptance') {
       return;
     }
 
@@ -370,7 +377,7 @@ export default function DriverDashboard() {
   };
 
   const handleStartTrip = async () => {
-    if (!activeAllocation || isSubmittingTripAction) {
+    if (!activeAllocation || isSubmittingTripAction || requestInFlightRef.current || hasPendingRejection || tripStage !== 'accepted') {
       return;
     }
 
@@ -395,7 +402,7 @@ export default function DriverDashboard() {
   };
 
   const handleEndTrip = async () => {
-    if (!activeAllocation || isSubmittingTripAction) {
+    if (!activeAllocation || isSubmittingTripAction || requestInFlightRef.current || hasPendingStopRequest || tripStage !== 'in_transit') {
       return;
     }
 
@@ -420,86 +427,49 @@ export default function DriverDashboard() {
   };
 
   const handleNotifyAdminSupervisor = async () => {
-    if (!activeAllocation || isSubmittingTripAction) {
+    if (!activeAllocation || tripStage !== 'in_transit' || isSubmittingTripAction || requestInFlightRef.current || hasPendingStopRequest) {
       return;
     }
-
+    requestInFlightRef.current = true;
+    setIsSubmittingTripAction(true);
     try {
-      setIsSubmittingTripAction(true);
-      await notifyDriverAllocationCompletionRequest(activeAllocation.id);
+      const reason = await requestActionReason(
+        'Explain why you need to cancel this delivery midway. Admin/supervisor must approve it first. Your trip and live GPS tracking stay active while the request is pending.',
+        { title: 'Request delivery cancellation', confirmLabel: 'Submit Cancellation Request', cancelLabel: 'Keep delivery active' }
+      );
+      if (!reason) return;
+      await requestDriverAllocationStop(activeAllocation.id, reason);
+      refreshActiveAllocation();
       Alert.alert(
-        'Admin/Supervisor Notified',
-        'A trip completion review was sent. End Trip will appear automatically once your live location is within 500 meters of the destination.'
+        'Cancellation Request Sent',
+        'Admin/supervisor has been notified. This delivery is still active until they approve your request.'
       );
     } catch (error) {
       Alert.alert(
-        'Unable to notify admin/supervisor',
-        error instanceof Error
-          ? error.message
-          : 'The trip completion request could not be sent right now.'
+        'Unable to request cancellation',
+        getApiErrorMessage(error, 'The cancellation request could not be sent. Please try again.')
       );
     } finally {
       setIsSubmittingTripAction(false);
+      requestInFlightRef.current = false;
     }
-  };
-
-  const handleRequestStopTrip = async () => {
-    if (!activeAllocation || isSubmittingTripAction || hasPendingStopRequest) {
-      return;
-    }
-    const reason = await requestActionReason('Explain why you need to stop this trip. Admin or supervisor approval is required.');
-    if (!reason) return;
-
-    Alert.alert(
-      'Request trip stop?',
-      'This will notify admin/supervisor so they can contact you and approve or reject the stop request.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Notify Admin',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsSubmittingTripAction(true);
-              await requestDriverAllocationStop(
-                activeAllocation.id,
-                reason
-              );
-              refreshActiveAllocation();
-              Alert.alert(
-                'Stop Request Sent',
-                'Admin/supervisor has been notified. Please wait for confirmation before stopping the trip.'
-              );
-            } catch (error) {
-              Alert.alert(
-                'Unable to request trip stop',
-                error instanceof Error
-                  ? error.message
-                  : 'The stop trip request could not be sent right now.'
-              );
-            } finally {
-              setIsSubmittingTripAction(false);
-            }
-          },
-        },
-      ]
-    );
   };
 
   const handleRequestRejection = async () => {
-    if (!activeAllocation || isSubmittingTripAction) return;
-    const reason = await requestActionReason('Explain why you cannot accept this booking. The booking remains active until admin or supervisor approval.');
-    if (!reason) return;
+    if (!activeAllocation || !['pending_acceptance', 'accepted'].includes(tripStage) || isSubmittingTripAction || requestInFlightRef.current || hasPendingRejection) return;
+    requestInFlightRef.current = true;
+    setIsSubmittingTripAction(true);
     try {
-      setIsSubmittingTripAction(true);
+      const reason = await requestActionReason(
+        'Explain why you cannot take this delivery booking. It stays assigned to you until an admin/supervisor approves the rejection.',
+        { title: 'Request booking rejection', confirmLabel: 'Submit Rejection Request', cancelLabel: 'Keep booking' }
+      );
+      if (!reason) return;
       await requestDriverAllocationRejection(activeAllocation.id, reason);
       refreshActiveAllocation();
       Alert.alert('Rejection requested', 'Pending supervisor or administrator approval.');
-    } catch (error) { Alert.alert('Unable to request rejection', error instanceof Error ? error.message : 'Try again.'); }
-    finally { setIsSubmittingTripAction(false); }
+    } catch (error) { Alert.alert('Unable to request rejection', getApiErrorMessage(error, 'The rejection request could not be sent. Please try again.')); }
+    finally { setIsSubmittingTripAction(false); requestInFlightRef.current = false; }
   };
 
   const refreshButton = (
@@ -723,10 +693,9 @@ export default function DriverDashboard() {
               </View>
 
               <View style={styles.actionStack}>
-                {activeAllocation?.rejectionRequest && activeAllocation.rejectionRequest.status !== 'none' &&
-                  <Text style={styles.controlSubtitle}>{activeAllocation.rejectionRequest.status === 'pending' ? 'Rejection requested — pending supervisor/admin approval' : activeAllocation.rejectionRequest.status === 'approved' ? 'Rejection approved' : 'Rejection denied'}{activeAllocation.rejectionRequest.reviewNotes ? `: ${activeAllocation.rejectionRequest.reviewNotes}` : ''}</Text>}
+                {activeAllocation && <DriverRequestReviewCard allocation={activeAllocation} requestType={tripStage === 'in_transit' ? 'stop' : 'rejection'} compact />}
                 {(tripStage === 'pending_acceptance' || tripStage === 'accepted') && <Button
-                  title={activeAllocation?.rejectionRequest?.status === 'pending' ? 'Rejection approval pending' : 'Request booking rejection'}
+                  title={hasPendingRejection ? 'Rejection Approval Pending' : 'Reject Booking'}
                   variant="secondary" onPress={() => void handleRequestRejection()} disabled={isSubmittingTripAction || activeAllocation?.rejectionRequest?.status === 'pending'} />}
                 {tripStage === 'pending_acceptance' ? (
                   <Button
@@ -766,18 +735,13 @@ export default function DriverDashboard() {
 
                 {tripStage === 'in_transit' ? (
                   <>
-                    <Button
+                    {isWithinCompletionRadius && <Button
                       title={
-                        isWithinCompletionRadius
-                          ? 'End Trip'
-                          : 'Notify Admin/Supervisor'
+                        'End Trip'
                       }
-                      variant={isWithinCompletionRadius ? 'danger' : 'secondary'}
-                      onPress={
-                        isWithinCompletionRadius
-                          ? handleEndTrip
-                          : handleNotifyAdminSupervisor
-                      }
+                      variant="danger"
+                      onPress={handleEndTrip}
+                      disabled={hasPendingStopRequest}
                       loading={isSubmittingTripAction}
                       fullWidth
                       icon={
@@ -795,15 +759,15 @@ export default function DriverDashboard() {
                           }
                         />
                       }
-                    />
+                    />}
                     <Button
                       title={
                         hasPendingStopRequest
-                          ? 'Stop Request Pending'
-                          : 'Request Stop Trip'
+                          ? 'Cancellation Approval Pending'
+                          : 'Notify Admin/Supervisor'
                       }
                       variant="secondary"
-                      onPress={handleRequestStopTrip}
+                      onPress={handleNotifyAdminSupervisor}
                       loading={isSubmittingTripAction}
                       disabled={hasPendingStopRequest}
                       fullWidth

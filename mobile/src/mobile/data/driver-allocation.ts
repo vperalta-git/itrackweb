@@ -770,6 +770,8 @@ export const reviewDriverAllocationRejection = async (allocationId: string, acti
   const response = await api.patch(`/driver-allocations/${allocationId}/rejection-request`, { action, reviewNotes });
   const saved = mapDriverAllocationRecord(getResponseData<DriverAllocationApiRecord>(response));
   saveMappedAllocation(saved);
+  refreshOptionCaches();
+  void loadVehicleStocks().then(() => refreshOptionCaches()).catch(() => undefined);
   return saved;
 };
 

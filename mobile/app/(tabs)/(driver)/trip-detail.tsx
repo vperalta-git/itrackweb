@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { TripStopRequestCard } from '@/src/mobile/components/TripStopRequestCard';
+import { DriverRequestReviewCard, TripStopRequestCard } from '@/src/mobile/components/TripStopRequestCard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Button,
@@ -185,11 +185,7 @@ export default function TripDetailScreen() {
             />
           </View>
           <TripStopRequestCard allocation={trip} />
-          {trip.rejectionRequest && trip.rejectionRequest.status !== 'none' && <View style={{ gap: 6, marginTop: 12 }}>
-            <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{trip.rejectionRequest.status === 'pending' ? 'Rejection requested — pending approval' : trip.rejectionRequest.status === 'approved' ? 'Rejection approved' : 'Rejection denied'}</Text>
-            <Text style={{ color: theme.colors.textMuted }}>{trip.rejectionRequest.reason}</Text>
-            <Text style={{ color: theme.colors.text }}>{trip.rejectionRequest.reviewNotes}</Text>
-          </View>}
+          <DriverRequestReviewCard allocation={trip} requestType="rejection" />
         </Card>
 
         {markers.length ? (

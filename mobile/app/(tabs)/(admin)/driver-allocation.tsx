@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useNavigation, useLocalSearchParams } from 'expo-router';
-import { TripStopRequestCard } from '@/src/mobile/components/TripStopRequestCard';
+import { DriverRequestReviewCard, TripStopRequestCard } from '@/src/mobile/components/TripStopRequestCard';
 import {
   Button,
   Card,
@@ -648,6 +648,12 @@ export default function DriverAllocationScreen() {
 
                 <TripStopRequestCard
                   allocation={allocation}
+                  canReview={[UserRole.ADMIN, UserRole.SUPERVISOR].includes(role)}
+                  onReviewed={() => setAllocations(getDriverAllocations())}
+                />
+                <DriverRequestReviewCard
+                  allocation={allocation}
+                  requestType="rejection"
                   canReview={[UserRole.ADMIN, UserRole.SUPERVISOR].includes(role)}
                   onReviewed={() => setAllocations(getDriverAllocations())}
                 />
