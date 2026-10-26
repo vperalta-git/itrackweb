@@ -219,6 +219,7 @@ export default function DriverAllocationPage() {
     React.useState<DriverAllocation | null>(null)
   const [isDriverDirectoryOpen, setIsDriverDirectoryOpen] = React.useState(false)
   const [summaryFilterVersion, setSummaryFilterVersion] = React.useState(0)
+  const [reviewingStopId, setReviewingStopId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (role === 'sales-agent' || role === 'manager') {
@@ -728,13 +729,16 @@ export default function DriverAllocationPage() {
     action: 'approve' | 'reject'
   ) => {
     const approved = action === 'approve'
+    if (reviewingStopId || !['admin', 'supervisor'].includes(role) || allocation.stopRequest?.status !== 'pending' || allocation.status !== 'in-transit') return
+    setReviewingStopId(allocation.id)
     const reviewNotes = await requestActionReason(
       approved
         ? `Approve stop request for ${allocation.conductionNumber}? This will cancel the trip.`
-        : `Reject stop request for ${allocation.conductionNumber}? The driver will be notified to continue.`
+        : `Reject stop request for ${allocation.conductionNumber}? The driver will be notified to continue.`,
+      { title: approved ? 'Approve stop request' : 'Reject stop request', confirmLabel: approved ? 'Approve Stop' : 'Reject Stop', cancelLabel: 'Go back' }
     )
 
-    if (!reviewNotes) return
+    if (!reviewNotes) { setReviewingStopId(null); return }
 
     try {
       const nextAllocations = await reviewDriverAllocationStopRequestRecord(
@@ -767,6 +771,8 @@ export default function DriverAllocationPage() {
           ? error.message
           : 'Unable to review the stop request right now.'
       )
+    } finally {
+      setReviewingStopId(null)
     }
   }
 
@@ -929,17 +935,18 @@ export default function DriverAllocationPage() {
                 <DropdownMenuItem onClick={() => void handleReviewRejection(allocation, 'approve')}>Approve booking rejection</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => void handleReviewRejection(allocation, 'reject')}>Deny booking rejection</DropdownMenuItem>
               </>}
-              {allocation.stopRequest?.status === 'pending' && (
+              {allocation.stopRequest?.status === 'pending' && allocation.status === 'in-transit' && ['admin', 'supervisor'].includes(role) && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-destructive"
+                    disabled={Boolean(reviewingStopId)}
                     onClick={() => handleReviewStopRequest(allocation, 'approve')}
                   >
                     <CheckCircle2 className="mr-2 size-4" />
                     Approve Stop
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleReviewStopRequest(allocation, 'reject')}>
+                  <DropdownMenuItem disabled={Boolean(reviewingStopId)} onClick={() => handleReviewStopRequest(allocation, 'reject')}>
                     <XCircle className="mr-2 size-4" />
                     Reject Stop
                   </DropdownMenuItem>
@@ -1516,7 +1523,7 @@ export default function DriverAllocationPage() {
       </Dialog>
 
       <Dialog open={isViewDetailsOpen} onOpenChange={setIsViewDetailsOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Assignment Details</DialogTitle>
             <DialogDescription>
@@ -1531,6 +1538,20 @@ export default function DriverAllocationPage() {
                 </span>
                 <StatusBadge status={selectedAllocation.status} />
               </div>
+
+              {selectedAllocation.stopRequest && selectedAllocation.stopRequest.status !== 'none' && (
+                <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
+                  <h4 className="font-semibold">{selectedAllocation.stopRequest.status === 'pending' ? 'Stop trip request pending' : selectedAllocation.stopRequest.status === 'approved' ? 'Stop request approved' : 'Stop request rejected'}</h4>
+                  <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{selectedAllocation.stopRequest.reason}</p>
+                  {selectedAllocation.stopRequest.reviewNotes && <p className="whitespace-pre-wrap break-words text-sm">Review: {selectedAllocation.stopRequest.reviewNotes}</p>}
+                  {selectedAllocation.stopRequest.status === 'pending' && selectedAllocation.status === 'in-transit' && ['admin', 'supervisor'].includes(role) && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="destructive" size="sm" disabled={Boolean(reviewingStopId)} onClick={() => void handleReviewStopRequest(selectedAllocation, 'approve')}>Approve Stop</Button>
+                      <Button variant="outline" size="sm" disabled={Boolean(reviewingStopId)} onClick={() => void handleReviewStopRequest(selectedAllocation, 'reject')}>Reject Stop</Button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-4">
                 <div className="rounded-lg bg-muted/50 p-4">

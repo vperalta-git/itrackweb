@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { TripStopRequestCard } from '@/src/mobile/components/TripStopRequestCard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Button,
@@ -23,6 +24,7 @@ import {
   getDriverAllocationRemainingDistanceKm,
   getDriverAllocationRoute,
   getDriverAllocationRouteDistanceKm,
+  subscribeDriverAllocations,
 } from '@/src/mobile/data/driver-allocation';
 import {
   useDriverAllocationLiveRouteMetrics,
@@ -34,7 +36,12 @@ export default function TripDetailScreen() {
   const router = useRouter();
   const { tripId } = useLocalSearchParams<{ tripId?: string | string[] }>();
   const resolvedTripId = Array.isArray(tripId) ? tripId[0] : tripId;
-  const trip = findDriverAllocationRecord(String(resolvedTripId ?? ''));
+  const [trip, setTrip] = useState(() => findDriverAllocationRecord(String(resolvedTripId ?? '')));
+  useEffect(() => {
+    const read = () => setTrip(findDriverAllocationRecord(String(resolvedTripId ?? '')));
+    read();
+    return subscribeDriverAllocations(read);
+  }, [resolvedTripId]);
 
   const pickupLocation = useMemo(
     () => findDriverAllocationLocation(trip?.pickupId ?? null),
@@ -177,6 +184,7 @@ export default function TripDetailScreen() {
               label={formatDriverAllocationStatusLabel(trip.status)}
             />
           </View>
+          <TripStopRequestCard allocation={trip} />
           {trip.rejectionRequest && trip.rejectionRequest.status !== 'none' && <View style={{ gap: 6, marginTop: 12 }}>
             <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{trip.rejectionRequest.status === 'pending' ? 'Rejection requested — pending approval' : trip.rejectionRequest.status === 'approved' ? 'Rejection approved' : 'Rejection denied'}</Text>
             <Text style={{ color: theme.colors.textMuted }}>{trip.rejectionRequest.reason}</Text>

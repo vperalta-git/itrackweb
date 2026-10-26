@@ -18,16 +18,16 @@ export function ActionReasonDialog() {
   const close = (value: string | null) => { request?.resolve(value); setRequest(null) }
   return <Dialog open={Boolean(request)} onOpenChange={(open) => { if (!open) close(null) }}>
     <DialogContent><DialogHeader>
-      <DialogTitle>{confirming ? 'Confirm action' : 'Reason required'}</DialogTitle>
+      <DialogTitle>{confirming ? 'Confirm action' : request?.title ?? 'Reason required'}</DialogTitle>
       <DialogDescription>{request?.label}</DialogDescription>
     </DialogHeader>
       {confirming ? <p className="whitespace-pre-wrap rounded-lg border p-3">{reason.trim()}</p> : <div className="space-y-2">
         <Label htmlFor="action-reason">Reason (5–1000 characters)</Label>
         <Textarea id="action-reason" autoFocus value={reason} onChange={(event) => setReason(event.target.value)} maxLength={1000} />
       </div>}
-      <DialogFooter><Button variant="outline" onClick={() => close(null)}>Go back</Button>
-        <Button variant="destructive" disabled={reason.trim().length < 5} onClick={() => confirming ? close(reason.trim()) : setConfirming(true)}>
-          {confirming ? 'Confirm and submit' : 'Review action'}
+      <DialogFooter><Button variant="outline" onClick={() => close(null)}>{request?.cancelLabel ?? 'Go back'}</Button>
+        <Button variant="destructive" disabled={reason.trim().length < 5 || reason.trim().length > 1000} onClick={() => request?.confirmLabel || confirming ? close(reason.trim()) : setConfirming(true)}>
+          {request?.confirmLabel ?? (confirming ? 'Confirm and submit' : 'Review action')}
         </Button></DialogFooter>
     </DialogContent>
   </Dialog>

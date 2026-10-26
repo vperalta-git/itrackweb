@@ -2,6 +2,7 @@ import { runOperationalAction } from '@/src/mobile/lib/operationalAction';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  AppState,
   ScrollView,
   StyleSheet,
   Text,
@@ -35,6 +36,7 @@ import {
   getDriverAllocationRoute,
   loadDriverAllocations,
   reviewDriverAllocationRejection,
+  subscribeDriverAllocations,
 } from '@/src/mobile/data/driver-allocation';
 import { useDriverAllocationLiveRouteMetrics } from '@/src/mobile/hooks';
 import { findVehicleStockById } from '@/src/mobile/data/vehicle-stocks';
@@ -45,6 +47,7 @@ import {
 import { AllocationStatus, UserRole } from '@/src/mobile/types';
 import { shareExport } from '@/src/mobile/utils/shareExport';
 import { requestActionReason } from '@/src/mobile/lib/actionReason';
+import { TripStopRequestCard } from '@/src/mobile/components/TripStopRequestCard';
 
 const getDriverLiveLocation = (
   allocation: ReturnType<typeof findDriverAllocationRecord>
@@ -79,11 +82,16 @@ export default function DriverDetailScreen() {
 
   useEffect(() => {
     let isActive = true;
+    let loading = false;
     const syncAllocation = async () => {
+      if (loading) return;
+      loading = true;
       try {
         await loadDriverAllocations();
       } catch {
         // Keep the latest cached record when refresh fails.
+      } finally {
+        loading = false;
       }
 
       if (isActive) {
@@ -94,14 +102,22 @@ export default function DriverDetailScreen() {
     };
 
     syncAllocation().catch(() => undefined);
+    const unsubscribeData = subscribeDriverAllocations(() => {
+      if (isActive) setAllocation(findDriverAllocationRecord(resolvedAllocationId ?? fallbackDriverId ?? null));
+    });
 
     const unsubscribe = navigation.addListener('focus', () => {
       syncAllocation().catch(() => undefined);
     });
+    const poll = setInterval(() => {
+      if (AppState.currentState === 'active' && navigation.isFocused()) void syncAllocation();
+    }, 10000);
 
     return () => {
       isActive = false;
       unsubscribe();
+      unsubscribeData();
+      clearInterval(poll);
     };
   }, [navigation, fallbackDriverId, resolvedAllocationId]);
   const pickup = useMemo(
@@ -405,6 +421,11 @@ export default function DriverDetailScreen() {
             }} />)}
           </View>}
         </Card>}
+        <TripStopRequestCard
+          allocation={allocation}
+          canReview={[UserRole.ADMIN, UserRole.SUPERVISOR].includes(role)}
+          onReviewed={setAllocation}
+        />
         {pickup && destination ? (
           <View style={styles.mapShell}>
             <View style={styles.mapHeader}>

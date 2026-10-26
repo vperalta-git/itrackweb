@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   RefreshControl,
@@ -34,6 +34,8 @@ import {
   loadVehicleStocks,
 } from '@/src/mobile/data/vehicle-stocks';
 import { shareExport } from '@/src/mobile/utils/shareExport';
+import { requestActionReason } from '@/src/mobile/lib/actionReason';
+import { getApiErrorMessage } from '@/src/mobile/lib/api';
 
 export default function VehicleDetailScreen() {
   const router = useRouter();
@@ -44,6 +46,8 @@ export default function VehicleDetailScreen() {
   const access = getModuleAccess(role, 'vehicleStocks');
   const resolvedVehicleId = Array.isArray(vehicleId) ? vehicleId[0] : vehicleId;
   const [refreshing, setRefreshing] = useState(false);
+  const deletingRef = useRef(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [vehicle, setVehicle] = useState<Vehicle | null>(() =>
     resolvedVehicleId ? findVehicleStockById(resolvedVehicleId) : null
   );
@@ -101,43 +105,24 @@ export default function VehicleDetailScreen() {
     );
   }
 
-  const handleDeleteVehicle = () => {
-    Alert.alert(
-      'Delete vehicle?',
-      'This stock record will be removed from the list and this action cannot be undone.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteVehicleStock(vehicle.id);
-              Alert.alert(
-                'Deleted',
-                `${vehicle.unitName} has been deleted from stock.`,
-                [
-                  {
-                    text: 'OK',
-                    onPress: () => router.dismiss(),
-                  },
-                ]
-              );
-            } catch (error) {
-              Alert.alert(
-                'Unable to delete vehicle',
-                error instanceof Error
-                  ? error.message
-                  : 'The stock record could not be deleted right now.'
-              );
-            }
-          },
-        },
-      ]
-    );
+  const handleDeleteVehicle = async () => {
+    if (!access.canDelete || deletingRef.current) return;
+    deletingRef.current = true;
+    try {
+      const reason = await requestActionReason(
+        `Delete ${vehicle.conductionNumber} (${vehicle.unitName}) from vehicle stocks? This action cannot be undone. Enter the deletion reason.`,
+        { title: 'Delete Vehicle', confirmLabel: 'Delete', cancelLabel: 'Cancel' }
+      );
+      if (!reason) return;
+      setIsDeleting(true);
+      await deleteVehicleStock(vehicle.id, reason);
+      Alert.alert('Deleted', `${vehicle.unitName} has been deleted from stock.`, [{ text: 'OK', onPress: () => router.dismiss() }]);
+    } catch (error) {
+      Alert.alert('Unable to delete vehicle', getApiErrorMessage(error, 'The stock record could not be deleted right now.'));
+    } finally {
+      deletingRef.current = false;
+      setIsDeleting(false);
+    }
   };
 
   const handleRefresh = async () => {
@@ -353,6 +338,7 @@ export default function VehicleDetailScreen() {
                   style={[styles.actionButton, styles.deleteButton]}
                   activeOpacity={0.88}
                   onPress={handleDeleteVehicle}
+                  disabled={isDeleting}
                 >
                   <Ionicons
                     name="trash-outline"
@@ -360,7 +346,7 @@ export default function VehicleDetailScreen() {
                     color={theme.colors.error}
                   />
                   <Text style={[styles.actionButtonText, styles.deleteButtonText]}>
-                    Delete Vehicle
+                    {isDeleting ? 'Deleting…' : 'Delete Vehicle'}
                   </Text>
                 </TouchableOpacity>
               ) : null}

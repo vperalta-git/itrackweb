@@ -2,6 +2,7 @@ import { runOperationalAction } from '@/src/mobile/lib/operationalAction';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  AppState,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -9,7 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useNavigation, useLocalSearchParams } from 'expo-router';
-import { requestActionReason } from '@/src/mobile/lib/actionReason';
+import { TripStopRequestCard } from '@/src/mobile/components/TripStopRequestCard';
 import {
   Button,
   Card,
@@ -40,7 +41,7 @@ import {
   getDriverAllocationStatusAccentColor,
   loadDriverAllocations,
   matchesDriverAllocationStatusFilter,
-  reviewDriverAllocationStopRequest,
+  subscribeDriverAllocations,
 } from '@/src/mobile/data/driver-allocation';
 import { findVehicleStockById } from '@/src/mobile/data/vehicle-stocks';
 import {
@@ -196,7 +197,10 @@ export default function DriverAllocationScreen() {
 
   useEffect(() => {
     let isActive = true;
+    let loading = false;
     const refreshAllocations = async () => {
+      if (loading) return;
+      loading = true;
       try {
         const records = await loadDriverAllocations();
 
@@ -207,18 +211,28 @@ export default function DriverAllocationScreen() {
         if (isActive) {
           setAllocations(getDriverAllocations());
         }
+      } finally {
+        loading = false;
       }
     };
 
     refreshAllocations().catch(() => undefined);
+    const unsubscribeData = subscribeDriverAllocations(() => {
+      if (isActive) setAllocations(getDriverAllocations());
+    });
 
     const unsubscribe = navigation.addListener('focus', () => {
       refreshAllocations().catch(() => undefined);
     });
+    const poll = setInterval(() => {
+      if (AppState.currentState === 'active' && navigation.isFocused()) void refreshAllocations();
+    }, 10000);
 
     return () => {
       isActive = false;
       unsubscribe();
+      unsubscribeData();
+      clearInterval(poll);
     };
   }, [navigation]);
 
@@ -392,55 +406,6 @@ export default function DriverAllocationScreen() {
     );
   };
 
-  const handleReviewStopRequest = (
-    allocation: DriverAllocationRecord,
-    action: 'approve' | 'reject'
-  ) => {
-    const approved = action === 'approve';
-
-    Alert.alert(
-      approved ? 'Approve stop request?' : 'Reject stop request?',
-      approved
-        ? `${allocation.driverName} will be allowed to stop the trip. The allocation will be marked Cancelled.`
-        : `${allocation.driverName} will be notified to continue the trip unless contacted by admin.`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: approved ? 'Approve' : 'Reject',
-          style: approved ? 'destructive' : 'default',
-          onPress: async () => {
-            try {
-              const reviewNotes = await requestActionReason(`${approved ? 'Approve' : 'Reject'} this trip stop request. Enter your review reason.`);
-              if (!reviewNotes) return;
-              await reviewDriverAllocationStopRequest(
-                allocation.id,
-                action,
-                reviewNotes
-              );
-              setAllocations(getDriverAllocations());
-              Alert.alert(
-                approved ? 'Stop Approved' : 'Stop Rejected',
-                approved
-                  ? 'The trip was cancelled and the driver was notified.'
-                  : 'The driver was notified to continue the trip.'
-              );
-            } catch (error) {
-              Alert.alert(
-                'Unable to review stop request',
-                error instanceof Error
-                  ? error.message
-                  : 'The stop request could not be reviewed right now.'
-              );
-            }
-          },
-        },
-      ]
-    );
-  };
-
   return (
     <WorkspaceScaffold
       eyebrow={getRoleLabel(role)}
@@ -570,24 +535,6 @@ export default function DriverAllocationScreen() {
             const menuItems: CardActionMenuItem[] = [];
 
             if (access.canEdit) {
-              if (allocation.stopRequest?.status === 'pending') {
-                menuItems.push(
-                  {
-                    key: `approve-stop-${allocation.id}`,
-                    label: 'Approve Stop',
-                    iconName: 'checkmark-circle-outline',
-                    tone: 'destructive',
-                    onPress: () => handleReviewStopRequest(allocation, 'approve'),
-                  },
-                  {
-                    key: `reject-stop-${allocation.id}`,
-                    label: 'Reject Stop',
-                    iconName: 'close-circle-outline',
-                    onPress: () => handleReviewStopRequest(allocation, 'reject'),
-                  }
-                );
-              }
-
               menuItems.push({
                 key: `edit-${allocation.id}`,
                 label: 'Edit',
@@ -699,24 +646,11 @@ export default function DriverAllocationScreen() {
                   </View>
                 </View>
 
-                {allocation.stopRequest?.status === 'pending' ? (
-                  <View style={styles.stopRequestCard}>
-                    <Ionicons
-                      name="alert-circle-outline"
-                      size={16}
-                      color={theme.colors.error}
-                    />
-                    <View style={styles.stopRequestCopy}>
-                      <Text style={styles.stopRequestTitle}>
-                        Stop trip request pending
-                      </Text>
-                      <Text style={styles.stopRequestText}>
-                        {allocation.stopRequest.reason ||
-                          'Driver requested admin approval to stop the trip.'}
-                      </Text>
-                    </View>
-                  </View>
-                ) : null}
+                <TripStopRequestCard
+                  allocation={allocation}
+                  canReview={[UserRole.ADMIN, UserRole.SUPERVISOR].includes(role)}
+                  onReviewed={() => setAllocations(getDriverAllocations())}
+                />
 
                 <View style={styles.metricGrid}>
                   <View style={styles.metricCard}>
@@ -958,31 +892,6 @@ const styles = StyleSheet.create({
   routeChipMeta: {
     fontSize: 11,
     color: theme.colors.textMuted,
-    fontFamily: theme.fonts.family.sans,
-  },
-  stopRequestCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: theme.spacing.sm,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.colors.errorLight,
-    borderWidth: 1,
-    borderColor: theme.colors.error,
-    padding: theme.spacing.md,
-  },
-  stopRequestCopy: {
-    flex: 1,
-    gap: 3,
-  },
-  stopRequestTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: theme.colors.error,
-    fontFamily: theme.fonts.family.sans,
-  },
-  stopRequestText: {
-    fontSize: 12,
-    color: theme.colors.text,
     fontFamily: theme.fonts.family.sans,
   },
   metricGrid: {

@@ -136,8 +136,14 @@ export const saveVehicleStock = async ({
 export const isVehicleStockFormStatusAllowed = (status: VehicleStatus) =>
   vehicleStockFormStatusSet.has(status);
 
-export const deleteVehicleStock = async (vehicleId: string) => {
-  await api.delete(`/vehicles/${vehicleId}`);
+export const deleteVehicleStock = async (vehicleId: string, reason: string) => {
+  const submittedReason = reason.trim();
+  if (submittedReason.length < 5 || submittedReason.length > 1000) {
+    throw new Error('Enter a reason between 5 and 1000 characters.');
+  }
+  await api.delete(`/vehicles/${vehicleId}`, {
+    headers: { 'X-Action-Reason': encodeURIComponent(submittedReason) },
+  });
   vehicleStocks = vehicleStocks.filter((vehicle) => vehicle.id !== vehicleId);
 };
 

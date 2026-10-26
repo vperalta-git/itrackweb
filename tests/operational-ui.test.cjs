@@ -112,3 +112,46 @@ test('mobile pagination clamps removed last pages and keeps pages small', () => 
   const removed = useListPagination(items.slice(0, 4))
   assert.equal(removed.controls.page, 1); assert.equal(removed.items.length, 4)
 })
+
+test('web and mobile action dialogs confirm a stop review once with the entered reason, and dismiss without submitting', async () => {
+  for (const mobile of [false, true]) {
+    const broker = load(mobile ? 'mobile/src/mobile/lib/actionReason.ts' : 'lib/action-reason.ts')
+    const state = [], effects = []
+    let index = 0
+    const components = new Proxy({}, { get: (_, name) => name })
+    const hooks = { ...React,
+      useState(initial) { const i = index++; if (!(i in state)) state[i] = initial; return [state[i], value => { state[i] = value }] },
+      useEffect(effect) { effects.push(effect) },
+    }
+    const dependencies = mobile ? {
+      'react-native': { Modal: 'Modal', View: 'View', Text: 'Text', TextInput: 'TextInput', ScrollView: 'ScrollView', KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: { OS: 'android' }, StyleSheet: { create: value => value } },
+      './Button': { Button: 'Button' }, '../constants/theme': { useTheme: () => ({ colors: {} }) }, '../lib/actionReason': broker,
+    } : {
+      '@/components/ui/dialog': components, '@/components/ui/button': components, '@/components/ui/textarea': components, '@/components/ui/label': components,
+      '@/lib/action-reason': broker,
+    }
+    const Dialog = load(mobile ? 'mobile/src/mobile/components/ActionReasonDialog.tsx' : 'components/action-reason-dialog.tsx', { ...dependencies, react: hooks }).ActionReasonDialog
+    function elements(node, found = []) {
+      if (!node || typeof node !== 'object') return found
+      if (Array.isArray(node)) { node.forEach(child => elements(child, found)); return found }
+      found.push(node); elements(node.props?.children, found); return found
+    }
+    function render() { index = 0; return elements(Dialog()) }
+    render(); effects.shift()()
+    const result = broker.requestActionReason('Driver reported a safety concern', { title: 'Approve stop request', confirmLabel: 'Approve Stop', cancelLabel: 'Go back' })
+    let tree = render()
+    const input = tree.find(node => node.type === (mobile ? 'TextInput' : 'Textarea'))
+    if (mobile) input.props.onChangeText('Contacted driver and approved')
+    else input.props.onChange({ target: { value: 'Contacted driver and approved' } })
+    tree = render()
+    const confirm = tree.find(node => node.type === 'Button' && (mobile ? node.props.title : node.props.children) === 'Approve Stop')
+    assert.equal(confirm.props.disabled, false)
+    if (mobile) confirm.props.onPress(); else confirm.props.onClick()
+    assert.equal(await result, 'Contacted driver and approved')
+    const cancelled = broker.requestActionReason('Delete stock', { title: 'Delete Vehicle', confirmLabel: 'Delete' })
+    tree = render()
+    if (mobile) tree.find(node => node.type === 'Modal').props.onRequestClose()
+    else tree.find(node => node.type === 'Dialog').props.onOpenChange(false)
+    assert.equal(await cancelled, null)
+  }
+})

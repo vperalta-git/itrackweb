@@ -829,13 +829,13 @@ export const reviewDriverAllocationStopRequest = async (
       reviewNotes,
     }
   );
-  await loadVehicleStocks();
   const savedRecord = mapDriverAllocationRecord(
     getResponseData<DriverAllocationApiRecord>(response)
   );
 
   saveMappedAllocation(savedRecord);
   refreshOptionCaches();
+  void loadVehicleStocks().then(() => refreshOptionCaches()).catch(() => undefined);
   return savedRecord;
 };
 

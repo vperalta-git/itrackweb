@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   StyleSheet,
@@ -42,6 +42,8 @@ import {
   loadVehicleStocks,
 } from '@/src/mobile/data/vehicle-stocks';
 import { shareExport } from '@/src/mobile/utils/shareExport';
+import { requestActionReason } from '@/src/mobile/lib/actionReason';
+import { getApiErrorMessage } from '@/src/mobile/lib/api';
 
 const ITEMS_PER_PAGE = 5;
 type VehicleStocksTab = 'stock_list' | 'unit_setup';
@@ -75,6 +77,7 @@ const getStatusFilterAccentColor = (statusFilter: string) => {
 };
 
 export default function VehiclesScreen() {
+  const deletingRef = useRef(false);
   const navigation = useNavigation();
   const { user } = useAuth();
   const role = user?.role ?? UserRole.ADMIN;
@@ -407,34 +410,24 @@ export default function VehiclesScreen() {
       return;
     }
 
-    Alert.alert(
-      'Delete vehicle?',
-      `${unitName} will be removed from the stock list. This action cannot be undone.`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteVehicleStock(vehicleId);
-              setVehicles(getVehicleStocks());
-              Alert.alert('Deleted', `${unitName} has been deleted from stock.`);
-            } catch (error) {
-              Alert.alert(
-                'Unable to delete vehicle',
-                error instanceof Error
-                  ? error.message
-                  : 'The stock record could not be deleted right now.'
-              );
-            }
-          },
-        },
-      ]
-    );
+    if (deletingRef.current) return;
+    deletingRef.current = true;
+    void (async () => {
+      try {
+        const reason = await requestActionReason(
+          `Delete ${unitName} from vehicle stocks? This action cannot be undone. Enter the deletion reason.`,
+          { title: 'Delete Vehicle', confirmLabel: 'Delete', cancelLabel: 'Cancel' }
+        );
+        if (!reason) return;
+        await deleteVehicleStock(vehicleId, reason);
+        setVehicles(getVehicleStocks());
+        Alert.alert('Deleted', `${unitName} has been deleted from stock.`);
+      } catch (error) {
+        Alert.alert('Unable to delete vehicle', getApiErrorMessage(error, 'The stock record could not be deleted right now.'));
+      } finally {
+        deletingRef.current = false;
+      }
+    })();
   };
 
   return (
